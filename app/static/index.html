@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>BaseLauncher</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#0f1115; --panel:#161a21; --row:#1b2029; --row-hi:#232b38;
+  --fg:#dde3ec; --muted:#8b95a7; --border:#272e3a;
+  --blue:#5aa2ff; --purple:#b48cff; --green:#57c785; --amber:#e8b45a; --red:#ff7a7a;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:14px/1.45 "Segoe UI",system-ui,sans-serif}
+header{position:sticky;top:0;z-index:5;display:flex;gap:10px;align-items:center;
+  padding:10px 14px;background:var(--panel);border-bottom:1px solid var(--border);flex-wrap:wrap}
+header h1{font-size:15px;margin:0 8px 0 0;font-weight:600}
+header .sub{color:var(--muted);font-size:12px;margin-right:auto}
+#search{flex:0 1 340px;padding:7px 10px;border-radius:7px;border:1px solid var(--border);
+  background:var(--bg);color:var(--fg);outline:none}
+#search:focus{border-color:var(--blue)}
+.chip{padding:5px 11px;border-radius:999px;border:1px solid var(--border);cursor:pointer;
+  background:transparent;color:var(--muted);font-size:12.5px;user-select:none}
+.chip.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.chip .n{opacity:.65;margin-left:4px}
+main{max-width:1100px;margin:0 auto;padding:10px 14px 60px}
+table{width:100%;border-collapse:collapse}
+tr.base{cursor:pointer}
+tr.base:hover td{background:var(--row-hi)}
+td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+td.name{font-weight:600;white-space:nowrap;max-width:340px;overflow:hidden;text-overflow:ellipsis}
+td.name .folder{display:block;font-weight:400;font-size:11.5px;color:var(--muted)}
+td.path{font:12px/1.5 Consolas,monospace;color:var(--muted);max-width:330px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+td.plat{white-space:nowrap;font-size:12.5px}
+.fam{display:inline-block;padding:2px 8px;border-radius:5px;font-weight:600;font-size:11.5px}
+.f-8\.3{background:#1d3a5f;color:var(--blue)} .f-8\.5{background:#32285f;color:var(--purple)}
+.f-8\.2{background:#1d4a33;color:var(--green)} .f-8\.1{background:#4a3a1d;color:var(--amber)}
+.f-none{background:#4a1d1d;color:var(--red)}
+.ver{color:var(--muted);margin-left:6px;font-size:11.5px}
+td.act{white-space:nowrap;text-align:right}
+button.ln{padding:5px 10px;margin-left:5px;border-radius:6px;border:1px solid var(--border);
+  background:var(--row);color:var(--fg);cursor:pointer;font-size:12.5px}
+button.ln:hover{border-color:var(--blue)}
+button.ln.designer:hover{border-color:var(--purple)}
+button.ln.cmd:hover{border-color:var(--amber)}
+#status{position:fixed;bottom:0;left:0;right:0;padding:8px 16px;font-size:12.5px;
+  background:var(--panel);border-top:1px solid var(--border);color:var(--muted);
+  display:flex;gap:16px;align-items:center}
+#status .ok{color:var(--green)} #status .err{color:var(--red)}
+#toast{position:fixed;right:16px;bottom:44px;max-width:640px;padding:10px 14px;border-radius:8px;
+  background:var(--panel);border:1px solid var(--border);box-shadow:0 6px 24px #0009;
+  font:12px/1.5 Consolas,monospace;display:none;white-space:pre-wrap;word-break:break-all}
+.empty{padding:30px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>BaseLauncher</h1>
+  <span class="sub" id="sub">загрузка…</span>
+  <div id="chips"></div>
+  <input id="search" placeholder="поиск: имя, путь, сервер…" autofocus>
+</header>
+<main><table><tbody id="rows"></tbody></table>
+<div class="empty" id="empty" style="display:none">ничего не найдено</div></main>
+<div id="status"><span id="st-left"></span><span id="st-msg"></span></div>
+<div id="toast"></div>
+<script>
+let STATE=null, fam='all', q='';
+const $=id=>document.getElementById(id);
+
+function famClass(f){return 'fam f-'+(f||'none')}
+function badge(b){
+  const v=(b.exe||'').split('\\').filter(s=>/^\d+\.\d+\.\d+/.test(s))[0]||'';
+  return `<span class="${famClass(b.family)}">${b.family||'?'}</span>`+
+    (v?`<span class="ver">${v} · ${b.exe_src==='sm'?'SM':b.exe_src==='our'?'наш':b.exe_src}</span>`:'<span class="ver">нет exe</span>');
+}
+function row(b){
+  const loc=b.path||((b.server?(b.server+(b.ref?'\\'+b.ref:'')):''));
+  const desc=b.sm&&b.sm.Description?` title="${esc(b.sm.Description)}"`:'';
+  return `<tr class="base" data-g="${b.guid}" ${desc}>
+    <td class="name">${esc(b.name)}<span class="folder">${esc(b.folder)}</span></td>
+    <td class="path" title="${esc(loc)}">${esc(loc)}</td>
+    <td class="plat">${badge(b)}</td>
+    <td class="act">
+      <button class="ln cmd" onclick="event.stopPropagation();dryrun('${b.guid}')">cmd</button>
+      <button class="ln designer" onclick="event.stopPropagation();launch('${b.guid}','designer')">Конф</button>
+      <button class="ln" onclick="event.stopPropagation();launch('${b.guid}','enterprise')">1С</button>
+    </td></tr>`;
+}
+function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+
+function render(){
+  const chips={}; STATE.bases.forEach(b=>{if(b.family)chips[b.family]=(chips[b.family]||0)+1});
+  $('chips').innerHTML=[`<span class="chip${fam==='all'?' on':''}" onclick="setFam('all')">Все <span class="n">${STATE.bases.length}</span></span>`]
+    .concat(Object.keys(chips).sort().map(f=>
+      `<span class="chip${fam===f?' on':''}" onclick="setFam('${f}')">${f} <span class="n">${chips[f]}</span></span>`)).join('');
+  const ql=q.toLowerCase();
+  const list=STATE.bases.filter(b=>(fam==='all'||b.family===fam)&&
+    (!ql||(b.name+' '+(b.path||'')+' '+(b.server||'')+' '+(b.ref||'')+' '+(b.sm?.Description||'')).toLowerCase().includes(ql)));
+  $('rows').innerHTML=list.map(row).join('');
+  $('empty').style.display=list.length?'none':'block';
+  $('st-left').textContent=`${list.length} из ${STATE.bases.length} баз · платформ: ${STATE.platforms.length}`;
+}
+function setFam(f){fam=f;render()}
+
+function toast(msg,ms=6000){const t=$('toast');t.textContent=msg;t.style.display='block';
+  clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',ms)}
+function stat(msg,cls){$('st-msg').innerHTML=`<span class="${cls||''}">${esc(msg)}</span>`}
+
+async function launch(guid,mode){
+  const b=STATE.bases.find(x=>x.guid===guid); if(!b)return;
+  if(!b.exe){stat(`у «${b.name}» не определён exe платформы`,'err');return}
+  stat(`запуск «${b.name}» (${mode})…`);
+  const r=await fetch('/api/launch',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({guid,mode})});
+  const j=await r.json();
+  if(j.ok){stat(`запущено: ${b.name} → PID ${j.pid}`,'ok');toast(j.cmd)}
+  else{stat('ошибка: '+j.error,'err');toast('ОШИБКА: '+(j.error||''))}
+}
+async function dryrun(guid){
+  const r=await fetch('/api/dryrun',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({guid,mode:'enterprise'})});
+  const j=await r.json();
+  toast(j.cmd||('ОШИБКА: '+(j.error||'')),12000);
+}
+
+(async()=>{
+  const r=await fetch('/api/state'); STATE=await r.json();
+  $('sub').textContent=`${STATE.bases.length} баз · ${STATE.platforms.length} платформ · ${STATE.generated_at}`;
+  render();
+  $('search').addEventListener('input',e=>{q=e.target.value;render()});
+  document.querySelector('main table').addEventListener('dblclick',e=>{
+    const tr=e.target.closest('tr.base'); if(tr)launch(tr.dataset.g,'enterprise')});
+})().catch(e=>{$('sub').textContent='ошибка загрузки: '+e});
+</script>
+</body>
+</html>

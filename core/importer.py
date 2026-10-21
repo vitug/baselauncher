@@ -1,0 +1,122 @@
+# -*- coding: utf-8 -*-
+"""Импорт данных SM 1.4 + 1CEStart в свой формат (data/bases.json) и сборка состояния.
+
+Приоритет эффективного exe платформы для базы:
+  1. data/overrides.json: bases[guid].exe      (наши правки — высший приоритет)
+  2. v8config.smc: V8UseAppFile=1 + V8AppFile  (пер-базовый обход из SM)
+  3. settings.cnf: слот семейства (V8xAppFile; слот 8.4 = 8.5 на этом хосте)
+  4. новейшая установленная платформа семейства по умолчанию (default_family)
+"""
+import datetime
+import json
+from pathlib import Path
+
+from . import parsers, scanner
+from .model import BaseEntry
+
+DATA_DIR = Path(__file__).resolve().parent.parent / 'data'
+OVERRIDES_PATH = DATA_DIR / 'overrides.json'
+STATE_PATH = DATA_DIR / 'bases.json'
+
+# семейство -> какие ключи слотов settings.cnf ему соответствуют
+_SLOT_FAMILIES = {'8.1': '8.1', '8.2': '8.2', '8.3': '8.3', '8.4': '8.4', '8.5': '8.5'}
+
+
+def load_overrides() -> dict:
+    if OVERRIDES_PATH.is_file():
+        try:
+            return json.loads(OVERRIDES_PATH.read_text(encoding='utf-8'))
+        except json.JSONDecodeError:
+            pass
+    return {'default_family': '8.3', 'bases': {}}
+
+
+def _family_of_exe(exe: str, platforms: list) -> str:
+    for p in platforms:
+        if p.exe.lower() == (exe or '').lower():
+            return p.family
+    # из пути: ...\1cv8\8.5.1.1580\bin\1cv8.exe
+    parts = (exe or '').replace('/', '\\').split('\\')
+    for part in parts:
+        bits = part.split('.')
+        if len(bits) >= 3 and bits[0].startswith('8') and bits[1].isdigit():
+            return '.'.join(bits[:2])
+    return ''
+
+
+def _resolve_exe(guid: str, sm: dict, overrides: dict, slots: dict, platforms: list) -> tuple[str, str]:
+    our = (overrides.get('bases') or {}).get(guid, {})
+    if our.get('exe'):
+        return our['exe'], 'our'
+    if str(sm.get('V8UseAppFile', '0')) == '1' and sm.get('V8AppFile'):
+        return sm['V8AppFile'], 'sm'
+    fam = overrides.get('default_family', '8.3')
+    slot_exe = slots.get(_SLOT_FAMILIES.get(fam, fam), '')
+    if slot_exe:
+        return slot_exe, 'slot'
+    for p in platforms:  # platforms отсортированы от новейших
+        if p.family == fam:
+            return p.exe, 'auto'
+    return '', 'none'
+
+
+def build_state() -> dict:
+    v8i_secs = parsers.parse_v8i()
+    sm_cfg = parsers.parse_v8config()
+    slots = parsers.parse_settings_slots()
+    overrides = load_overrides()
+    platforms = scanner.scan_platforms()
+
+    bases = []
+    for keys in v8i_secs:
+        connect = keys.get('Connect', '')
+        path, srvr, ref = parsers.parse_connect(connect)
+        guid = keys.get('ID', '').strip().lower()
+        sm = sm_cfg.get(guid, {})
+        exe, exe_src = _resolve_exe(guid, sm, overrides, slots, platforms)
+        bases.append(BaseEntry(
+            guid=guid,
+            name=keys.get('__name__', ''),
+            folder=keys.get('Folder', '/'),
+            connect=connect,
+            path=path, server=srvr, ref=ref,
+            app=keys.get('App', 'Auto'),
+            order=keys.get('OrderInTree', ''),
+            sm={'Description': sm.get('Description', ''),
+                'LaunchDate': sm.get('LaunchDate', ''),
+                'V8AppFile': sm.get('V8AppFile', '')},
+            exe=exe, exe_src=exe_src,
+            family=_family_of_exe(exe, platforms),
+        ).as_dict())
+
+    state = {
+        'generated_at': datetime.datetime.now().isoformat(timespec='seconds'),
+        'defaults': {'default_family': overrides.get('default_family', '8.3')},
+        'slots': slots,
+        'platforms': [p.as_dict() for p in platforms],
+        'bases': bases,
+    }
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding='utf-8')
+    return state
+
+
+def find_base(state: dict, guid: str) -> dict | None:
+    for b in state['bases']:
+        if b['guid'] == guid.lower():
+            return b
+    return None
+
+
+if __name__ == '__main__':
+    st = build_state()
+    fams = {}
+    for b in st['bases']:
+        fams[b['family']] = fams.get(b['family'], 0) + 1
+    print(f"баз: {len(st['bases'])}, платформ найдено: {len(st['platforms'])}")
+    for p in st['platforms']:
+        print(f"  {p['key']:14} {p['bitness']} {p['family']:5} {p['source']}")
+    print("семейства:", fams)
+    print("слоты settings.cnf:", st['slots'])
+    pinned = sum(1 for b in st['bases'] if b['exe_src'] in ('sm', 'our'))
+    print(f"с явным exe (sm/our): {pinned}")
