@@ -140,11 +140,13 @@ def _run(port: int):
             hotkey.hide_starter(port)            # «Скрыть в трей» — именно скрыть
         elif cmd == ID_SHOW:
             hotkey.focus_starter(port)           # «Показать окно» — именно показать
-        elif cmd == ID_HIDE:
-            hotkey.hide_starter(port)
         elif cmd == ID_WEB:
+            # именно БРАУЗЕР по умолчанию (обычное окно с вкладкой), а не окно-приложение:
+            # _open_starter запускает msedge --app и открывал стартер в дефолтном месте
             try:
-                hotkey._open_starter(port)          # полный путь к msedge.exe
+                import os
+                os.startfile('http://127.0.0.1:%d/' % port)
+                _state['last'] = 'открыто в браузере по умолчанию'
             except Exception as e:                  # noqa: BLE001
                 _state['error'] = f'открыть в браузере: {e}'
         elif cmd == ID_QUIT:
@@ -181,6 +183,11 @@ def _run(port: int):
                     if cmd:
                         on_menu(int(cmd))
                     return 0
+            if msg == WM_COMMAND:
+                cmd = wparam & 0xFFFF
+                _state['last'] = f'cmd {cmd}'
+                on_menu(int(cmd))
+                return 0
             if msg == WM_CLOSE:
                 u32.DestroyWindow(hwnd)
                 return 0
