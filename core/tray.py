@@ -107,8 +107,10 @@ def _build_menu(port: int):
     vis = hotkey._visible_starter(port)
     try:
         menu = u32.CreatePopupMenu()
-        u32.AppendMenuW(menu, MF_STRING, ID_SHOW,
-                        'Скрыть в трей' if vis else 'Показать окно')
+        if vis:
+            u32.AppendMenuW(menu, MF_STRING, ID_HIDE, 'Скрыть в трей')
+        else:
+            u32.AppendMenuW(menu, MF_STRING, ID_SHOW, 'Показать окно')
         u32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
         u32.AppendMenuW(menu, MF_STRING, ID_WEB, 'Открыть в браузере')
         u32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
@@ -134,8 +136,10 @@ def _run(port: int):
     WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_longlong, wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM)
 
     def on_menu(cmd: int):
-        if cmd in (ID_SHOW, ID_HIDE):
-            hotkey.toggle_starter(port)          # подпись зависит от состояния окна
+        if cmd == ID_HIDE:
+            hotkey.hide_starter(port)            # «Скрыть в трей» — именно скрыть
+        elif cmd == ID_SHOW:
+            hotkey.focus_starter(port)           # «Показать окно» — именно показать
         elif cmd == ID_HIDE:
             hotkey.hide_starter(port)
         elif cmd == ID_WEB:
