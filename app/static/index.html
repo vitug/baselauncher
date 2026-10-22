@@ -513,7 +513,9 @@ function openBlock(){
 }
 /* свёрнутый блок «Недавние»: быстрый запуск того, что запускали последним */
 function recentBlock(){
-  const rec=STATE.recent||[];
+  // всегда по дате запуска: самые свежие сверху (даже если сервер отдал другой порядок)
+  const rec=(STATE.recent||[]).slice().sort((a,b)=>
+    String(b.last_ts||'').localeCompare(String(a.last_ts||'')));
   if(!rec.length)return '';
   const idx=FOLDERS.length; FOLDERS.push('__recent');
   const open=!COLLAPSED.has('__recent');
@@ -684,8 +686,23 @@ async function launch(guid,mode,force){
   }
   if(j.ok){stat(`запущено: ${b.name} → PID ${j.pid}`,'ok');toast(j.cmd);
     const tr=$('r-'+guid); if(tr){tr.classList.remove('flash');void tr.offsetWidth;tr.classList.add('flash')}
+    touchRecent(b,mode);          // «Недавние» сразу, не дожидаясь ответа /api/state
     loadSessions()}
   else{stat('ошибка: '+j.error,'err');toast('ОШИБКА: '+(j.error||''))}
+}
+/* локально поднять базу наверх в «Недавних» (сервер потом подтвердит своим состоянием) */
+function touchRecent(b,mode){
+  const now=new Date(), ts=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'
+    +String(now.getDate()).padStart(2,'0')+'T'+String(now.getHours()).padStart(2,'0')+':'
+    +String(now.getMinutes()).padStart(2,'0')+':'+String(now.getSeconds()).padStart(2,'0');
+  const loc=b.path||b.ws||((b.server?(b.server+(b.ref?'\\'+b.ref:'')):''));
+  const prev=(STATE.recent||[]).find(r=>r.guid===b.guid);
+  STATE.recent=(STATE.recent||[]).filter(r=>r.guid!==b.guid);
+  STATE.recent.unshift({guid:b.guid,name:b.name,path:loc,mode:mode,
+    last_ts:ts,count:(prev?prev.count:0)+1,day:'today'});
+  STATE.recent=STATE.recent.slice(0,20);
+  b.launch_day='today'; b.last_launch=ts; b.launches=(b.launches||0)+1;
+  render();
 }
 /* ---------- живые сеансы: переключение вместо второго запуска ---------- */
 async function activate(pid){
@@ -1001,11 +1018,83 @@ async function reload(){
   render();
 }
 
+/* тихое обновление состояния: «Недавние» и «Открытые» не должны отставать
+   (база могла быть запущена/закрыта мимо стартера). Не мешаем, если открыт диалог
+   или пользователь что-то печатает. */
+let SYNC_BUSY=false;
+function syncSignature(st){
+  return JSON.stringify([
+    (st.recent||[]).map(x=>x.guid+'|'+x.last_ts),
+    (st.bases||[]).filter(b=>b.running).map(b=>b.guid+':'+(b.running_modes||[]).join(',')).sort()
+  ]);
+}
+/* частый опрос живых сеансов (3 с): закрыл базу в 1С — кнопка запуска сразу доступна,
+   открыл — сразу погашена. Полное состояние тянем реже (syncState). */
+let SESS_BUSY=false;
+/* перерисовать дерево, не теряя фокус и позицию каретки в поле поиска
+   (иначе после автообновления поиск «отваливается» и обновление приходится подавлять) */
+function renderKeepingFocus(){
+  const ae=document.activeElement, id=ae&&ae.id, pos=ae&&ae.selectionStart;
+  render();
+  if(id){
+    const el=$(id);
+    if(el&&el.focus){
+      el.focus();
+      try{ if(pos!=null&&el.setSelectionRange) el.setSelectionRange(pos,pos) }catch(e){}
+    }
+  }
+}
+async function pollSessions(){
+  if(SESS_BUSY||document.hidden||!STATE) return;
+  SESS_BUSY=true;
+  try{
+    const r=await fetch('/api/sessions'); const j=await r.json();
+    const map=j.running||{};
+    let changed=false;
+    (STATE.bases||[]).forEach(b=>{
+      const cur=map[b.guid]||{modes:[],pids:{},win:{}};
+      const sig=x=>(x.modes||[]).slice().sort().join(',')+'|'+JSON.stringify(x.pids||{});
+      if(sig({modes:b.running_modes,pids:b.running_pids})!==sig(cur)){
+        b.running=(cur.modes||[]).length>0;
+        b.running_modes=cur.modes||[];
+        b.running_pids=cur.pids||{};
+        b.running_win=cur.win||{};
+        changed=true;
+      }
+    });
+    if(changed) renderKeepingFocus();
+  }catch(e){ /* сервер занят/перезапускается */ }
+  SESS_BUSY=false;
+}
+
+async function syncState(){
+  if(SYNC_BUSY||document.hidden||!STATE) return;
+  for(const id of ['ovl','novl','askovl']){
+    const el=$(id); if(el&&getComputedStyle(el).display!=='none') return;
+  }
+  SYNC_BUSY=true;
+  try{
+    const r=await fetch('/api/state'); const st=await r.json();
+    if(syncSignature(st)!==syncSignature(STATE)){
+      STATE=st;
+      $('sub').textContent=`${STATE.bases.length} баз · ${STATE.platforms.length} платформ · ${STATE.generated_at}`;
+      renderKeepingFocus();
+    }
+  }catch(e){ /* сервер перезапускается — просто ждём следующего тика */ }
+  SYNC_BUSY=false;
+}
+
 (async()=>{
   await reload(); setMode(MODE); hotkeyInfo();
   $('search').addEventListener('input',e=>{q=e.target.value;render()});
   document.querySelector('main table').addEventListener('click',e=>{
     const tr=e.target.closest('tr.base'); if(tr)clickBase(tr.dataset.g)});
+  setInterval(pollSessions, 3000);
+  setInterval(syncState, 10000);
+  window.addEventListener('focus', ()=>{pollSessions(); syncState()});
+  document.addEventListener('visibilitychange', ()=>{
+    if(!document.hidden){ pollSessions(); syncState() }
+  });
 })().catch(e=>{$('sub').textContent='ошибка загрузки: '+e});
 </script>
 </body>

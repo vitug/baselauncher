@@ -182,7 +182,8 @@ def build_state() -> dict:
         recent.append({'guid': b['guid'], 'name': b['name'], 'path': loc,
                        'mode': m['mode'], 'last_ts': m['last_ts'],
                        'count': m['count'], 'day': day})
-    recent.sort(key=lambda r: r['last_ts'] or '', reverse=True)
+    # «Недавние»: строго по времени последнего запуска, свежие сверху
+    recent.sort(key=lambda r: (r['last_ts'] or '', r['count'] or 0), reverse=True)
 
     # живые сеансы 1С на хосте: какие базы уже открыты и в каком режиме
     sessions = procs.running_sessions()
@@ -255,6 +256,7 @@ def build_state() -> dict:
     }
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding='utf-8')
+    _BASES_CACHE[:] = bases        # для лёгкого опроса сеансов (/api/sessions)
     return state
 
 
@@ -263,6 +265,66 @@ def find_base(state: dict, guid: str) -> dict | None:
         if b['guid'] == guid.lower():
             return b
     return None
+
+
+# ── лёгкий опрос сеансов (без пересборки платформ/дерева) ────────────────────
+_BASES_CACHE: list[dict] = []
+
+
+def _index_bases(bases: list[dict]):
+    """Индексы для матчинга сеансов к базам (кладём в кеш вместе с базой)."""
+    by_path, by_srv, by_ws, by_name = {}, {}, {}, {}
+    for b in bases:
+        if b.get('path'):
+            by_path.setdefault(procs._norm_path(b['path']), []).append(b)
+        if b.get('server'):
+            by_srv.setdefault('%s|%s' % (b['server'].lower(), (b.get('ref') or '').lower()), []).append(b)
+        if b.get('ws'):
+            by_ws.setdefault(b['ws'].rstrip('/').lower(), []).append(b)
+        by_name.setdefault((b.get('name') or '').strip().lower(), []).append(b)
+    return by_path, by_srv, by_ws, by_name
+
+
+def sessions_light() -> dict:
+    """Только живые сеансы: {running: {guid: {modes, pids, win}}, sessions: [...]}.
+
+    Считается без сканирования платформ и парсинга v8i — по кешу последнего build_state.
+    Нужно для частого опроса из UI (3 с), чтобы кнопки запуска не залипали после закрытия 1С.
+    """
+    bases = _BASES_CACHE
+    by_path, by_srv, by_ws, by_name = _index_bases(bases)
+    running: dict[str, dict] = {}
+    live = []
+    for s in procs.running_sessions():
+        cand = []
+        if s.get('path'):
+            cand = by_path.get(procs._norm_path(s['path']), [])
+        if not cand and s.get('server'):
+            cand = by_srv.get('%s|%s' % (s['server'].lower(), (s.get('ref') or '').lower()), [])
+        if not cand and s.get('ws'):
+            cand = by_ws.get(s['ws'].rstrip('/').lower(), [])
+        if not cand and s.get('name'):
+            cand = by_name.get(s['name'].strip().lower(), [])
+        for b in cand:
+            cur = running.setdefault(b['guid'], {'modes': [], 'pids': {}, 'win': {}})
+            m = s['mode']
+            if m not in cur['modes']:
+                cur['modes'].append(m)
+            t = (s.get('title') or '').strip()
+            splash = t.startswith('Загрузка конфигурационной информации') \
+                or t.startswith('Запуск 1С:Предприятия')
+            better = (1 if s.get('window') else 0, 0 if splash else 1)
+            prev = cur.setdefault('_prio', {}).get(m)
+            if prev is None or better > prev:
+                cur['pids'][m] = s['pid']
+                cur.setdefault('_prio', {})[m] = better
+            cur['win'][m] = bool(cur['win'].get(m)) or bool(s.get('window'))
+            live.append({'guid': b['guid'], 'name': b['name'], 'mode': m, 'pid': s['pid'],
+                         'window': bool(s.get('window')), 'title': t})
+    for cur in running.values():
+        cur.pop('_prio', None)
+    return {'running': running, 'sessions': live,
+            'generated_at': datetime.datetime.now().isoformat(timespec='seconds')}
 
 
 if __name__ == '__main__':
