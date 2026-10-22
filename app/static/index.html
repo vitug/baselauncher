@@ -147,9 +147,9 @@ tr.base.running td.name{box-shadow:inset 3px 0 0 var(--green)}
   cursor:pointer;font-size:12.5px;color:var(--fg)}
 .pt-row:hover{background:var(--row-hi)}
 .pt-row.sel{background:var(--row-hi);outline:1px solid var(--blue)}
-.pt-row .pt-arrow{flex:0 0 14px;color:var(--muted);text-align:center;cursor:pointer;
-  user-select:none}
-.pt-row .pt-arrow.empty{visibility:hidden}
+.pt-row .pt-arrow{flex:0 0 14px;width:14px;min-width:14px;max-width:14px;overflow:hidden;
+  color:var(--muted);text-align:center;cursor:pointer;user-select:none}
+.pt-row .pt-arrow.noarrow{visibility:hidden}
 .pt-row .pt-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .pt-row .pt-cnt{color:var(--muted);font-size:11px;margin-left:auto}
 #nmodal .btns button{flex:1;padding:9px;border-radius:7px;border:1px solid var(--border);
@@ -191,6 +191,16 @@ body{padding-bottom:46px}
   background:var(--panel);border:1px solid var(--border);box-shadow:0 6px 24px #0009;
   font:12px/1.5 Consolas,monospace;display:none;white-space:pre-wrap;word-break:break-all}
 .empty{padding:30px;text-align:center;color:var(--muted)}
+/* ---- контекстное меню «копировать» по правому клику на базе ---- */
+#ctxm{position:fixed;z-index:90;display:none;min-width:260px;padding:4px;border-radius:8px;
+  background:var(--panel);border:1px solid var(--border);box-shadow:0 10px 26px #0009}
+#ctxm .ci{padding:6px 10px;border-radius:6px;font-size:12.5px;color:var(--fg);cursor:pointer;
+  display:flex;gap:10px;align-items:center;white-space:nowrap}
+#ctxm .ci:hover{background:var(--row-hi)}
+#ctxm .ci .k{margin-left:auto;color:var(--muted);font:11px/1 Consolas,monospace}
+#ctxm .ci.off{color:var(--muted);cursor:default;opacity:.55}
+#ctxm .ci.off:hover{background:none}
+#ctxm .sep{height:1px;background:var(--border);margin:4px 6px}
 /* ---- редактор настроек базы (как в SM) ---- */
 #ovl{position:fixed;inset:0;background:#000a;display:none;z-index:10}
 #ovl.on{display:flex;align-items:center;justify-content:center}
@@ -298,6 +308,7 @@ body{padding-bottom:46px}
   <button id="b-quit-foot" onclick="quitApp()" title="закрыть приложение совсем: окно, иконку в трее и сервер">✕ закрыть</button>
 </div>
 <div id="toast"></div>
+<div id="ctxm"></div>
 
 <div id="novl"><div id="nmodal">
   <h2 id="n-title">Добавить</h2>
@@ -561,6 +572,7 @@ function baseRow(b,depth){
     <td class="path" title="${esc(loc)}">${esc(loc)}</td>
     <td class="plat">${badge(b)}</td>
     <td class="act">
+      <button class="ln copy" onclick="event.stopPropagation();copyMenuFor('${b.guid}',this)" title="скопировать реквизиты базы: имя, путь/адрес, сервер, строку соединения">⧉</button>
       <button class="ln gear" onclick="event.stopPropagation();openSettings('${b.guid}')" title="настройки базы">⚙</button>
       ${b.ws?`<button class="ln web" onclick="event.stopPropagation();openWeb('${b.guid}')" title="открыть в браузере (веб-клиент): ${esc(b.ws)}">🌐</button>`:''}
       <button class="ln designer${b.default_mode==='designer'?' def':''}" ${modeDisabled(b.guid,'designer')?'disabled':''} onclick="event.stopPropagation();launch('${b.guid}','designer')" title="${b.has_designer===false?'конфигуратора нет: '+(b.ws?'веб-база (сайт)':'платформа только с тонким клиентом'):modeTitle(b.guid,'designer','запустить Конфигуратор'+(b.default_mode==='designer'?' (режим по умолчанию для этой базы)':''))}">Конф</button>
@@ -595,6 +607,7 @@ function openBlock(){
       <td class="act">
         <button class="ln" onclick="event.stopPropagation();pickSession('${b.guid}')" title="переключиться на окно сеанса${(b.running_modes||[]).length>1?' (с выбором, куда именно)':''}">Перекл</button>
         <button class="ln goto" onclick="event.stopPropagation();jumpToRow('${b.guid}')" title="показать эту базу в дереве (общем списке)">↳ список</button>
+        <button class="ln copy" onclick="event.stopPropagation();copyMenuFor('${b.guid}',this)" title="скопировать реквизиты базы">⧉</button>
         ${b.ws?`<button class="ln web" onclick="event.stopPropagation();openWeb('${b.guid}')" title="открыть в браузере (веб-клиент): ${esc(b.ws)}">🌐</button>`:''}
         <button class="ln designer" ${modeDisabled(b.guid,'designer')?'disabled':''} onclick="event.stopPropagation();launch('${b.guid}','designer')" title="${b.has_designer===false?'конфигуратора нет':modeTitle(b.guid,'designer','запустить ещё один сеанс конфигуратора')}">Конф</button>
         <button class="ln" ${modeDisabled(b.guid,'enterprise')?'disabled':''} onclick="event.stopPropagation();launch('${b.guid}','enterprise')" title="${modeTitle(b.guid,'enterprise','запустить ещё один сеанс предприятия')}">Предпр</button>
@@ -622,6 +635,7 @@ function recentBlock(){
     <td class="plat"><span class="tag ${r.day}">${esc(ago(r.last_ts))}</span>${r.mode==='designer'?'<span class="ver">конфигуратор</span>':''}${r.count>1?`<span class="ver">×${r.count}</span>`:''}</td>
     <td class="act">
       <button class="ln goto" onclick="event.stopPropagation();jumpToRow('${r.guid}')" title="показать эту базу в дереве (общем списке)">↳ список</button>
+      <button class="ln copy" onclick="event.stopPropagation();copyMenuFor('${r.guid}',this)" title="скопировать реквизиты базы">⧉</button>
       <button class="ln" ${modeDisabled(r.guid,'enterprise')?'disabled':''} onclick="event.stopPropagation();launch('${r.guid}','enterprise')" title="${modeTitle(r.guid,'enterprise','запустить Предприятие')}">Предпр</button>
       <button class="ln designer" ${modeDisabled(r.guid,'designer')?'disabled':''} onclick="event.stopPropagation();launch('${r.guid}','designer')" title="${hasDesigner(r.guid)?modeTitle(r.guid,'designer','запустить Конфигуратор'):'конфигуратора нет'}">Конф</button>
     </td></tr>`).join('');
@@ -771,6 +785,76 @@ function render(){
 function toast(msg,ms=6000){const t=$('toast');t.textContent=msg;t.style.display='block';
   clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',ms)}
 function stat(msg,cls){$('st-msg').innerHTML=`<span class="${cls||''}">${esc(msg)}</span>`}
+
+/* ---------- копирование реквизитов базы: имя, путь/адрес базы, сервер, строка соединения ---------- */
+function baseCopyInfo(b){
+  if(!b)return null;
+  const srvr=(b.server||'').trim(), ref=(b.ref||'').trim(), ws=(b.ws||'').trim();
+  const path=(b.path||'').trim();
+  let conn='', loc='';
+  if(ws){ conn=ws; loc=ws; }                                  // веб-база (сайт)
+  else if(path){ conn='File="'+path+'";';   loc=path; }       // файловая
+  else if(srvr){ conn='Srvr="'+srvr+'";'+(ref?'Ref="'+ref+'";':''); loc=srvr+(ref?'\\'+ref:''); }
+  return {name:b.name||'', loc, path, ws, srvr, ref, conn,
+          baseAddr: ws||path||(srvr?(srvr+(ref?'\\'+ref:'')):''),
+          srvAddr: srvr, ref};
+}
+async function copyText(txt,label){
+  if(!txt){toast('Копировать нечего: значение пустое');return}
+  try{
+    if(navigator.clipboard&&window.isSecureContext)await navigator.clipboard.writeText(txt);
+    else throw new Error('clipboard');
+  }catch(e){
+    const ta=document.createElement('textarea');
+    ta.value=txt; ta.style.position='fixed'; ta.style.left='-9999px';
+    document.body.appendChild(ta); ta.select();
+    try{document.execCommand('copy')}catch(e2){toast('Не удалось скопировать: '+e2);document.body.removeChild(ta);return}
+    document.body.removeChild(ta);
+  }
+  stat(`скопировано ${label||''}: ${txt}`,'ok');
+  toast((label?label+': ':'')+txt, 4000);
+}
+function ctxClose(){$('ctxm').style.display='none'}
+/* меню копирования рядом с кнопкой ⧉ в строке базы */
+function copyMenuFor(guid,el){
+  const r=el.getBoundingClientRect();
+  ctxShow(r.left, r.bottom+4, guid);
+}
+function ctxShow(x,y,guid){
+  const b=(STATE.bases||[]).find(v=>v.guid===guid); if(!b)return;
+  const i=baseCopyInfo(b);
+  const items=[
+    {t:'Копировать имя базы', k:'', v:i.name, lab:'имя'},
+    {t:'Копировать путь/адрес базы', k:'', v:i.baseAddr, lab:'адрес базы'},
+    {t:i.srvr?'Копировать адрес сервера':'Адрес сервера (файловая база)', k:'', v:i.srvAddr,
+      lab:'сервер', off:!i.srvr},
+    {t:i.ref?'Копировать имя базы на сервере':'Имя базы на сервере', k:'', v:i.ref, lab:'ref', off:!i.ref},
+    {t:'Копировать строку соединения', k:'', v:i.conn, lab:'строка соединения'},
+  ];
+  if(i.ws)items.push({t:'Копировать адрес сайта', k:'', v:i.ws, lab:'сайт'});
+  const box=$('ctxm'); box.innerHTML='';
+  items.forEach((it,idx)=>{
+    const d=document.createElement('div');
+    d.className='ci'+(it.off?' off':'');
+    d.textContent=it.t;
+    if(it.k){const k=document.createElement('span');k.className='k';k.textContent=it.k;d.appendChild(k)}
+    if(!it.off)d.onclick=()=>{ctxClose();copyText(it.v,it.lab)};
+    box.appendChild(d);
+  });
+  box.style.display='block';
+  box.style.left='0px'; box.style.top='0px';       // чтобы измерить размер
+  const r=box.getBoundingClientRect();
+  box.style.left=Math.min(x, innerWidth-r.width-8)+'px';
+  box.style.top=Math.min(y, innerHeight-r.height-8)+'px';
+}
+document.addEventListener('contextmenu',e=>{
+  const tr=e.target.closest&&e.target.closest('tr.base');
+  if(!tr||!tr.dataset.g)return;
+  e.preventDefault();
+  ctxShow(e.clientX,e.clientY,tr.dataset.g);
+});
+document.addEventListener('click',e=>{ if(!e.target.closest||!e.target.closest('#ctxm'))ctxClose(); });
+window.addEventListener('blur',ctxClose);
 function setFam(f){fam=f;render()}
 /* сбросить фильтр: поиск + выбранное семейство/«проблемы» */
 function clearFilter(){
@@ -1158,7 +1242,7 @@ function renderFolderTree(){
     const ind=(has?depth:Math.max(0,depth-1))*10+4;
     let h=`<div class="pt-row${p===cur?' sel':''}" data-p="${esc(p)}"
         style="padding-left:${ind}px" onclick="setParent('${esc(p)}');$('n-folder-tree').style.display='none'">
-        <span class="pt-arrow${has?'':' empty'}"
+        <span class="pt-arrow${has?'':' noarrow'}"
           onclick="event.stopPropagation();ptToggle('${esc(p)}')">${has?(open?'▼':'▶'):''}</span>
         <span class="pt-name">${p==='/'?'(корень дерева)':esc(p.split('/').pop())}</span>
         <span class="pt-cnt">${sub?sub+' б.':''}${sub&&n?' · ':''}${n?'папок '+n:''}</span>
