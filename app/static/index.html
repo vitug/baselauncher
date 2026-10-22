@@ -213,6 +213,8 @@ button.ln.gear:hover{border-color:var(--green)}
   <button id="adhoc-tgl" onclick="toggleAdhoc()">разовые ключи ▾</button>
   <div id="chips"></div>
   <input id="search" placeholder="поиск: имя, путь, сервер…" autofocus>
+  <button id="b-clear-filter" class="add" onclick="clearFilter()" style="display:none"
+    title="сбросить фильтр: очистить поиск и вернуть «Все» (Esc)">✕ фильтр</button>
 </header>
 <div id="adhoc">
   <label><input type="checkbox" id="a-Debug"> /Debug</label>
@@ -654,6 +656,13 @@ function render(){
   const cntYest=STATE.bases.filter(b=>b.launch_day==='yesterday').length;
   const running=(STATE.sessions||[]).length;
   $('st-left').textContent=`${shown} баз · папок: ${(STATE.folders||[]).length} · платформ: ${STATE.platforms.length} · избранное: ${STATE.bases.filter(b=>b.fav).length}${running?' · открыто: '+running:''} · запускалось сегодня: ${cntToday}${cntYest?' · вчера: '+cntYest:''} · ⚠ нет папки: ${STATE.bases.filter(b=>b.path_ok===false).length} · нет exe: ${STATE.bases.filter(b=>b.exe_ok===false).length}`;
+  // кнопка «✕ фильтр» видна только когда фильтр реально что-то отсекает
+  const fb=$('b-clear-filter');
+  if(fb){
+    const on=q.length>0||fam!=='all';
+    fb.style.display=on?'':'none';
+    fb.textContent='✕ фильтр'+(q.length?' · поиск':'')+(fam==='__bad'?' · ⚠ проблемы':(fam!=='all'?' · '+fam:''));
+  }
 }
 
 /* ---------- действия ---------- */
@@ -661,6 +670,15 @@ function toast(msg,ms=6000){const t=$('toast');t.textContent=msg;t.style.display
   clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',ms)}
 function stat(msg,cls){$('st-msg').innerHTML=`<span class="${cls||''}">${esc(msg)}</span>`}
 function setFam(f){fam=f;render()}
+/* сбросить фильтр: поиск + выбранное семейство/«проблемы» */
+function clearFilter(){
+  const was=q.length>0||fam!=='all';
+  q=''; fam='all';
+  const s=$('search'); if(s) s.value='';
+  render();
+  if(s&&was) s.focus();
+  stat(was?'фильтр сброшен':'фильтра нет');
+}
 
 async function launch(guid,mode,force){
   const b=STATE.bases.find(x=>x.guid===guid); if(!b)return;
@@ -1094,6 +1112,14 @@ async function syncState(){
   window.addEventListener('focus', ()=>{pollSessions(); syncState()});
   document.addEventListener('visibilitychange', ()=>{
     if(!document.hidden){ pollSessions(); syncState() }
+  });
+  document.addEventListener('keydown', e=>{
+    if(e.key!=='Escape') return;
+    const ov=$('ovl'), nv=$('novl'), av=$('askovl');
+    if(ov&&ov.classList.contains('on')){ closeModal(); return }
+    if(nv&&nv.classList.contains('on')){ nv.classList.remove('on'); return }
+    if(av&&av.classList.contains('on')){ av.classList.remove('on'); return }
+    if(q.length||fam!=='all'){ clearFilter(); e.preventDefault() }
   });
 })().catch(e=>{$('sub').textContent='ошибка загрузки: '+e});
 </script>
