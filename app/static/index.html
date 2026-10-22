@@ -118,6 +118,7 @@ tr.base.running td.name{box-shadow:inset 3px 0 0 var(--green)}
 #amodal .btns button{flex:1;padding:9px;border-radius:7px;border:1px solid var(--border);
   background:var(--row);color:var(--fg);cursor:pointer;font-size:13px}
 #amodal .btns .save{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
+#amodal .btns .del{background:var(--red);border-color:var(--red);color:#fff;font-weight:600}
 .add{padding:6px 11px;border-radius:7px;border:1px dashed var(--border);background:transparent;
   color:var(--muted);cursor:pointer;font-size:12.5px}
 .add:hover{border-color:var(--green);color:var(--green)}
@@ -200,6 +201,8 @@ body{padding-bottom:46px}
 #ctxm .ci .k{margin-left:auto;color:var(--muted);font:11px/1 Consolas,monospace}
 #ctxm .ci.off{color:var(--muted);cursor:default;opacity:.55}
 #ctxm .ci.off:hover{background:none}
+#ctxm .ci.danger{color:#ff7b72}
+#ctxm .ci.danger:hover{background:#3a1d1d}
 #ctxm .sep{height:1px;background:var(--border);margin:4px 6px}
 /* ---- редактор настроек базы (как в SM) ---- */
 #ovl{position:fixed;inset:0;background:#000a;display:none;z-index:10}
@@ -305,6 +308,7 @@ body{padding-bottom:46px}
 
 <div id="status"><span id="st-sub"></span><span id="st-left"></span><span id="st-msg"></span>
   <button id="b-restart" onclick="restartApp()" title="перезапустить сервер и окно заново">⟳ перезапустить</button>
+  <button id="b-cache" onclick="openCacheDialog()" title="очистить кэш 1С или кэш приложения">⌫ кэш</button>
   <button id="b-quit-foot" onclick="quitApp()" title="закрыть приложение совсем: окно, иконку в трее и сервер">✕ закрыть</button>
 </div>
 <div id="toast"></div>
@@ -814,14 +818,73 @@ async function copyText(txt,label){
   stat(`скопировано ${label||''}: ${txt}`,'ok');
   toast((label?label+': ':'')+txt, 4000);
 }
-function ctxClose(){$('ctxm').style.display='none'}
+let CTX_GUID=null;
+function ctxClose(){$('ctxm').style.display='none';CTX_GUID=null}
+/* удаление базы из списка: файлы на диске остаются, из ibases.v8i секция убирается */
+function askDeleteBase(guid){
+  const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
+  const extra=b.running? '\n\nБаза сейчас открыта — сеансы 1С останутся работать, но из списка она исчезнет.'
+                       : '';
+  askBox('Удалить базу из списка?',
+    `«${b.name||guid}» будет удалена из ibases.v8i. Папка базы на диске и сами данные не удаляются,`
+    +' но запустить её из стартера будет нельзя, пока не добавишь снова.'+extra,
+    [{t:'Удалить',cls:'del',f:()=>deleteBaseNow(guid)},{t:'Отмена'}]);
+}
+async function deleteBaseNow(guid){
+  const r=await fetch('/api/base/'+guid,{method:'DELETE'});
+  const j=await r.json();
+  if(j.ok){stat(`удалено из списка: ${j.deleted||guid} (баз: ${j.bases})`,'ok');toast('удалено из списка: '+(j.deleted||guid))}
+  else toast('не удалось удалить: '+(j.error||('HTTP '+r.status)));
+  await reload();
+}
+/* ---------- кэши: клиентский кэш 1С и служебные файлы стартера ---------- */
+async function clearCacheNow(what,guid){
+  stat('чищу кэш…');
+  const r=await fetch('/api/cache/clear',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({what,guid})});
+  const j=await r.json();
+  if(j.error){toast('не удалось очистить: '+j.error);return}
+  const freed=j.freed_human||'0 Б';
+  const n=j.dirs_removed!=null?`каталогов: ${j.dirs_removed}/${j.dirs_found}`:`файлов: ${(j.removed||[]).length}`;
+  stat(`кэш очищен: ${freed} (${n})`,'ok');
+  toast(`кэш очищен: ${freed} · ${n}`+(j.sessions_running?`\n\nВнимание: открыто сеансов 1С — ${j.sessions_running}. Часть занятых файлов кэша могла остаться; закрой 1С и повтори.`:''));
+  if(what==='app') await reload();
+}
+function askClearBaseCache(guid){
+  const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
+  askBox('Очистить кэш базы?',
+    `Будет удалён кэш конфигурации для «${b.name||guid}»:\n`
+    +'%LOCALAPPDATA%\\1C\\1cv8\\<guid> и %APPDATA%\\1C\\1cv8\\<guid>.\n\n'
+    +'База и её данные не затрагиваются, но при следующем запуске 1С будет дольше грузить конфигурацию.'
+    +(b.running?'\n\nСеансы этой базы открыты — сначала закрой их, иначе часть файлов останется.':''),
+    [{t:'Очистить',primary:true,f:()=>clearCacheNow('one_c_base',guid)},{t:'Отмена'}]);
+}
+async function openCacheDialog(){
+  let info=null;
+  try{ info=await (await fetch('/api/cache')).json(); }catch(e){}
+  const one=info&&info.one_c?`${info.one_c.human} · каталогов ${info.one_c.dirs}${info.one_c.partial?' (оценка)':''}`:'…';
+  const app=info&&info.app?`${info.app.human} · ${info.app.items.map(i=>i.name).join(', ')||'пусто'}`:'…';
+  askBox('Очистка кэша',
+    `Кэш 1С (у пользователя): ${one}\n${(info&&info.one_c?info.one_c.path:'%LOCALAPPDATA%\\1C\\1cv8')}\n\n`
+    +`Кэш приложения: ${app}\n${(info&&info.app?info.app.path:'data')}\n\n`
+    +'Кэш 1С — это копии конфигураций баз; после очистки первый запуск каждой базы будет дольше. '
+    +'Кэш приложения — производные файлы стартера (bases.json, логи), настройки (config.json) не трогаются.',
+    [{t:`Очистить кэш 1С (${info&&info.one_c?info.one_c.human:'?'})`,cls:'del',
+      f:()=>clearCacheNow('one_c')},
+     {t:'Очистить кэш приложения',f:()=>clearCacheNow('app')},
+     {t:'Отмена'}]);
+}
 /* меню копирования рядом с кнопкой ⧉ в строке базы */
 function copyMenuFor(guid,el){
+  /* повторный клик по той же кнопке закрывает меню (stopPropagation не даёт сработать
+     обработчику «клик мимо», поэтому переключаем состояние сами) */
+  if(CTX_GUID===guid&&$('ctxm').style.display!=='none'){ctxClose();return}
   const r=el.getBoundingClientRect();
   ctxShow(r.left, r.bottom+4, guid);
 }
 function ctxShow(x,y,guid){
   const b=(STATE.bases||[]).find(v=>v.guid===guid); if(!b)return;
+  CTX_GUID=guid;
   const i=baseCopyInfo(b);
   const items=[
     {t:'Копировать имя базы', k:'', v:i.name, lab:'имя'},
@@ -841,6 +904,18 @@ function ctxShow(x,y,guid){
     if(!it.off)d.onclick=()=>{ctxClose();copyText(it.v,it.lab)};
     box.appendChild(d);
   });
+  /* удаление базы из ibases.v8i — отдельным блоком внизу */
+  const sep=document.createElement('div'); sep.className='sep'; box.appendChild(sep);
+  const cl=document.createElement('div');
+  cl.className='ci';
+  cl.textContent='Очистить кэш этой базы…';
+  cl.onclick=()=>{ctxClose();askClearBaseCache(guid)};
+  box.appendChild(cl);
+  const del=document.createElement('div');
+  del.className='ci danger';
+  del.textContent=b.running?'Удалить базу из списка… (открыта!)':'Удалить базу из списка…';
+  del.onclick=()=>{ctxClose();askDeleteBase(guid)};
+  box.appendChild(del);
   box.style.display='block';
   box.style.left='0px'; box.style.top='0px';       // чтобы измерить размер
   const r=box.getBoundingClientRect();
@@ -851,9 +926,12 @@ document.addEventListener('contextmenu',e=>{
   const tr=e.target.closest&&e.target.closest('tr.base');
   if(!tr||!tr.dataset.g)return;
   e.preventDefault();
+  /* второй правый клик по той же строке закрывает меню */
+  if(CTX_GUID===tr.dataset.g&&$('ctxm').style.display!=='none'){ctxClose();return}
   ctxShow(e.clientX,e.clientY,tr.dataset.g);
 });
 document.addEventListener('click',e=>{ if(!e.target.closest||!e.target.closest('#ctxm'))ctxClose(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape')ctxClose(); });
 window.addEventListener('blur',ctxClose);
 function setFam(f){fam=f;render()}
 /* сбросить фильтр: поиск + выбранное семейство/«проблемы» */
@@ -953,7 +1031,8 @@ function askBox(title,text,buttons){
   const box=$('a-btns'); box.innerHTML='';
   (buttons&&buttons.length?buttons:[{t:'Закрыть'}]).forEach(b=>{
     const el=document.createElement('button');
-    el.textContent=b.t; if(b.primary)el.className='save';
+    el.textContent=b.t;
+    if(b.cls)el.className=b.cls; else if(b.primary)el.className='save';
     el.onclick=()=>{closeAsk(); if(b.f)setTimeout(b.f,0)};
     box.appendChild(el);
   });
