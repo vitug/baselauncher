@@ -987,7 +987,7 @@ function clearFilter(){
   stat(was?'фильтр сброшен':'фильтра нет');
 }
 
-async function launch(guid,mode,force){
+async function launch(guid,mode,force,skipCheck){
   const b=STATE.bases.find(x=>x.guid===guid); if(!b)return;
   if(mode==='designer'&&b.has_designer===false){
     const m='у «'+b.name+'» конфигуратора нет ('+(b.ws?'веб-база (сайт)':'только тонкий клиент')+')';
@@ -997,8 +997,18 @@ async function launch(guid,mode,force){
   if(!b.exe){stat(`у «${b.name}» не определён exe платформы`,'err');await platformMissing(guid,mode);return}
   stat(`запуск «${b.name}» (${mode==='designer'?'конфигуратор':'предприятие'})…`);
   const r=await fetch('/api/launch',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({guid,mode,extra_keys:adhocKeys(),force:!!force})});
+    body:JSON.stringify({guid,mode,extra_keys:adhocKeys(),force:!!force,skip_check:!!skipCheck})});
   const j=await r.json();
+  if(r.status===409 && j.error==='conn_check'){    // «Сервер не обнаружен» и битые пути ловим до 1С
+    const c=j.check||{};
+    stat(`нет связи: «${b.name}» — ${j.message}`,'err');
+    askBox('База не отвечает: '+b.name,
+      (j.message||'')+(c.hint?'\n\n'+c.hint:'')+(c.target?'\n\nадрес: '+c.target:''),
+      [{t:'Запустить всё равно',f:()=>launch(guid,mode,false,true)},
+       {t:'Отмена'},
+       {t:'Настройки базы',f:()=>openSettings(guid)}]);
+    return;
+  }
   if(r.status===409){                     // такой режим уже открыт — спрашиваем
     askMode(guid,mode,j.pid);
     stat(`«${b.name}» уже открыта (PID ${j.pid})`,'');
@@ -1575,11 +1585,14 @@ function showLaunchError(ev){
     [{t:'Понятно',primary:true},
      {t:'Настройки базы',f:()=>openSettings(ev.guid)}]);
   if(ev.shot){
-    const img=document.createElement('img');
-    img.src='/api/launch/shot/'+encodeURIComponent(String(ev.shot).split(/[\\/]/).pop());
-    img.title='окно 1С в момент ошибки';
-    img.style.cssText='display:block;max-width:100%;margin-top:10px;border-radius:6px;border:1px solid var(--border)';
-    $('a-text').appendChild(img);
+    (ev.shots&&ev.shots.length?ev.shots:[ev.shot]).forEach((s,idx)=>{
+      const img=document.createElement('img');
+      img.src='/api/launch/shot/'+encodeURIComponent(String(s).split(/[\\/]/).pop());
+      img.title='окно 1С в момент ошибки';
+      img.style.cssText='display:block;max-width:100%;margin-top:10px;border-radius:6px;'
+        +'border:1px solid var(--border)'+(idx?'margin-top:6px':'');
+      $('a-text').appendChild(img);
+    });
   }
 }
 

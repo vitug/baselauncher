@@ -10,3 +10,5 @@ data/launches.log
 data/server.log
 data/pythonw.log
 data/focus.log
+data/errors/*.bmp
+data/launch-errors.json
