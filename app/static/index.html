@@ -52,6 +52,9 @@ tr.folder .grp{display:none;margin-left:6px;padding:0 6px;border-radius:5px;curs
   border:1px solid var(--border);background:var(--row);color:var(--fg);font-size:11px;line-height:16px}
 tr.folder:hover .grp{display:inline-block}
 tr.folder .grp:hover{border-color:var(--blue)}
+/* «＋ папка» в строке папки — всегда видна, как кнопка «+ папка» в шапке */
+tr.folder .grp.add-folder{display:inline-block;border-style:dashed;color:var(--muted)}
+tr.folder .grp.add-folder:hover{color:var(--fg)}
 tr.base.flash td{animation:fl 1.6s}
 @keyframes fl{0%{background:#2d4a2f}100%{background:transparent}}
 td{padding:6px 10px;border-bottom:1px solid var(--border);vertical-align:top}
@@ -239,7 +242,7 @@ button.ln.gear:hover{border-color:var(--green)}
   <label>Имя</label>
   <input type="text" id="n-name" placeholder="Имя базы или папки">
   <div id="n-folder-wrap">
-    <label>Папка в дереве</label>
+    <label>Куда добавить (родительская папка; чтобы получить подпапку — выберите папку-родителя)</label>
     <select id="n-folder"></select>
   </div>
   <div id="n-base-wrap">
@@ -543,7 +546,8 @@ function folderRow(n,depth){
       <span class="arrow">${open?'▼':'▶'}</span>${esc(n.name)}<span class="cnt">${countBases(n)}</span>${
       n.path&&n.path.startsWith('__')?''
       :`<button class="grp" onclick="event.stopPropagation();expandGroup(${idx})" title="развернуть всё внутри этой группы">+ всё</button>
-        <button class="grp" onclick="event.stopPropagation();collapseGroup(${idx})" title="свернуть всё внутри этой группы">− всё</button>`}</td></tr>`
+        <button class="grp" onclick="event.stopPropagation();collapseGroup(${idx})" title="свернуть всё внутри этой группы">− всё</button>
+        <button class="grp add-folder" onclick="event.stopPropagation();openNew('folder',FOLDERS[${idx}])" title="добавить подпапку внутрь «${esc(n.name)}»">＋ папка</button>`}</td></tr>`
     +(open?renderNode(n,depth+1):'');
 }
 function renderNode(n,depth){
@@ -964,13 +968,17 @@ function folderPaths(){
   (STATE.folders||[]).forEach(f=>{const p=(f.folder==='/'?'':f.folder)+'/'+f.name; s.add(p)});
   return ['/'].concat([...s].filter(p=>p!=='/').sort());
 }
-function openNew(kind){
+function openNew(kind, parent){
   $('novl').dataset.kind=kind;
   $('n-title').textContent=kind==='base'?'Новая база (в ibases.v8i)':'Новая папка (в дереве)';
   $('n-name').value=''; $('n-path').value=''; $('n-server').value=''; $('n-ref').value='';
   $('n-base-wrap').style.display=kind==='base'?'':'none';
-  $('n-folder').innerHTML=folderPaths().map(p=>
-    `<option value="${esc(p)}">${p==='/'?'(корень дерева)':esc(p)}</option>`).join('');
+  $('n-folder').innerHTML=folderPaths().map(p=>{
+    const depth=(p.match(/\//g)||[]).length-1;
+    const nm=p==='/'?'(корень дерева)':'   '.repeat(depth)+p.split('/').pop();
+    return `<option value="${esc(p)}">${esc(nm)}</option>`;
+  }).join('');
+  if(parent!=null&&parent!=='') $('n-folder').value=parent;
   $('novl').classList.add('on'); $('n-name').focus();
 }
 function closeNew(){$('novl').classList.remove('on')}
@@ -991,7 +999,12 @@ async function submitNew(){
   }
   const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json();
-  if(j.ok){toast(kind==='base'?'база записана в ibases.v8i':'папка записана в ibases.v8i');closeNew();await reload()}
+  if(j.ok){
+    if(kind==='folder') OPEN.add(body.parent||'/');   // сразу показать новую подпапку в дереве
+    toast(kind==='base'?'база записана в ibases.v8i'
+      :'папка записана в ibases.v8i: '+(body.parent==='/'?'':body.parent)+'/'+name);
+    closeNew(); saveColl(); await reload();
+  }
   else toast('ОШИБКА: '+(j.error||''));
 }
 async function deleteCurrent(){
