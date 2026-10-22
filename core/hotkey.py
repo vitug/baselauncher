@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Глобальная горячая клавиша для окна стартера: Ctrl+Shift+D.
+"""Глобальная горячая клавиша для окна стартера: Ctrl+Shift+S.
 
-Регистрируется через Win32 RegisterHotKey на физическую клавишу (VK_D),
+Регистрируется через Win32 RegisterHotKey на физическую клавишу (VK_S),
 поэтому работает и в русской, и в английской раскладке.
 
 Окно стартера — Edge в режиме `--app` (класс Chrome_WidgetWin_1), заголовок = <title> страницы.
@@ -23,7 +23,7 @@ MOD_SHIFT = 0x0004
 MOD_NOREPEAT = 0x4000
 WM_HOTKEY = 0x0312
 WM_QUIT = 0x0012
-VK_D = 0x44
+VK_S = 0x53
 
 HOTKEY_ID = 0xB1A5
 STARTER_TITLE = 'BaseLauncher'
@@ -104,7 +104,7 @@ def _loop(port: int):
     msg = wt.MSG()
     k32.GetCurrentThreadId()  # поток, владеющий регистрацией
     ok = u32.RegisterHotKey(None, HOTKEY_ID,
-                            MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, VK_D)
+                            MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, VK_S)
     if not ok:
         _state['error'] = 'RegisterHotKey не удался (err %d): клавиша занята другим приложением' \
                           % ctypes.get_last_error()
@@ -138,5 +138,5 @@ def start(port: int = 8797) -> dict:
 
 def status() -> dict:
     return {'registered': _state['registered'], 'error': _state['error'],
-            'hits': _state['hits'], 'combo': 'Ctrl+Shift+D',
+            'hits': _state['hits'], 'combo': 'Ctrl+Shift+S',
             'window': _state['window']}

@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from core import config, hotkey, importer, launcher, platforms_share, procs, v8i_writer
 
-app = FastAPI(title='BaseLauncher', version='0.11.7')
+app = FastAPI(title='BaseLauncher', version='0.12.0')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -23,6 +23,33 @@ def _startup():
 @app.get('/')
 def index():
     return FileResponse(INDEX)
+
+
+# ---------------------------------------------------------------- MCP (часть приложения)
+@app.post('/mcp')
+async def mcp_endpoint(req: Request):
+    """MCP-транспорт (streamable HTTP, JSON-ответы). Тело — JSON-RPC 2.0 (одно или батч)."""
+    from fastapi import Response
+    from app.mcp import handle_http
+    try:
+        body = await req.json()
+    except Exception:                                        # noqa: BLE001
+        return JSONResponse({'jsonrpc': '2.0', 'id': None,
+                             'error': {'code': -32700, 'message': 'Parse error'}},
+                            status_code=400)
+    out = handle_http(body)
+    if out is None:                     # уведомление: ответа нет
+        return Response(status_code=202)
+    return JSONResponse(out)
+
+
+@app.get('/mcp')
+def mcp_info():
+    """GET на тот же адрес: человеку — что это и какие инструменты есть."""
+    from app.mcp import SERVER_NAME, SERVER_VERSION, tools_list
+    return {'server': SERVER_NAME, 'version': SERVER_VERSION,
+            'transport': 'streamable-http (POST JSON-RPC 2.0)', 'path': '/mcp',
+            'tools': [t['name'] for t in tools_list()]}
 
 
 @app.get('/api/state')
