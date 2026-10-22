@@ -40,7 +40,7 @@ header .sub{color:var(--muted);font-size:12px;margin-right:auto}
 #adhoc select,#adhoc input{padding:5px 8px;border-radius:6px;border:1px solid var(--border);
   background:var(--bg);color:var(--fg);font-size:12.5px}
 #adhoc .hint{color:var(--muted);font-size:11px}
-main{max-width:1180px;margin:0;padding:10px 14px 60px}
+main{max-width:1240px;margin:0;padding:10px 14px 60px}
 table{width:100%;border-collapse:collapse}
 tr.base,tr.folder{cursor:pointer}
 tr.base:hover td{background:var(--row-hi)}
@@ -55,10 +55,13 @@ tr.folder .grp:hover{border-color:var(--blue)}
 tr.base.flash td{animation:fl 1.6s}
 @keyframes fl{0%{background:#2d4a2f}100%{background:transparent}}
 td{padding:6px 10px;border-bottom:1px solid var(--border);vertical-align:top}
-td.name{white-space:nowrap;max-width:360px;overflow:hidden;text-overflow:ellipsis}
-td.path{font:12px/1.5 Consolas,monospace;color:var(--muted);max-width:310px;
+td.name{white-space:nowrap;max-width:min(320px,40vw);overflow:hidden;text-overflow:ellipsis}
+td.path{font:12px/1.5 Consolas,monospace;color:var(--muted);max-width:min(240px,24vw);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 td.plat{white-space:nowrap;font-size:12.5px}
+/* классический приём: width:1% + nowrap = колонка кнопок по фактической ширине,
+   а свободное место забирают имя/путь; на узком окне переключаем на перенос */
+td.act{width:1%;white-space:nowrap;text-align:right}
 .star{cursor:pointer;color:var(--muted);margin-right:5px;font-size:18px;line-height:1;
   display:inline-block;width:24px;height:22px;text-align:center;vertical-align:-5px;
   border-radius:6px;user-select:none}
@@ -159,6 +162,40 @@ button.ln.gear:hover{border-color:var(--green)}
 #modal .btns .save{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
 #modal .btns .reset{color:var(--red)}
 #modal .hint{font-size:11px;color:var(--muted);margin-top:4px}
+
+/* ---------- адаптивность: дерево подстраивается под узкое окно ---------- */
+@media (max-width:1240px){
+  main{max-width:none}
+  td.plat{display:none}              /* версия платформы и теги режимов есть в ⚙ и в «Открытых» */
+  td.act{width:auto;white-space:normal}   /* кнопки переносятся на вторую строку, а не растягивают дерево */
+  td.name{max-width:38vw}
+  td.path{max-width:26vw}
+}
+@media (max-width:1040px){
+  td.name{max-width:42vw}
+  td.path{max-width:30vw}
+}
+@media (max-width:860px){
+  header{gap:6px;padding:8px 10px}
+  header .sub{display:none}
+  td{padding:6px 7px}
+  button.ln{padding:4px 8px;margin-left:4px;font-size:12px}
+  .add{padding:5px 9px;font-size:12px}
+  .star{width:20px;font-size:17px}
+  td.name{max-width:46vw}
+  td.path{max-width:26vw}
+}
+@media (max-width:700px){
+  td.path{display:none}              /* путь — в подсказке строки и в настройках */
+  td.name{max-width:58vw;white-space:normal}
+  td.act{white-space:normal;text-align:right}
+  .mode button{padding:5px 8px;font-size:12px}
+  #search{flex:1 1 100%;order:9}
+}
+@media (max-width:520px){
+  button.ln{padding:3px 6px;margin-left:3px;font-size:11.5px}
+  tr.folder .grp{display:inline-block}   /* на узком/тач-экране hover нет — кнопки видны всегда */
+}
 </style>
 </head>
 <body>
