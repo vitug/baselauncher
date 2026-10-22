@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from core import cache, config, hotkey, importer, launcher, netcheck, platforms_share, procs, tray, v8i_writer, watch
 
-app = FastAPI(title='BaseLauncher', version='0.19.0')
+app = FastAPI(title='BaseLauncher', version='0.19.1')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -370,6 +370,17 @@ def base_delete(guid: str):
         return JSONResponse({'error': str(e)}, status_code=400)
     st = importer.build_state()
     return {'ok': True, 'deleted': name, 'bases': len(st['bases'])}
+
+
+@app.delete('/api/folder/{guid}')
+def folder_delete(guid: str):
+    """Удалить папку (или базу) из ibases.v8i по guid раздела."""
+    try:
+        name = v8i_writer.delete(guid)
+    except ValueError as e:
+        return JSONResponse({'error': str(e)}, status_code=400)
+    st = importer.build_state()
+    return {'ok': True, 'deleted': name, 'folders': len(st['folders'])}
 
 
 @app.get('/api/precheck/{guid}')

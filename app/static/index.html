@@ -821,6 +821,27 @@ async function copyText(txt,label){
 let CTX_GUID=null;
 function ctxClose(){$('ctxm').style.display='none';CTX_GUID=null}
 /* удаление базы из списка: файлы на диске остаются, из ibases.v8i секция убирается */
+function folderPathOf(f){return ((f.folder||'/')==='/'?'':f.folder)+'/'+(f.name||'')}
+function askDeleteFolder(guid){
+  const f=(STATE.folders||[]).find(x=>x.guid===guid)||{};
+  const path=folderPathOf(f), n=countBasesInFolder(path);
+  askBox('Удалить папку из списка?',
+    `«${path}» будет удалена из ibases.v8i вместе с записями баз внутри (${n}).`
+    +'\n\nСами базы на диске/сервере не трогаются, но из стартера их не запустить, пока не добавишь снова.',
+    [{t:'Удалить',cls:'del',f:()=>deleteFolderNow(guid)},{t:'Отмена'}]);
+}
+function countBasesInFolder(path){
+  const p=path.replace(/\/$/,'')+'/';
+  return (STATE.bases||[]).filter(b=>((b.folder||'/')==='/'?'/':(b.folder.replace(/\/$/,'')+'/'))===p
+    || (b.folder||'').startsWith(p)).length;
+}
+async function deleteFolderNow(guid){
+  const r=await fetch('/api/folder/'+guid,{method:'DELETE'});
+  const j=await r.json();
+  if(j.ok){stat(`папка убрана из списка: ${j.deleted||guid}`,'ok');toast('папка убрана из списка')}
+  else toast('не удалось удалить папку: '+(j.error||('HTTP '+r.status)));
+  await reload();
+}
 function askDeleteBase(guid){
   const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
   const extra=b.running? '\n\nБаза сейчас открыта — сеансы 1С останутся работать, но из списка она исчезнет.'
@@ -915,14 +936,15 @@ function ctxShow(x,y,guid){
   CTX_GUID=guid;
   const box=$('ctxm'); box.innerHTML='';
   if(fld){                       /* папка: можно скопировать путь и удалить пустую папку */
-    const path='/'+(fld.name||'');
+    /* полный путь папки, а не только имя: у вложенной папки родитель важен */
+    const path=((fld.folder||'/')==='/'?'':fld.folder)+'/'+(fld.name||'');
     const mk=(t,cls,fn)=>{
       const d=document.createElement('div'); d.className='ci'+(cls?' '+cls:'');
       d.textContent=t; d.onclick=fn; box.appendChild(d);
     };
     mk('Копировать путь папки', '', ()=>{ctxClose();copyText(path,'путь папки')});
     const sep0=document.createElement('div'); sep0.className='sep'; box.appendChild(sep0);
-    mk('Удалить папку из списка…','danger',()=>{ctxClose();askDeleteBase(guid)});
+    mk('Удалить папку из списка…','danger',()=>{ctxClose();askDeleteFolder(guid)});
     box.style.display='block'; box.style.left='0px'; box.style.top='0px';
     const rf=box.getBoundingClientRect();
     box.style.left=Math.min(x, innerWidth-rf.width-8)+'px';
