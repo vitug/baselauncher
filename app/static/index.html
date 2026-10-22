@@ -162,6 +162,8 @@ button.ln.gear:hover{border-color:var(--green)}
   </div>
   <button id="b-new-base" class="add" onclick="openNew('base')" title="добавить базу в ibases.v8i">+ база</button>
   <button id="b-new-folder" class="add" onclick="openNew('folder')" title="добавить папку в дерево">+ папка</button>
+  <button id="b-collapse-all" class="add" onclick="collapseAll()" title="свернуть все папки дерева">− всё</button>
+  <button id="b-expand-all" class="add" onclick="expandAll()" title="развернуть все папки дерева">+ всё</button>
   <button id="adhoc-tgl" onclick="toggleAdhoc()">разовые ключи ▾</button>
   <div id="chips"></div>
   <input id="search" placeholder="поиск: имя, путь, сервер…" autofocus>
@@ -420,6 +422,7 @@ function openBlock(){
       <td class="plat">${modes}</td>
       <td class="act">
         <button class="ln" onclick="event.stopPropagation();switchTo('${b.guid}','${first}')" title="переключиться на окно сеанса${(b.running_modes||[]).length>1?' (с выбором режима)':''}">Перекл</button>
+        <button class="ln goto" onclick="event.stopPropagation();jumpToRow('${b.guid}')" title="показать эту базу в дереве (общем списке)">↳ список</button>
         <button class="ln designer" onclick="event.stopPropagation();launch('${b.guid}','designer')" title="запустить Конфигуратор">Конф</button>
         <button class="ln" onclick="event.stopPropagation();launch('${b.guid}','enterprise')" title="запустить Предприятие">Предпр</button>
       </td></tr>`}).join('');
@@ -459,6 +462,36 @@ function renderNode(n,depth){
 }
 function toggleF(i){const p=FOLDERS[i];
   COLLAPSED.has(p)?COLLAPSED.delete(p):COLLAPSED.add(p); saveColl();render()}
+/* свернуть/развернуть все папки дерева (блоки «Открытые»/«Недавние»/«Избранное» не трогаем) */
+function collapseAll(){
+  (STATE.folders||[]).forEach(f=>{
+    const parent=(f.folder||'/');
+    COLLAPSED.add((parent==='/'?'':parent)+'/'+f.name);
+  });
+  saveColl(); render();
+}
+function expandAll(){
+  const keep=['__open','__recent','__fav'].filter(k=>COLLAPSED.has(k));
+  COLLAPSED.clear(); keep.forEach(k=>COLLAPSED.add(k));
+  saveColl(); render();
+}
+/* из блока «Открытые» — к строке базы в дереве: раскрыть её папки, снять фильтры,
+   прокрутить к строке и мигнуть ей */
+function jumpToRow(guid){
+  const b=(STATE.bases||[]).find(x=>x.guid===guid); if(!b)return;
+  // раскрыть все папки по пути базы: /Работа → /Работа/Проект
+  let prefix='';
+  (b.folder||'/').split('/').filter(Boolean).forEach(seg=>{
+    prefix+='/'+seg; COLLAPSED.delete(prefix);
+  });
+  COLLAPSED.delete(b.folder||'/');
+  if(q||fam!=='all'){ q=''; fam='all'; $('search').value=''; }
+  saveColl(); render();
+  const tr=document.getElementById('r-'+guid);
+  if(!tr){toast('строка базы не найдена в общем списке');return}
+  tr.scrollIntoView({block:'center',behavior:'smooth'});
+  tr.classList.remove('flash'); void tr.offsetWidth; tr.classList.add('flash');
+}
 
 /* ---------- фильтры/рендер ---------- */
 function render(){
