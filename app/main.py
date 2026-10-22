@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from core import importer, launcher
 
-app = FastAPI(title='BaseLauncher', version='0.3.0')
+app = FastAPI(title='BaseLauncher', version='0.4.0')
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
 
@@ -128,6 +128,15 @@ async def launch(req: Request):
     cmd, mode = _build_cmd_from_body(body, base)
     if isinstance(cmd, JSONResponse):
         return cmd
+    exe = body.get('exe') or base.get('exe')
+    if not exe or not Path(exe).is_file():
+        return JSONResponse(
+            {'error': f'exe платформы не найден на диске: {exe or "(не определён)"}'},
+            status_code=400)
+    bpath = (base.get('path') or '').strip()
+    if bpath and not Path(bpath).is_dir():
+        return JSONResponse(
+            {'error': f'папки базы нет на диске: {bpath}'}, status_code=400)
     pid = launcher.launch(cmd)
     launcher.log_launch(base['name'], mode, pid, cmd)
     return {'ok': True, 'pid': pid, 'cmd': cmd}
@@ -136,3 +145,20 @@ async def launch(req: Request):
 @app.get('/api/log')
 def log(n: int = 50):
     return launcher.tail_log(n)
+
+
+@app.post('/api/shutdown')
+def shutdown():
+    """Штатная остановка сервера (освобождает порт без сирот-воркеров).
+
+    Нужна потому, что kill обёртки background-сессии оставляет python-ребёнка
+    с занятым портом: следующий запуск падает с WinError 10048/10013.
+    """
+    import os
+    import threading
+
+    def _bye():
+        os._exit(0)
+
+    threading.Timer(0.3, _bye).start()
+    return {'ok': True, 'bye': 'shutting down'}

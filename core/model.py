@@ -35,6 +35,9 @@ class BaseEntry:
     storage: dict = field(default_factory=dict)  # хранилище конфигурации: dir/user/password
     extra_keys: list = field(default_factory=list)  # доп. ключи запуска
     our: dict = field(default_factory=dict)        # наши правки (overrides.json) как есть
+    path_ok: bool | None = None  # папка файловой базы на месте (None — серверная/неизвестно)
+    path_info: str = ''          # 'ok' | 'папки базы нет' | 'нет файла 1Cv8.1CD' | 'серверная'
+    exe_ok: bool = False         # exe платформы существует на диске
     fav: bool = False        # избранное (наша отметка)
     descr: str = ''          # описание (эффективное: наше или из SM)
     user: str = ''           # пользователь ИБ /N (эффективное: наше или UserLogin из SM)

@@ -89,6 +89,16 @@ def build_state() -> dict:
         storage = dict(our.get('storage') or {})
         if not storage.get('dir') and sm.get('StorageDir'):
             storage = {'dir': sm.get('StorageDir', ''), 'user': sm.get('StorageUser', '')}
+        # наличиe папки файловой базы и файла базы внутри
+        if path:
+            if Path(path).is_dir():
+                has_cd = any(Path(path).glob('1Cv8.1CD')) or any(Path(path).glob('*.1CD'))
+                path_ok, path_info = bool(has_cd), ('ok' if has_cd else 'нет файла 1Cv8.1CD')
+            else:
+                path_ok, path_info = False, 'папки базы нет'
+        else:
+            path_ok, path_info = None, 'серверная'
+        exe_ok = bool(exe) and Path(exe).is_file()
         bases.append(BaseEntry(
             guid=guid,
             name=(our.get('name') or name),
@@ -113,6 +123,9 @@ def build_state() -> dict:
             extra_keys=list(our.get('extra_keys') or []),
             our=our,
             fav=bool(our.get('fav')),
+            path_ok=path_ok,
+            path_info=path_info,
+            exe_ok=exe_ok,
         ).as_dict())
 
     state = {
