@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from core import config, hotkey, importer, launcher, platforms_share, procs, tray, v8i_writer
 
-app = FastAPI(title='BaseLauncher', version='0.15.2')
+app = FastAPI(title='BaseLauncher', version='0.15.3')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -36,7 +36,10 @@ def _startup():
 
 @app.get('/')
 def index():
-    return FileResponse(INDEX)
+    # no-store: иначе Edge держит старую копию UI в кеше, и после обновления приложения
+    # в окне продолжает работать прежний JS (лечится только F5, о котором никто не знает)
+    return FileResponse(INDEX, headers={'Cache-Control': 'no-store, must-revalidate',
+                                        'Pragma': 'no-cache', 'Expires': '0'})
 
 
 @app.get('/favicon.ico')

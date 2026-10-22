@@ -1351,6 +1351,9 @@ async function syncState(){
   SYNC_BUSY=true;
   try{
     const r=await fetch('/api/state'); const st=await r.json();
+    /* версия на сервере новее, чем та, с которой загружена страница (приложение обновили/перезапустили)
+       — перечитываем UI сами, иначе в окне остаётся старый JS и «кнопки работают по-старому» */
+    if(PAGE_VER&&st.version&&st.version!==PAGE_VER){location.reload();return}
     if(syncSignature(st)!==syncSignature(STATE)){
       STATE=st;
       $('st-sub').textContent=`${STATE.bases.length} баз · ${STATE.platforms.length} платформ`;
@@ -1360,8 +1363,10 @@ async function syncState(){
   SYNC_BUSY=false;
 }
 
+let PAGE_VER=null;   // версия, с которой загружена эта страница
 (async()=>{
   await reload(); setMode(MODE); hotkeyInfo();
+  PAGE_VER=STATE.version||null;
   $('search').addEventListener('input',e=>{q=e.target.value;render()});
   document.querySelector('main table').addEventListener('click',e=>{
     const tr=e.target.closest('tr.base'); if(tr)clickBase(tr.dataset.g)});
