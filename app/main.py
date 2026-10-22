@@ -6,9 +6,9 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from core import importer, launcher, v8i_writer
+from core import importer, launcher, procs, v8i_writer
 
-app = FastAPI(title='BaseLauncher', version='0.7.0')
+app = FastAPI(title='BaseLauncher', version='0.8.0')
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
 
@@ -142,9 +142,33 @@ async def launch(req: Request):
     if bpath and not Path(bpath).is_dir():
         return JSONResponse(
             {'error': f'папки базы нет на диске: {bpath}'}, status_code=400)
+    # этот режим уже открыт? тогда не плодим второй сеанс без явного согласия
+    if not body.get('force'):
+        running = _running_pid(base, mode)
+        if running:
+            return JSONResponse(
+                {'error': 'already_running', 'running': True, 'pid': running,
+                 'mode': mode,
+                 'message': ('база уже открыта в этом режиме (PID %d)' % running)},
+                status_code=409)
     pid = launcher.launch(cmd)
     launcher.log_launch(base['name'], mode, pid, cmd, base['guid'])
     return {'ok': True, 'pid': pid, 'cmd': cmd}
+
+
+def _running_pid(base: dict, mode: str) -> int | None:
+    """PID живого сеанса этой базы в нужном режиме (или None)."""
+    for s in procs.running_sessions():
+        if s['mode'] != mode:
+            continue
+        if base.get('path') and s['path'] and procs._norm_path(s['path']) == procs._norm_path(base['path']):
+            return s['pid']
+        if base.get('server') and s['server'] and s['server'].lower() == base['server'].lower() \
+                and (s['ref'] or '').lower() == (base.get('ref') or '').lower():
+            return s['pid']
+        if s['name'] and s['name'].strip().lower() == base['name'].strip().lower():
+            return s['pid']
+    return None
 
 
 @app.get('/api/log')
@@ -204,6 +228,22 @@ def base_delete(guid: str):
         return JSONResponse({'error': str(e)}, status_code=400)
     st = importer.build_state()
     return {'ok': True, 'deleted': name, 'bases': len(st['bases'])}
+
+
+@app.post('/api/activate')
+async def activate(req: Request):
+    """Переключиться на уже открытый сеанс: вывести его окно наверх."""
+    body = await req.json()
+    try:
+        pid = int(body.get('pid') or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    if not pid:
+        return JSONResponse({'error': 'не передан pid сеанса'}, status_code=400)
+    r = procs.focus_window(pid)
+    if not r.get('ok'):
+        return JSONResponse(r, status_code=400)
+    return r
 
 
 @app.post('/api/shutdown')

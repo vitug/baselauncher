@@ -30,10 +30,11 @@ D:/python/WPy64-31241/python-3.12.4.amd64/python.exe run_server.py
   - `launcher.py` — сборка команды СТРОКОЙ (`/IBConnectionString` из Connect) + Popen + лог и
     сводка истории запусков (`history()`);
   - `v8i_writer.py` — запись в `ibases.v8i`: добавление базы/папки, удаление секции;
+  - `procs.py` — живые сеансы 1С (`ctypes`): PID, режим, база из командной строки, активация окна;
   - `importer.py` — слияние источников → `data/bases.json`.
 - `app/main.py` — REST: `GET /api/state`, `GET|PUT|DELETE /api/base/{guid}`,
   `POST /api/base/new|/api/folder/new`,
-  `POST /api/launch|/api/dryrun`, `GET /api/log`, `POST /api/shutdown`.
+  `POST /api/launch|/api/dryrun`, `POST /api/activate`, `GET /api/log`, `POST /api/shutdown`.
 - `app/static/index.html` — UI без зависимостей: дерево папок как в SM, режимы
   Предприятие/Конфигуратор, избранное, поиск, разовые ключи запуска.
 - `data/overrides.json` — свои правки поверх импорта (высший приоритет).
@@ -122,6 +123,22 @@ D:/python/WPy64-31241/python-3.12.4.amd64/python.exe run_server.py
 
 Сводка строится по `guid`; старые записи без `guid` привязываются по имени, если имя в списке
 однозначно (поэтому переименование базы в настройках «теряет» её давнюю историю — только давнюю).
+
+## Живые сеансы и переключение (v0.8.0)
+
+`core/procs.py` (stdlib + ctypes) находит клиентские процессы `1cv8/1cv8c/1cv8s`, читает их
+командную строку (`NtQueryInformationProcess`, класс 60 — без WMI/PowerShell и без порчи
+кириллицы) и определяет базу: `File="…"`, `Srvr="…";Ref="…"`, `/F"…"`, `/IBName"…"`; режим —
+наличие `DESIGNER`.
+
+- `GET /api/state` → `sessions` (живые сеансы) и у каждой базы `running`, `running_modes`,
+  `running_pids` (режим → PID);
+- в дереве такие базы помечены `● открыта`, слева зелёная полоса, в статус-строке «открыто: N»;
+- **клик по строке открытой базы переключает на её окно**, а не запускает второй сеанс;
+- `POST /api/launch` при уже открытом **том же режиме** отвечает `409 {error:"already_running",
+  pid}`; UI спрашивает: «Переключиться» / «Открыть ещё раз» (`force: true`) / «Отмена»;
+- `POST /api/activate {pid}` — вывод окна наверх (`EnumWindows` + `ShowWindow`/`SetForegroundWindow`
+  с `AttachThreadInput`, иначе Windows не отдаёт фокус).
 
 ## Приоритет exe платформы для базы
 

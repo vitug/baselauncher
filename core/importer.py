@@ -11,7 +11,7 @@ import datetime
 import json
 from pathlib import Path
 
-from . import launcher, parsers, scanner
+from . import launcher, parsers, procs, scanner
 from .model import BaseEntry
 
 DATA_DIR = Path(__file__).resolve().parent.parent / 'data'
@@ -177,6 +177,37 @@ def build_state() -> dict:
                        'count': m['count'], 'day': day})
     recent.sort(key=lambda r: r['last_ts'] or '', reverse=True)
 
+    # живые сеансы 1С на хосте: какие базы уже открыты и в каком режиме
+    sessions = procs.running_sessions()
+    by_path: dict[str, list[dict]] = {}
+    by_srv: dict[str, list[dict]] = {}
+    by_name: dict[str, list[dict]] = {}
+    for b in bases:
+        b['running_modes'] = []
+        b['running_pids'] = {}
+        b['running'] = False
+        if b['path']:
+            by_path.setdefault(procs._norm_path(b['path']), []).append(b)
+        if b['server']:
+            by_srv.setdefault('%s|%s' % (b['server'].lower(), (b['ref'] or '').lower()), []).append(b)
+        by_name.setdefault(b['name'].strip().lower(), []).append(b)
+    live = []
+    for s in sessions:
+        cand = []
+        if s['path']:
+            cand = by_path.get(procs._norm_path(s['path']), [])
+        elif s['server']:
+            cand = by_srv.get('%s|%s' % (s['server'].lower(), (s['ref'] or '').lower()), [])
+        elif s['name']:
+            cand = by_name.get(s['name'].strip().lower(), [])
+        for b in cand:
+            b['running'] = True
+            if s['mode'] not in b['running_modes']:
+                b['running_modes'].append(s['mode'])
+            b['running_pids'][s['mode']] = s['pid']
+            live.append({'guid': b['guid'], 'name': b['name'], 'mode': s['mode'],
+                         'pid': s['pid'], 'exe': s['exe']})
+
     state = {
         'generated_at': datetime.datetime.now().isoformat(timespec='seconds'),
         'defaults': {'default_family': overrides.get('default_family', '8.3')},
@@ -185,6 +216,7 @@ def build_state() -> dict:
         'folders': folders,
         'bases': bases,
         'recent': recent[:20],
+        'sessions': live,
     }
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding='utf-8')
