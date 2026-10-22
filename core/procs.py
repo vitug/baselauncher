@@ -87,7 +87,7 @@ def parse_session(cmd: str) -> dict:
     """
     c = (cmd or '').replace('""', '"')
     mode = 'designer' if re.search(r'(?i)(^|\s)/?DESIGNER(\s|$)', c) else 'enterprise'
-    out = {'mode': mode, 'path': '', 'server': '', 'ref': '', 'name': ''}
+    out = {'mode': mode, 'path': '', 'server': '', 'ref': '', 'name': '', 'ws': ''}
     m = re.search(r'(?i)File\s*=\s*"([^"]+)"', c)
     if m:
         out['path'] = m.group(1)
@@ -104,6 +104,13 @@ def parse_session(cmd: str) -> dict:
     m = re.search(r'(?i)/IBName\s*"?([^"/]+)"?', c)
     if m:
         out['name'] = m.group(1).strip()
+    if not (out['path'] or out['server']):
+        # веб-база: ws="URL" в строке подключения или URL позиционным аргументом
+        m = re.search(r'(?i)(?:^|[\s"])ws="?(https?://[^"\s]+)', c)
+        if not m:
+            m = re.search(r'(?i)(?:^|\s)(https?://[^\s"]+)', c)
+        if m:
+            out['ws'] = m.group(1).rstrip('/')
     return out
 
 

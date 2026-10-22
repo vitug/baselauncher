@@ -81,7 +81,9 @@ def parse_settings_slots(path: Path = SETTINGS_PATH) -> dict[str, str]:
     return slots
 
 
-def parse_connect(connect: str) -> tuple[str, str, str]:
-    """'File="C:\\x";' -> (path, '', '');  'Srvr="s:port";Ref="db";' -> ('', srvr, ref)."""
+def parse_connect(connect: str) -> tuple[str, str, str, str]:
+    """'File="C:\\x";' -> (path, '', '', '');  'Srvr="s:port";Ref="db";' -> ('', srvr, ref, '');
+    'ws="https://…"' (веб-база) -> ('', '', '', url)."""
     parts = dict(re.findall(r'(\w+)="([^"]*)"', connect or ''))
-    return parts.get('File', ''), parts.get('Srvr', ''), parts.get('Ref', '')
+    return parts.get('File', ''), parts.get('Srvr', ''), parts.get('Ref', ''), \
+        parts.get('ws', '')
