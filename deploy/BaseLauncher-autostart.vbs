@@ -34,7 +34,24 @@ For i = 1 To 40
   WScript.Sleep 500
 Next
 
-' пауза и окно стартера (открываем всегда: если сервер не поднялся, будет
-' ERR_CONNECTION_REFUSED — тогда запустить start_bl.bat вручную)
-WScript.Sleep 1200
-sh.Run "msedge --app=http://127.0.0.1:" & port, 1, False
+' окно стартера: просим сервер показать существующее (второе окно не открываем),
+' и только если сервер не ответил — запускаем Edge сами
+WScript.Sleep 800
+Dim shown
+shown = False
+If ready Then
+  On Error Resume Next
+
+  http.setProxy 1, "", ""
+  http.open "POST", "http://127.0.0.1:" & port & "/api/starter/focus", False
+  http.setRequestHeader "Content-Type", "application/json"
+  http.send "{}"
+  If Err.Number = 0 Then
+    If http.status = 200 Then shown = True
+  End If
+  Err.Clear
+  On Error GoTo 0
+End If
+If Not shown Then
+  sh.Run "msedge --app=http://127.0.0.1:" & port, 1, False
+End If

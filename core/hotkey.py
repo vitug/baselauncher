@@ -11,6 +11,7 @@ import ctypes
 import ctypes.wintypes as wt
 import subprocess
 import threading
+from pathlib import Path
 
 from . import procs
 
@@ -52,52 +53,181 @@ def _pid_of(hwnd: int) -> int:
 
 
 def find_starter_window(port: int = 8797) -> list[tuple[int, str, int]]:
-    """Все видимые окна, похожие на окно стартера: (hwnd, title, pid)."""
+    """Окна стартера: (hwnd, title, pid), включая скрытые (трей), но БЕЗ вкладок браузера.
+
+    Отличаем от обычных вкладок Edge по двум признакам: заголовок РОВНО «BaseLauncher»
+    (у вкладки он вида «BaseLauncher — Личный: Microsoft Edge») либо `--app=` с нашим
+    адресом в командной строке процесса.
+    """
     out: list[tuple[int, str, int]] = []
     CB = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
+    seen_cmd: dict[int, str] = {}
 
     def cb(hwnd, _):
-        if not u32.IsWindowVisible(hwnd):
-            return True
         title = _win_title(hwnd)
         if not title:
             return True
-        cls = _class_of(hwnd)
-        if cls != 'Chrome_WidgetWin_1':
+        if _class_of(hwnd) != 'Chrome_WidgetWin_1':
             return True
         pid = _pid_of(hwnd)
-        # сначала точное совпадение заголовка, иначе — по --app в командной строке
-        if STARTER_TITLE.lower() in title.lower():
-            out.append((hwnd, title, pid))
-            return True
-        cmd = procs.cmdline(pid) or ''
-        if '--app=' in cmd and ('127.0.0.1:%d' % port) in cmd:
+        if pid not in seen_cmd:
+            seen_cmd[pid] = procs.cmdline(pid) or ''
+        cmd = seen_cmd[pid]
+        own = '--app=' in cmd and ('127.0.0.1:%d' % port) in cmd
+        if title.strip().lower() == STARTER_TITLE.lower() or own:
             out.append((hwnd, title, pid))
         return True
     u32.EnumWindows(CB(cb), 0)
-    out.sort(key=lambda x: 0 if STARTER_TITLE.lower() in x[1].lower() else 1)
+    out.sort(key=lambda x: (0 if x[1].strip().lower() == STARTER_TITLE.lower() else 1,
+                            0 if u32.IsWindowVisible(x[0]) else 1))
     return out
 
 
-def focus_starter(port: int = 8797) -> dict:
-    """Поднять окно стартера на передний план."""
-    wins = find_starter_window(port)
-    if not wins:
-        return {'ok': False, 'error': 'окно стартера не найдено — откройте его через start_bl.bat'}
-    hwnd, title, pid = wins[0]
+def _log(msg: str) -> None:
+    """Диагностика горячей клавиши: пишем в data/focus.log (не в stdout — под pythonw его нет)."""
+    try:
+        from datetime import datetime
+        p = Path(__file__).resolve().parent.parent / 'data' / 'focus.log'
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open('a', encoding='utf-8') as f:
+            f.write(f'{datetime.now():%Y-%m-%d %H:%M:%S} {msg}\n')
+    except Exception:
+        pass
+
+
+_known: dict[int, int] = {}          # port -> hwnd окна, которое мы спрятали в трей
+
+
+def _alive(hwnd: int) -> bool:
+    return bool(hwnd) and bool(u32.IsWindow(hwnd))
+
+
+def _visible_starter(port: int):
+    """Первое ВИДИМОЕ окно стартера (скрытые окна Edge трогать нельзя)."""
+    for hwnd, title, pid in find_starter_window(port):
+        if u32.IsWindowVisible(hwnd):
+            _known[port] = hwnd
+            return hwnd, title, pid
+    return None
+
+
+def _edge_exe() -> str:
+    """Полный путь к msedge.exe: у сервера под pythonw PATH короткий, 'msedge' не находится."""
+    import shutil
+    for cand in (shutil.which('msedge'),
+                 r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
+                 r'C:\Program Files\Microsoft\Edge\Application\msedge.exe'):
+        if cand and Path(cand).is_file():
+            return cand
+    raise FileNotFoundError('msedge.exe не найден (Edge не установлен?)')
+
+
+def _open_starter(port: int) -> None:
+    """Окна нет — открыть его так же, как start_bl.bat (Edge в режиме --app)."""
+    subprocess.Popen([_edge_exe(), '--app=http://127.0.0.1:%d' % port],
+                     close_fds=True, creationflags=0x00000008)      # DETACHED_PROCESS
+
+
+def _raise(hwnd: int, title: str, pid: int) -> dict:
+    """Показать и поднять окно: SW_RESTORE для свёрнутых/SW_SHOW для скрытых + фокус."""
+    before = {'visible': bool(u32.IsWindowVisible(hwnd)), 'iconic': bool(u32.IsIconic(hwnd))}
+    if not before['visible'] or before['iconic']:
+        u32.ShowWindow(hwnd, 9 if before['iconic'] else 5)   # SW_RESTORE / SW_SHOW
     fg_tid = u32.GetWindowThreadProcessId(u32.GetForegroundWindow(), None)
     cur_tid = k32.GetCurrentThreadId()
-    u32.AttachThreadInput(cur_tid, fg_tid, True)
-    if u32.IsIconic(hwnd):
-        u32.ShowWindow(hwnd, 9)          # SW_RESTORE
-    else:
-        u32.ShowWindow(hwnd, 5)          # SW_SHOW
+    if fg_tid and fg_tid != cur_tid:
+        u32.AttachThreadInput(cur_tid, fg_tid, True)
     u32.SetForegroundWindow(hwnd)
     u32.BringWindowToTop(hwnd)
-    u32.AttachThreadInput(cur_tid, fg_tid, False)
+    if fg_tid and fg_tid != cur_tid:
+        u32.AttachThreadInput(cur_tid, fg_tid, False)
     ok = u32.GetForegroundWindow() == hwnd
+    after = {'visible': bool(u32.IsWindowVisible(hwnd)), 'iconic': bool(u32.IsIconic(hwnd))}
+    _log(f'raise hwnd={hwnd} pid={pid} before={before} after={after} foreground={ok}')
     _state['window'] = title
-    return {'ok': True, 'foreground': ok, 'title': title, 'pid': pid, 'hwnd': hwnd}
+    res = {'ok': True, 'foreground': ok, 'title': title, 'pid': pid, 'hwnd': hwnd}
+    if not after['visible']:
+        res['warning'] = 'окно стало невидимым после активации — Edge его скрыл'
+    return res
+
+
+def hide_starter(port: int = 8797) -> dict:
+    """Свернуть окно стартера в трей: SW_HIDE (из панели задач окно тоже пропадает)."""
+    vis = [(h, t, p) for h, t, p in find_starter_window(port) if u32.IsWindowVisible(h)]
+    if not vis:
+        return {'ok': False, 'error': 'видимого окна стартера нет'}
+    hwnd, title, pid = vis[0]
+    _known[port] = hwnd                           # запоминаем: вернуть надо ЭТО окно
+    for h, _t, _p in vis:                         # прячем все окна приложения, не только первое
+        u32.ShowWindow(h, 0)                       # SW_HIDE
+    ok = not any(u32.IsWindowVisible(h) for h, _t, _p in vis)
+    _log(f'hide hwnd={hwnd} pid={pid} окон={len(vis)} ok={ok}')
+    _state['window'] = '' if ok else title
+    return {'ok': ok, 'hidden': ok, 'title': title, 'pid': pid, 'hwnd': hwnd,
+            'windows': len(vis)}
+
+
+def focus_starter(port: int = 8797) -> dict:
+    """Поднять окно стартера на передний план. Если окна нет — открыть новое.
+
+    Важно: раньше при отсутствии окна отдавали ошибку, а при показе использовали SW_SHOW —
+    на скрытых окнах Edge это приводило к тому, что визуально «ничего не происходит» или
+    окно пропадает. Теперь: только видимые окна, SW_RESTORE лишь для свёрнутых, а если
+    окон нет — открываем заново.
+    """
+    found = _visible_starter(port)
+    if found:
+        return _raise(*found)
+
+    # видимого окна нет: сначала пробуем вернуть то, что сами спрятали в трей
+    hwnd = _known.get(port)
+    if hwnd and _alive(hwnd):
+        _log(f'возвращаю спрятанное окно hwnd={hwnd}')
+        res = _raise(hwnd, _win_title(hwnd) or STARTER_TITLE, _pid_of(hwnd))
+        res['restored'] = True
+        return res
+
+    # затем — любое существующее (скрытое) окно приложения: второе окно не создаём
+    hidden = find_starter_window(port)
+    if hidden:
+        h, t, p = hidden[0]
+        _log(f'показываю существующее скрытое окно hwnd={h}')
+        res = _raise(h, t, p)
+        res['restored'] = True
+        return res
+
+    # окна действительно нет — открываем новое и ждём, пока оно появится
+    _log('видимого окна нет — открываю новое')
+    try:
+        _open_starter(port)
+    except Exception as e:                                        # noqa: BLE001
+        _log(f'не удалось открыть окно: {e}')
+        return {'ok': False, 'error': f'окно стартера закрыто, открыть не удалось: {e}'}
+    import time as _t
+    for _ in range(30):                       # до 15 с
+        _t.sleep(0.5)
+        again = _visible_starter(port)
+        if again:
+            res = _raise(*again)
+            res['reopened'] = True
+            return res
+    _state['window'] = ''
+    return {'ok': True, 'reopened': True, 'foreground': False,
+            'message': 'окно стартера было закрыто — открыл заново'}
+
+
+def toggle_starter(port: int = 8797) -> dict:
+    """Ctrl+Shift+S и левый клик по трею: показать, если скрыто/свёрнуто, иначе убрать в трей."""
+    found = _visible_starter(port)
+    if found:
+        hwnd, title, _pid = found
+        if u32.GetForegroundWindow() == hwnd and not u32.IsIconic(hwnd):
+            r = hide_starter(port)
+            r['action'] = 'hidden'
+            return r
+    r = focus_starter(port)
+    r['action'] = 'reopened' if r.get('reopened') else 'shown'
+    return r
 
 
 def _loop(port: int):
@@ -117,7 +247,7 @@ def _loop(port: int):
             break
         if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
             try:
-                focus_starter(port)
+                toggle_starter(port)     # показать / убрать в трей
                 _state['hits'] += 1
             except Exception:
                 pass

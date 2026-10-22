@@ -6,9 +6,9 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from core import config, hotkey, importer, launcher, platforms_share, procs, v8i_writer
+from core import config, hotkey, importer, launcher, platforms_share, procs, tray, v8i_writer
 
-app = FastAPI(title='BaseLauncher', version='0.12.0')
+app = FastAPI(title='BaseLauncher', version='0.12.4')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -17,8 +17,9 @@ ICON = Path(__file__).parent.parent / 'assets' / 'baselauncher.ico'
 
 @app.on_event('startup')
 def _startup():
-    """Глобальная клавиша Ctrl+Shift+D — поднять окно стартера."""
+    """Глобальная клавиша Ctrl+Shift+S (показать / убрать в трей) и иконка в трее."""
     hotkey.start(PORT)
+    tray.start(PORT)
 
 
 @app.get('/')
@@ -355,9 +356,28 @@ async def activate(req: Request):
 
 @app.post('/api/starter/focus')
 def starter_focus():
-    """Поднять окно стартера (то же, что глобальная Ctrl+Shift+D)."""
+    """Поднять окно стартера."""
     r = hotkey.focus_starter(PORT)
     return JSONResponse(r, status_code=200 if r.get('ok') else 400)
+
+
+@app.post('/api/starter/hide')
+def starter_hide():
+    """Убрать окно стартера в трей (сервер продолжает работать)."""
+    r = hotkey.hide_starter(PORT)
+    return JSONResponse(r, status_code=200 if r.get('ok') else 400)
+
+
+@app.post('/api/starter/toggle')
+def starter_toggle():
+    """Показать, если скрыто/не на переднем плане; иначе — убрать в трей."""
+    return JSONResponse(hotkey.toggle_starter(PORT))
+
+
+@app.get('/api/tray')
+def tray_status():
+    """Состояние трея: готова ли иконка, есть ли сообщение об ошибке."""
+    return {**tray.status(), 'hotkey': hotkey.status()}
 
 
 @app.get('/api/hotkey')
