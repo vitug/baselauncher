@@ -337,7 +337,7 @@ body{padding-bottom:46px}
 
 <div id="askovl"><div id="amodal">
   <h2 id="a-title">База уже открыта</h2>
-  <div id="a-text" class="hint"></div>
+  <div id="a-text" class="hint" style="white-space:pre-line;line-height:1.45;max-height:38vh;overflow:auto"></div>
   <div class="btns" id="a-btns"></div>
 </div></div>
 
@@ -592,7 +592,7 @@ function openBlock(){
       <td class="path" title="${esc(loc)}">${esc(loc)}</td>
       <td class="plat">${modes}</td>
       <td class="act">
-        <button class="ln" onclick="event.stopPropagation();switchTo('${b.guid}','${first}')" title="переключиться на окно сеанса${(b.running_modes||[]).length>1?' (с выбором режима)':''}">Перекл</button>
+        <button class="ln" onclick="event.stopPropagation();pickSession('${b.guid}')" title="переключиться на окно сеанса${(b.running_modes||[]).length>1?' (с выбором, куда именно)':''}">Перекл</button>
         <button class="ln goto" onclick="event.stopPropagation();jumpToRow('${b.guid}')" title="показать эту базу в дереве (общем списке)">↳ список</button>
         ${b.ws?`<button class="ln web" onclick="event.stopPropagation();openWeb('${b.guid}')" title="открыть в браузере (веб-клиент): ${esc(b.ws)}">🌐</button>`:''}
         <button class="ln designer" ${modeDisabled(b.guid,'designer')?'disabled':''} onclick="event.stopPropagation();launch('${b.guid}','designer')" title="${b.has_designer===false?'конфигуратора нет':modeTitle(b.guid,'designer','запустить ещё один сеанс конфигуратора')}">Конф</button>
@@ -836,13 +836,29 @@ async function activate(pid){
 async function loadSessions(){   // подтянуть состояние без перерисовки тяжёлого дерева
   await reload();
 }
-function clickBase(g){
-  const b=(STATE.bases||[]).find(x=>x.guid===g); if(!b)return;
-  const modes=(b.running_modes||[]).filter(m=>pidOf(b,m));
-  if(modes.length>1){askChoose(g);return}          // и конф, и предпр — куда перейти?
-  if(modes.length===1){switchTo(g,modes[0]);return}
-  launch(g,modeOf(g));
+/* все живые сеансы базы (их может быть два: конф + предпр, или несколько окон) */
+function sessionsOf(guid){
+  const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
+  const list=(STATE.sessions||[]).filter(s=>s.guid===guid&&s.pid);
+  if(list.length)return list;
+  return (b.running_modes||[]).map(m=>({guid,mode:m,pid:pidOf(b,m)})).filter(s=>s.pid);
 }
+async function activateSession(guid,s){
+  const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
+  if(!s.pid)return launch(guid,s.mode);
+  if(s.window===false||((b.running_win||{})[s.mode]===false))return noWindow(b,s.mode,s.pid);
+  const r=await activate(s.pid);
+  if(r&&r.ok===false&&r.no_window)noWindow(b,s.mode,s.pid);
+}
+/* «Перекл» и клик по строке: один сеанс — идём в него, несколько — спрашиваем, в какой */
+function pickSession(guid){
+  const b=(STATE.bases||[]).find(x=>x.guid===guid); if(!b)return;
+  const list=sessionsOf(guid);
+  if(list.length>1){askChoose(guid,list);return}
+  if(list.length===1){activateSession(guid,list[0]);return}
+  launch(guid,modeOf(guid));
+}
+const clickBase=pickSession;
 let ASK=null;
 /* одно мини-окно на все вопросы: заголовок, текст и произвольные кнопки */
 function askBox(title,text,buttons){
@@ -877,15 +893,17 @@ function noWindow(b,mode,pid){
     +' так бывает, когда базу запустил EDT. Переключаться не на что: можно открыть ещё один сеанс.',
     [{t:'Открыть ещё сеанс',primary:true,f:()=>launch(b.guid,mode,true)},{t:'Закрыть'}]);
 }
-/* база открыта и в конфигураторе, и в предприятии — спрашиваем, куда перейти */
-function askChoose(guid){
+/* несколько живых сеансов одной базы (конф + предпр, либо несколько окон) — куда перейти? */
+function askChoose(guid,list){
   const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
-  const modes=(b.running_modes||[]).filter(m=>pidOf(b,m));
-  const btns=modes.map(m=>({t:`→ ${modeName(m)} (PID ${pidOf(b,m)})`,primary:false,f:()=>switchTo(guid,m)}));
-  if(btns.length)btns[0].primary=true;
+  list=list&&list.length?list:sessionsOf(guid);
+  const btns=list.map((s,i)=>({t:`→ ${modeName(s.mode)} · PID ${s.pid}`,primary:i===0,
+    f:()=>activateSession(guid,s)}));
   btns.push({t:'Отмена'});
-  askBox('Открыта в двух режимах',
-    `«${b.name}» запущена и в Конфигураторе, и в Предприятии. Куда переключиться?`, btns);
+  const lines=list.map(s=>`• ${modeName(s.mode)} — PID ${s.pid}`
+    +(s.title?`\n   ${s.title}`:'')+(((b.running_win||{})[s.mode]===false)?'\n   (без видимого окна)':'')).join('\n');
+  askBox(`«${b.name||guid}» — открыто сеансов: ${list.length}`,
+    lines+'\n\nКуда переключиться?', btns);
 }
 function askMode(guid,mode,pid){
   const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
@@ -1307,6 +1325,7 @@ async function pollSessions(){
   try{
     const r=await fetch('/api/sessions'); const j=await r.json();
     const map=j.running||{};
+    if(j.sessions) STATE.sessions=j.sessions;   // список сеансов для выбора «куда переключиться»
     let changed=false;
     (STATE.bases||[]).forEach(b=>{
       const cur=map[b.guid]||{modes:[],pids:{},win:{}};
