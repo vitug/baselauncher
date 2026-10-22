@@ -64,6 +64,23 @@ td.plat{white-space:nowrap;font-size:12.5px}
 .warn{color:var(--red);font-weight:600;font-size:11px;margin-left:6px;white-space:nowrap}
 .chip.warn-chip{border-color:var(--red);color:var(--red)}
 .chip.warn-chip.on{background:var(--red);border-color:var(--red);color:#fff}
+.add{padding:6px 11px;border-radius:7px;border:1px dashed var(--border);background:transparent;
+  color:var(--muted);cursor:pointer;font-size:12.5px}
+.add:hover{border-color:var(--green);color:var(--green)}
+#novl{position:fixed;inset:0;background:#000a;display:none;z-index:11}
+#novl.on{display:flex;align-items:center;justify-content:center}
+#nmodal{width:560px;max-width:94vw;max-height:90vh;overflow:auto;background:var(--panel);
+  border:1px solid var(--border);border-radius:12px;padding:18px 20px;box-shadow:0 12px 40px #000c}
+#nmodal h2{margin:0 0 6px;font-size:16px}
+#nmodal label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px}
+#nmodal input,#nmodal select{width:100%;padding:7px 9px;border-radius:6px;border:1px solid var(--border);
+  background:var(--bg);color:var(--fg);font-size:13px}
+#nmodal .row2{display:flex;gap:10px} #nmodal .row2>div{flex:1}
+#nmodal .btns{display:flex;gap:8px;margin-top:16px}
+#nmodal .btns button{flex:1;padding:9px;border-radius:7px;border:1px solid var(--border);
+  background:var(--row);color:var(--fg);cursor:pointer;font-size:13px}
+#nmodal .btns .save{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
+#nmodal .hint{font-size:11px;color:var(--muted);margin-top:10px}
 td.act{white-space:nowrap;text-align:right}
 button.ln{padding:5px 10px;margin-left:5px;border-radius:6px;border:1px solid var(--border);
   background:var(--row);color:var(--fg);cursor:pointer;font-size:12.5px}
@@ -112,6 +129,8 @@ button.ln.gear:hover{border-color:var(--green)}
     <button id="m-ent" class="on" onclick="setMode('enterprise')">Предприятие</button>
     <button id="m-dsg" class="d" onclick="setMode('designer')">Конфигуратор</button>
   </div>
+  <button id="b-new-base" class="add" onclick="openNew('base')" title="добавить базу в ibases.v8i">+ база</button>
+  <button id="b-new-folder" class="add" onclick="openNew('folder')" title="добавить папку в дерево">+ папка</button>
   <button id="adhoc-tgl" onclick="toggleAdhoc()">разовые ключи ▾</button>
   <div id="chips"></div>
   <input id="search" placeholder="поиск: имя, путь, сервер…" autofocus>
@@ -133,6 +152,37 @@ button.ln.gear:hover{border-color:var(--green)}
 <div class="empty" id="empty" style="display:none">ничего не найдено</div></main>
 <div id="status"><span id="st-left"></span><span id="st-msg"></span></div>
 <div id="toast"></div>
+
+<div id="novl"><div id="nmodal">
+  <h2 id="n-title">Добавить</h2>
+  <label>Имя</label>
+  <input type="text" id="n-name" placeholder="Имя базы или папки">
+  <div id="n-folder-wrap">
+    <label>Папка в дереве</label>
+    <select id="n-folder"></select>
+  </div>
+  <div id="n-base-wrap">
+    <label>Тип подключения</label>
+    <select id="n-kind">
+      <option value="file">Файловая (папка базы)</option>
+      <option value="srv">Серверная (сервер + имя базы)</option>
+    </select>
+    <div id="n-file"><label>Путь к папке базы</label>
+      <input type="text" id="n-path" placeholder="D:\bases1C\Новая база"></div>
+    <div id="n-srv" style="display:none">
+      <div class="row2">
+        <div><label>Сервер</label><input type="text" id="n-server" placeholder="srv-1c"></div>
+        <div><label>Имя базы на сервере</label><input type="text" id="n-ref" placeholder="bp_prod"></div>
+      </div>
+    </div>
+  </div>
+  <div class="hint">Пишется в ibases.v8i (бэкап файла делается автоматически раз в день);
+    база сразу появится и в штатном лаунчере 1С.</div>
+  <div class="btns">
+    <button class="save" onclick="submitNew()">Создать</button>
+    <button onclick="closeNew()">Отмена</button>
+  </div>
+</div></div>
 
 <div id="ovl"><div id="modal">
   <h2 id="md-title">Настройки базы</h2>
@@ -169,6 +219,7 @@ button.ln.gear:hover{border-color:var(--green)}
   <div class="btns">
     <button class="save" onclick="saveSettings()">Сохранить</button>
     <button class="reset" onclick="resetSettings()">Сбросить свои настройки</button>
+    <button class="reset" onclick="deleteCurrent()">Удалить из ibases.v8i</button>
     <button onclick="closeModal()">Закрыть</button>
   </div>
 </div></div>
@@ -380,8 +431,55 @@ async function resetSettings(){
   const j=await r.json();
   if(j.ok){toast('свои настройки сброшены (вернулись SM/авто)');closeModal();await reload()}
 }
+/* ---------- добавление базы/папки: запись в ibases.v8i ---------- */
+function folderPaths(){
+  const s=new Set(['/']);
+  (STATE.folders||[]).forEach(f=>{const p=(f.folder==='/'?'':f.folder)+'/'+f.name; s.add(p)});
+  return ['/'].concat([...s].filter(p=>p!=='/').sort());
+}
+function openNew(kind){
+  $('novl').dataset.kind=kind;
+  $('n-title').textContent=kind==='base'?'Новая база (в ibases.v8i)':'Новая папка (в дереве)';
+  $('n-name').value=''; $('n-path').value=''; $('n-server').value=''; $('n-ref').value='';
+  $('n-base-wrap').style.display=kind==='base'?'':'none';
+  $('n-folder').innerHTML=folderPaths().map(p=>
+    `<option value="${esc(p)}">${p==='/'?'(корень дерева)':esc(p)}</option>`).join('');
+  $('novl').classList.add('on'); $('n-name').focus();
+}
+function closeNew(){$('novl').classList.remove('on')}
+function newKindToggle(){
+  const v=$('n-kind').value;
+  $('n-file').style.display=v==='file'?'':'none';
+  $('n-srv').style.display=v==='srv'?'':'none';
+}
+async function submitNew(){
+  const kind=$('novl').dataset.kind, name=$('n-name').value.trim();
+  if(!name){toast('укажите имя');$('n-name').focus();return}
+  let url='/api/folder/new', body={name,parent:$('n-folder').value};
+  if(kind==='base'){
+    url='/api/base/new';
+    body={name,folder:$('n-folder').value};
+    if($('n-kind').value==='file'){body.path=$('n-path').value.trim()}
+    else{body.server=$('n-server').value.trim();body.ref=$('n-ref').value.trim()}
+  }
+  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json();
+  if(j.ok){toast(kind==='base'?'база записана в ibases.v8i':'папка записана в ibases.v8i');closeNew();await reload()}
+  else toast('ОШИБКА: '+(j.error||''));
+}
+async function deleteCurrent(){
+  if(!CUR)return;
+  const b=STATE.bases.find(x=>x.guid===CUR);
+  if(!confirm('Удалить «'+(b?b.name:CUR)+'» из ibases.v8i?\nФайл базы на диске не трогается.'))return;
+  const r=await fetch('/api/base/'+CUR,{method:'DELETE'});
+  const j=await r.json();
+  if(j.ok){toast('удалено из ibases.v8i: '+j.deleted);closeModal();await reload()}
+  else toast('ОШИБКА: '+(j.error||''));
+}
+$('n-kind').addEventListener('change',newKindToggle);
+$('novl').addEventListener('click',e=>{if(e.target.id==='novl')closeNew()});
 $('ovl').addEventListener('click',e=>{if(e.target.id==='ovl')closeModal()});
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();closeNew()}});
 
 async function reload(){
   const r=await fetch('/api/state'); STATE=await r.json();
