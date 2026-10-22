@@ -112,6 +112,20 @@ def _build_cmd_from_body(body: dict, base: dict):
         storage = base.get('storage') or {}
     user = body.get('user') or base.get('user') or ''
     pwd = body.get('pwd') or base.get('pwd') or ''
+    if not pwd:
+        # своего пароля нет — берём расшифрованный из SM (crypto-module)
+        pwd = (base.get('pwd_sm_cfg') or '') if mode == 'designer' else (base.get('pwd_sm') or '')
+    if storage and not storage.get('password') and storage.get('password_sm'):
+        storage = dict(storage, password=storage['password_sm'])
+    # конфигуратора может не быть: веб-база (ws) или платформа «только тонкий клиент»
+    if mode == 'designer' and base.get('has_designer') is False:
+        if base.get('ws'):
+            return JSONResponse({'error': 'веб-база: конфигуратора у сайта нет — '
+                                          'запускайте Предприятие или откройте в браузере (🌐)'},
+                                status_code=400), mode
+        return JSONResponse({'error': 'у платформы только тонкий клиент (1cv8c.exe) — '
+                                      'конфигуратора нет, выберите полную платформу'},
+                            status_code=400), mode
     # веб-база (ws=): Предприятие — тонкий клиент (1cv8c.exe),
     # Конфигуратор — только толстый (у тонкого конфигуратора нет)
     if base.get('ws') and not body.get('exe'):

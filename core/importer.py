@@ -11,7 +11,7 @@ import datetime
 import json
 from pathlib import Path
 
-from . import launcher, parsers, procs, scanner
+from . import launcher, parsers, procs, scanner, smcrypt
 from .model import BaseEntry
 
 DATA_DIR = Path(__file__).resolve().parent.parent / 'data'
@@ -97,6 +97,23 @@ def build_state() -> dict:
         storage = dict(our.get('storage') or {})
         if not storage.get('dir') and sm.get('StorageDir'):
             storage = {'dir': sm.get('StorageDir', ''), 'user': sm.get('StorageUser', '')}
+        # пароли из SM: расшифровываем (crypto-module, ключ REDACTED)
+        pwd_sm = smcrypt.decrypt(sm.get('EntPassword', ''))
+        pwd_sm_cfg = smcrypt.decrypt(sm.get('CfgPassword', ''))
+        pwd_sm_note = ''
+        if sm.get('EntPassword') or sm.get('CfgPassword'):
+            pwd_sm_note = 'old' if (pwd_sm or pwd_sm_cfg) else 'new'
+        if sm.get('StoragePassword'):
+            sp = smcrypt.decrypt(sm['StoragePassword'])
+            if sp:
+                storage.setdefault('password_sm', sp)
+        # конфигуратор есть не всегда: у веб-базы (ws) его нет в принципе,
+        # у платформы «только тонкий клиент» — нет толстого 1cv8.exe
+        has_designer = True
+        if ws:
+            has_designer = False
+        elif exe and exe.lower().endswith('1cv8c.exe'):
+            has_designer = Path(exe).with_name('1cv8.exe').is_file()
         # наличиe папки файловой базы и файла базы внутри
         if path:
             if Path(path).is_dir():
@@ -115,6 +132,7 @@ def build_state() -> dict:
             descr=(our.get('descr') or sm.get('Description', '')),
             user=(our.get('user') or sm.get('UserLogin', '')),
             pwd=str(our.get('pwd') or ''),
+            pwd_sm=pwd_sm, pwd_sm_cfg=pwd_sm_cfg, pwd_sm_note=pwd_sm_note,
             folder=keys.get('Folder', '/'),
             connect=connect,
             path=path, server=srvr, ref=ref, ws=ws,
@@ -129,6 +147,7 @@ def build_state() -> dict:
             exe=exe, exe_src=exe_src,
             family=_family_of_exe(exe, platforms),
             thin=bool(our.get('thin')) or ws_thin,
+            has_designer=has_designer,
             storage=storage,
             extra_keys=list(our.get('extra_keys') or []),
             our=our,
