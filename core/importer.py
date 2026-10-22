@@ -86,6 +86,14 @@ def build_state() -> dict:
             alt = str(Path(exe).with_name('1cv8c.exe'))
             if Path(alt).is_file():
                 exe = alt
+        # веб-база (ws=): по умолчанию тонкий клиент — так их и открывают
+        # (толстый только грузит конфигурацию и перепоручает тонкому)
+        ws_thin = False
+        if ws and exe and not our.get('exe'):
+            alt = str(Path(exe).with_name('1cv8c.exe'))
+            if Path(alt).is_file():
+                exe = alt
+                ws_thin = True
         storage = dict(our.get('storage') or {})
         if not storage.get('dir') and sm.get('StorageDir'):
             storage = {'dir': sm.get('StorageDir', ''), 'user': sm.get('StorageUser', '')}
@@ -96,6 +104,8 @@ def build_state() -> dict:
                 path_ok, path_info = bool(has_cd), ('ok' if has_cd else 'нет файла 1Cv8.1CD')
             else:
                 path_ok, path_info = False, 'папки базы нет'
+        elif ws:
+            path_ok, path_info = None, 'веб-база'
         else:
             path_ok, path_info = None, 'серверная'
         exe_ok = bool(exe) and Path(exe).is_file()
@@ -118,7 +128,7 @@ def build_state() -> dict:
                 'StorageUser': sm.get('StorageUser', '')},
             exe=exe, exe_src=exe_src,
             family=_family_of_exe(exe, platforms),
-            thin=bool(our.get('thin')),
+            thin=bool(our.get('thin')) or ws_thin,
             storage=storage,
             extra_keys=list(our.get('extra_keys') or []),
             our=our,

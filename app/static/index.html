@@ -397,6 +397,7 @@ function baseRow(b,depth){
     <td class="plat">${badge(b)}</td>
     <td class="act">
       <button class="ln gear" onclick="event.stopPropagation();openSettings('${b.guid}')" title="настройки базы">⚙</button>
+      ${b.ws?`<button class="ln web" onclick="event.stopPropagation();openWeb('${b.guid}')" title="открыть в браузере (веб-клиент): ${esc(b.ws)}">🌐</button>`:''}
       <button class="ln designer${b.default_mode==='designer'?' def':''}" onclick="event.stopPropagation();launch('${b.guid}','designer')" title="запустить Конфигуратор${b.default_mode==='designer'?' (режим по умолчанию для этой базы)':''}">Конф</button>
       <button class="ln${b.default_mode==='enterprise'?' def':''}" onclick="event.stopPropagation();launch('${b.guid}','enterprise')" title="запустить Предприятие${b.default_mode==='enterprise'?' (режим по умолчанию для этой базы)':''}">Предпр</button>
       <button class="ln cmd" onclick="event.stopPropagation();dryrun('${b.guid}')" title="показать команду запуска, ничего не запуская (dry-run)">cmd</button>
@@ -424,6 +425,7 @@ function openBlock(){
       <td class="act">
         <button class="ln" onclick="event.stopPropagation();switchTo('${b.guid}','${first}')" title="переключиться на окно сеанса${(b.running_modes||[]).length>1?' (с выбором режима)':''}">Перекл</button>
         <button class="ln goto" onclick="event.stopPropagation();jumpToRow('${b.guid}')" title="показать эту базу в дереве (общем списке)">↳ список</button>
+        ${b.ws?`<button class="ln web" onclick="event.stopPropagation();openWeb('${b.guid}')" title="открыть в браузере (веб-клиент): ${esc(b.ws)}">🌐</button>`:''}
         <button class="ln designer" onclick="event.stopPropagation();launch('${b.guid}','designer')" title="запустить Конфигуратор">Конф</button>
         <button class="ln" onclick="event.stopPropagation();launch('${b.guid}','enterprise')" title="запустить Предприятие">Предпр</button>
       </td></tr>`}).join('');
@@ -713,6 +715,12 @@ async function dryrun(guid){
     body:JSON.stringify({guid,mode:MODE,extra_keys:adhocKeys()})});
   const j=await r.json();
   toast(j.cmd||('ОШИБКА: '+(j.error||'')),14000);
+}
+async function openWeb(guid){
+  const r=await fetch('/api/openweb',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({guid})});
+  const j=await r.json();
+  if(!j.ok)toast(j.error||'не получилось открыть в браузере');
 }
 async function toggleFav(guid){
   const b=STATE.bases.find(x=>x.guid===guid); if(!b)return;
