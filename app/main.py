@@ -112,6 +112,17 @@ def _build_cmd_from_body(body: dict, base: dict):
         storage = base.get('storage') or {}
     user = body.get('user') or base.get('user') or ''
     pwd = body.get('pwd') or base.get('pwd') or ''
+    # веб-база (ws=): Предприятие — тонкий клиент (1cv8c.exe),
+    # Конфигуратор — только толстый (у тонкого конфигуратора нет)
+    if base.get('ws') and not body.get('exe'):
+        if mode == 'enterprise' and exe and not exe.lower().endswith('1cv8c.exe'):
+            alt = Path(exe).with_name('1cv8c.exe')
+            if alt.is_file():
+                exe = str(alt)
+        elif mode == 'designer' and exe and exe.lower().endswith('1cv8c.exe'):
+            alt = Path(exe).with_name('1cv8.exe')
+            if alt.is_file():
+                exe = str(alt)
     try:
         return launcher.build_cmd(exe, mode, base['connect'], extra, storage,
                                   user, pwd), mode
@@ -163,6 +174,21 @@ async def launch(req: Request):
     return {'ok': True, 'pid': pid, 'cmd': cmd}
 
 
+@app.post('/api/openweb')
+async def openweb(req: Request):
+    """Веб-база (ws=): открыть адрес в браузере по умолчанию (веб-клиент)."""
+    body = await req.json()
+    _, base = _base_or_404(body.get('guid', ''))
+    if not base:
+        return JSONResponse({'error': 'база не найдена'}, status_code=404)
+    url = base.get('ws')
+    if not url:
+        return JSONResponse({'error': 'это не веб-база (нет ws-адреса)'}, status_code=400)
+    import os
+    os.startfile(url)      # браузер по умолчанию
+    return {'ok': True, 'url': url}
+
+
 def _running_pid(base: dict, mode: str) -> int | None:
     """PID живого сеанса этой базы в нужном режиме (или None)."""
     for s in procs.running_sessions():
@@ -172,6 +198,9 @@ def _running_pid(base: dict, mode: str) -> int | None:
             return s['pid']
         if base.get('server') and s['server'] and s['server'].lower() == base['server'].lower() \
                 and (s['ref'] or '').lower() == (base.get('ref') or '').lower():
+            return s['pid']
+        if base.get('ws') and s.get('ws') \
+                and s['ws'].rstrip('/').lower() == base['ws'].rstrip('/').lower():
             return s['pid']
         if s['name'] and s['name'].strip().lower() == base['name'].strip().lower():
             return s['pid']
