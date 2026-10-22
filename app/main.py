@@ -147,7 +147,13 @@ async def launch(req: Request):
                 status_code=409)
     pid = launcher.launch(cmd)
     launcher.log_launch(base['name'], mode, pid, cmd, base['guid'])
-    return {'ok': True, 'pid': pid, 'cmd': cmd}
+    # стартер не должен остаться на переднем плане: как только у базы появится настоящее
+    # окно (не сплэш «Загрузка конфигурационной информации…»), выносим его наверх
+    import threading
+    threading.Thread(target=procs.wait_and_focus,
+                     args=(lambda s: _session_matches(s, base), mode),
+                     kwargs={'timeout': 120, 'settle': 3}, daemon=True).start()
+    return {'ok': True, 'pid': pid, 'cmd': cmd, 'focus': 'queued'}
 
 
 @app.post('/api/openweb')
@@ -165,20 +171,25 @@ async def openweb(req: Request):
     return {'ok': True, 'url': url}
 
 
+def _session_matches(s: dict, base: dict) -> bool:
+    """Сеанс 1С относится к этой базе (путь / сервер+ref / ws-URL / имя из /IBName)."""
+    if base.get('path') and s.get('path') and procs._norm_path(s['path']) == procs._norm_path(base['path']):
+        return True
+    if base.get('server') and s.get('server') and s['server'].lower() == base['server'].lower() \
+            and (s.get('ref') or '').lower() == (base.get('ref') or '').lower():
+        return True
+    if base.get('ws') and s.get('ws') \
+            and s['ws'].rstrip('/').lower() == base['ws'].rstrip('/').lower():
+        return True
+    if s.get('name') and s['name'].strip().lower() == (base.get('name') or '').strip().lower():
+        return True
+    return False
+
+
 def _running_pid(base: dict, mode: str) -> int | None:
     """PID живого сеанса этой базы в нужном режиме (или None)."""
     for s in procs.running_sessions():
-        if s['mode'] != mode:
-            continue
-        if base.get('path') and s['path'] and procs._norm_path(s['path']) == procs._norm_path(base['path']):
-            return s['pid']
-        if base.get('server') and s['server'] and s['server'].lower() == base['server'].lower() \
-                and (s['ref'] or '').lower() == (base.get('ref') or '').lower():
-            return s['pid']
-        if base.get('ws') and s.get('ws') \
-                and s['ws'].rstrip('/').lower() == base['ws'].rstrip('/').lower():
-            return s['pid']
-        if s['name'] and s['name'].strip().lower() == base['name'].strip().lower():
+        if s['mode'] == mode and _session_matches(s, base):
             return s['pid']
     return None
 
