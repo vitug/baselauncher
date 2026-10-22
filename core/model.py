@@ -33,6 +33,7 @@ class BaseEntry:
     exe_src: str = ''       # откуда: our | sm | slot | auto | none
     family: str = ''        # семейство эффективной платформы ('8.3'...)
     thin: bool = False      # тонкий клиент (1cv8c.exe)
+    has_designer: bool = True  # есть ли конфигуратор: веб-база (ws) — нет; только тонкий клиент — нет
     storage: dict = field(default_factory=dict)  # хранилище конфигурации: dir/user/password
     extra_keys: list = field(default_factory=list)  # доп. ключи запуска
     our: dict = field(default_factory=dict)        # наши правки (overrides.json) как есть
@@ -44,6 +45,9 @@ class BaseEntry:
     descr: str = ''          # описание (эффективное: наше или из SM)
     user: str = ''           # пользователь ИБ /N (эффективное: наше или UserLogin из SM)
     pwd: str = ''            # пароль ИБ /P (только наш; из SM не импортируется)
+    pwd_sm: str = ''         # пароль «Предприятие», расшифрованный из SM (EntPassword)
+    pwd_sm_cfg: str = ''     # пароль «Конфигуратор», расшифрованный из SM (CfgPassword)
+    pwd_sm_note: str = ''    # '' | 'old' (расшифрован) | 'new' (новый метод SM, не поддерживается)
 
     def as_dict(self):
         return asdict(self)
