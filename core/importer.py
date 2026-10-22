@@ -1,34 +1,23 @@
 # -*- coding: utf-8 -*-
-"""Импорт данных SM 1.4 + 1CEStart в свой формат (data/bases.json) и сборка состояния.
+"""Сборка состояния BaseLauncher: ibases.v8i (список баз 1С) + свой конфиг (data/config.json).
 
-Приоритет эффективного exe платформы для базы:
-  1. data/overrides.json: bases[guid].exe      (наши правки — высший приоритет)
-  2. v8config.smc: V8UseAppFile=1 + V8AppFile  (пер-базовый обход из SM)
-  3. settings.cnf: слот семейства (V8xAppFile; слот 8.4 = 8.5 на этом хосте)
-  4. новейшая установленная платформа семейства по умолчанию (default_family)
+SM не используется. Приоритет эффективного exe платформы для базы:
+  1. config.json: bases[guid].exe        (наш выбор для базы)
+  2. config.json: families[семейство]     (закреплённый exe семейства)
+  3. новейшая установленная платформа семейства по умолчанию (default_family)
 """
 import datetime
 import json
 from pathlib import Path
 
-from . import launcher, parsers, procs, scanner, smcrypt
+from . import config, launcher, parsers, procs, scanner
 from .model import BaseEntry
 
 DATA_DIR = Path(__file__).resolve().parent.parent / 'data'
-OVERRIDES_PATH = DATA_DIR / 'overrides.json'
 STATE_PATH = DATA_DIR / 'bases.json'
 
 # семейство -> какие ключи слотов settings.cnf ему соответствуют
 _SLOT_FAMILIES = {'8.1': '8.1', '8.2': '8.2', '8.3': '8.3', '8.4': '8.4', '8.5': '8.5'}
-
-
-def load_overrides() -> dict:
-    if OVERRIDES_PATH.is_file():
-        try:
-            return json.loads(OVERRIDES_PATH.read_text(encoding='utf-8'))
-        except json.JSONDecodeError:
-            pass
-    return {'default_family': '8.3', 'bases': {}}
 
 
 def _family_of_exe(exe: str, platforms: list) -> str:
@@ -44,16 +33,14 @@ def _family_of_exe(exe: str, platforms: list) -> str:
     return ''
 
 
-def _resolve_exe(guid: str, sm: dict, overrides: dict, slots: dict, platforms: list) -> tuple[str, str]:
-    our = (overrides.get('bases') or {}).get(guid, {})
+def _resolve_exe(guid: str, cfg: dict, platforms: list) -> tuple[str, str]:
+    our = config.get_base(cfg, guid)
     if our.get('exe'):
         return our['exe'], 'our'
-    if str(sm.get('V8UseAppFile', '0')) == '1' and sm.get('V8AppFile'):
-        return sm['V8AppFile'], 'sm'
-    fam = overrides.get('default_family', '8.3')
-    slot_exe = slots.get(_SLOT_FAMILIES.get(fam, fam), '')
-    if slot_exe:
-        return slot_exe, 'slot'
+    fam = cfg.get('default_family') or '8.3'
+    pinned = config.family_exe(cfg, fam)
+    if pinned:
+        return pinned, 'config'
     for p in platforms:  # platforms отсортированы от новейших
         if p.family == fam:
             return p.exe, 'auto'
@@ -62,9 +49,7 @@ def _resolve_exe(guid: str, sm: dict, overrides: dict, slots: dict, platforms: l
 
 def build_state() -> dict:
     v8i_secs = parsers.parse_v8i()
-    sm_cfg = parsers.parse_v8config()
-    slots = parsers.parse_settings_slots()
-    overrides = load_overrides()
+    cfg = config.load()
     platforms = scanner.scan_platforms()
 
     bases = []
@@ -79,9 +64,8 @@ def build_state() -> dict:
             continue
         path, srvr, ref, ws = parsers.parse_connect(connect)
         guid = keys.get('ID', '').strip().lower()
-        sm = sm_cfg.get(guid, {})
-        our = (overrides.get('bases') or {}).get(guid, {})
-        exe, exe_src = _resolve_exe(guid, sm, overrides, slots, platforms)
+        our = config.get_base(cfg, guid)
+        exe, exe_src = _resolve_exe(guid, cfg, platforms)
         if our.get('thin') and exe:  # тонкий клиент: 1cv8c.exe рядом с выбранным exe
             alt = str(Path(exe).with_name('1cv8c.exe'))
             if Path(alt).is_file():
@@ -94,19 +78,17 @@ def build_state() -> dict:
             if Path(alt).is_file():
                 exe = alt
                 ws_thin = True
-        storage = dict(our.get('storage') or {})
-        if not storage.get('dir') and sm.get('StorageDir'):
-            storage = {'dir': sm.get('StorageDir', ''), 'user': sm.get('StorageUser', '')}
-        # пароли из SM: расшифровываем (crypto-module, ключ REDACTED)
-        pwd_sm = smcrypt.decrypt(sm.get('EntPassword', ''))
-        pwd_sm_cfg = smcrypt.decrypt(sm.get('CfgPassword', ''))
-        pwd_sm_note = ''
-        if sm.get('EntPassword') or sm.get('CfgPassword'):
-            pwd_sm_note = 'old' if (pwd_sm or pwd_sm_cfg) else 'new'
-        if sm.get('StoragePassword'):
-            sp = smcrypt.decrypt(sm['StoragePassword'])
-            if sp:
-                storage.setdefault('password_sm', sp)
+        # хранилище конфигурации — из своего конфига (пароль расшифровывается на лету)
+        storage = {}
+        st_cfg = our.get('storage') or {}
+        if st_cfg.get('dir'):
+            storage = {'dir': st_cfg.get('dir', ''), 'user': st_cfg.get('user', ''),
+                       'password': config.unseal(st_cfg.get('pwd') or '')}
+        # пароли ИБ: Предприятие / Конфигуратор (в файле — sealed)
+        pwd = config.unseal(our.get('pwd') or '')
+        pwd_cfg = config.unseal(our.get('pwd_cfg') or '')
+        pwd_note = 'set' if (pwd or pwd_cfg) else (
+            'broken' if (our.get('pwd') or our.get('pwd_cfg')) else '')
         # конфигуратор есть не всегда: у веб-базы (ws) его нет в принципе,
         # у платформы «только тонкий клиент» — нет толстого 1cv8.exe
         has_designer = True
@@ -129,21 +111,16 @@ def build_state() -> dict:
         bases.append(BaseEntry(
             guid=guid,
             name=(our.get('name') or name),
-            descr=(our.get('descr') or sm.get('Description', '')),
-            user=(our.get('user') or sm.get('UserLogin', '')),
-            pwd=str(our.get('pwd') or ''),
-            pwd_sm=pwd_sm, pwd_sm_cfg=pwd_sm_cfg, pwd_sm_note=pwd_sm_note,
+            descr=str(our.get('descr') or ''),
+            user=str(our.get('user') or ''),
+            pwd=pwd,
+            pwd_cfg=pwd_cfg, pwd_note=pwd_note,
             folder=keys.get('Folder', '/'),
             connect=connect,
             path=path, server=srvr, ref=ref, ws=ws,
             app=keys.get('App', 'Auto'),
             order=keys.get('OrderInTree', ''),
-            sm={'Description': sm.get('Description', ''),
-                'LaunchDate': sm.get('LaunchDate', ''),
-                'V8AppFile': sm.get('V8AppFile', ''),
-                'UserLogin': sm.get('UserLogin', ''),
-                'StorageDir': sm.get('StorageDir', ''),
-                'StorageUser': sm.get('StorageUser', '')},
+            sm={},
             exe=exe, exe_src=exe_src,
             family=_family_of_exe(exe, platforms),
             thin=bool(our.get('thin')) or ws_thin,
@@ -152,7 +129,7 @@ def build_state() -> dict:
             extra_keys=list(our.get('extra_keys') or []),
             our=our,
             fav=bool(our.get('fav')),
-            default_mode=(our.get('mode') if our.get('mode') in ('enterprise', 'designer') else ''),
+            default_mode=(str(our.get('mode')) if our.get('mode') in ('enterprise', 'designer') else ''),
             path_ok=path_ok,
             path_info=path_info,
             exe_ok=exe_ok,
@@ -267,8 +244,9 @@ def build_state() -> dict:
 
     state = {
         'generated_at': datetime.datetime.now().isoformat(timespec='seconds'),
-        'defaults': {'default_family': overrides.get('default_family', '8.3')},
-        'slots': slots,
+        'defaults': {'default_family': cfg.get('default_family', '8.3'),
+                     'families': cfg.get('families', {})},
+        'config_path': str(config.CONFIG_PATH),
         'platforms': [p.as_dict() for p in platforms],
         'folders': folders,
         'bases': bases,
