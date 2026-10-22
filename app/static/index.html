@@ -216,6 +216,8 @@ button.ln.gear:hover{border-color:var(--green)}
   <button id="b-collapse-all" class="add" onclick="collapseAll()" title="свернуть все папки дерева">− всё</button>
   <button id="b-expand-all" class="add" onclick="expandAll()" title="развернуть все папки дерева">+ всё</button>
   <button id="adhoc-tgl" onclick="toggleAdhoc()">разовые ключи ▾</button>
+  <button id="b-tray" class="add" onclick="toTray()"
+    title="убрать окно в трей (сервер работает, вернуть — Ctrl+Shift+S или клик по иконке в трее)">⌄ в трей</button>
   <div id="chips"></div>
   <input id="search" placeholder="поиск: имя, путь, сервер…" autofocus>
   <button id="b-clear-filter" class="add" onclick="clearFilter()" style="display:none"
@@ -1043,25 +1045,35 @@ $('novl').addEventListener('click',e=>{if(e.target.id==='novl')closeNew()});
 $('ovl').addEventListener('click',e=>{if(e.target.id==='ovl')closeModal()});
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){closeModal();closeNew();closeAsk();return}
-  // Ctrl+Shift+S — поднять окно стартера. Сверяем e.code (физическая клавиша),
-  // поэтому работает и в русской раскладке, когда e.key = 'Ы'.
+  // Ctrl+Shift+S — показать/убрать окно. Если глобальная клавиша зарегистрирована, Edge
+  // её вообще не получает (RegisterHotKey перехватывает) — тогда здесь ничего не делаем,
+  // иначе получится двойное переключение. Это только резерв, когда клавишу занял кто-то ещё.
   if(e.ctrlKey&&e.shiftKey&&(e.code==='KeyS'||String(e.key).toLowerCase()==='s'
      ||String(e.key).toLowerCase()==='ы')){
-    e.preventDefault(); focusStarter(); return}
+    e.preventDefault(); if(!HK_OK) trayToggle(); return}
 });
-async function focusStarter(){
-  const r=await fetch('/api/starter/focus',{method:'POST',headers:{'Content-Type':'application/json'},
+let HK_OK=false;
+async function trayToggle(){
+  const r=await fetch('/api/starter/toggle',{method:'POST',headers:{'Content-Type':'application/json'},
     body:'{}'});
   const j=await r.json();
+  if(j.action==='hidden'){ stat('окно убрано в трей — Ctrl+Shift+S вернёт','ok'); return }
   if(!j.ok)toast('окно стартера: '+(j.error||'не найдено'));
   else if(j.foreground===false)toast('окно стартера найдено, но фокус не отдан');
   else window.focus();
 }
+async function toTray(){
+  const r=await fetch('/api/starter/hide',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:'{}'});
+  const j=await r.json();
+  if(!j.ok)toast('в трей не получилось: '+(j.error||'нет окна'));
+}
 async function hotkeyInfo(){
   try{
     const j=await (await fetch('/api/hotkey')).json();
+    HK_OK=!!j.registered;
     if(!j.registered&&j.error)$('st-left').title='горячая клавиша: '+j.error;
-    else $('st-left').title='Ctrl+Shift+S — показать окно стартера';
+    else $('st-left').title='Ctrl+Shift+S — показать/убрать окно (трей)';
   }catch(e){}
 }
 
