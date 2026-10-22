@@ -6,9 +6,9 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from core import importer, launcher
+from core import importer, launcher, v8i_writer
 
-app = FastAPI(title='BaseLauncher', version='0.4.0')
+app = FastAPI(title='BaseLauncher', version='0.5.0')
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
 
@@ -145,6 +145,60 @@ async def launch(req: Request):
 @app.get('/api/log')
 def log(n: int = 50):
     return launcher.tail_log(n)
+
+
+@app.post('/api/base/new')
+async def base_new(req: Request):
+    """Добавить базу в ibases.v8i (1С увидит её в своём лаунчере)."""
+    body = await req.json()
+    name = (body.get('name') or '').strip()
+    folder = (body.get('folder') or '/').strip() or '/'
+    path = (body.get('path') or '').strip()
+    server = (body.get('server') or '').strip()
+    ref = (body.get('ref') or '').strip()
+    if not name:
+        return JSONResponse({'error': 'укажите имя базы'}, status_code=400)
+    if path:
+        connect = 'File="%s"' % path.rstrip('\\/')
+    elif server and ref:
+        connect = 'Srvr="%s";Ref="%s"' % (server, ref)
+    else:
+        return JSONResponse(
+            {'error': 'нужен путь к папке базы (файловая) или сервер + имя базы (серверная)'},
+            status_code=400)
+    try:
+        guid = v8i_writer.add_base(name, connect, folder)
+    except ValueError as e:
+        return JSONResponse({'error': str(e)}, status_code=400)
+    st = importer.build_state()
+    return {'ok': True, 'guid': guid, 'base': importer.find_base(st, guid)}
+
+
+@app.post('/api/folder/new')
+async def folder_new(req: Request):
+    """Добавить папку в дерево ibases.v8i."""
+    body = await req.json()
+    name = (body.get('name') or '').strip()
+    parent = (body.get('parent') or '/').strip() or '/'
+    if not name:
+        return JSONResponse({'error': 'укажите имя папки'}, status_code=400)
+    try:
+        guid = v8i_writer.add_folder(name, parent)
+    except ValueError as e:
+        return JSONResponse({'error': str(e)}, status_code=400)
+    st = importer.build_state()
+    return {'ok': True, 'guid': guid, 'folders': len(st['folders'])}
+
+
+@app.delete('/api/base/{guid}')
+def base_delete(guid: str):
+    """Удалить базу/пустую папку из ibases.v8i."""
+    try:
+        name = v8i_writer.delete(guid)
+    except ValueError as e:
+        return JSONResponse({'error': str(e)}, status_code=400)
+    st = importer.build_state()
+    return {'ok': True, 'deleted': name, 'bases': len(st['bases'])}
 
 
 @app.post('/api/shutdown')
