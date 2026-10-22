@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from core import importer, launcher, procs, v8i_writer
 
-app = FastAPI(title='BaseLauncher', version='0.8.0')
+app = FastAPI(title='BaseLauncher', version='0.8.1')
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
 
