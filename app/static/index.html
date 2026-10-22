@@ -326,10 +326,10 @@ function baseRow(b,depth){
     <td class="path" title="${esc(loc)}">${esc(loc)}</td>
     <td class="plat">${badge(b)}</td>
     <td class="act">
-      <button class="ln gear" onclick="event.stopPropagation();openSettings('${b.guid}')">⚙</button>
-      <button class="ln cmd" onclick="event.stopPropagation();dryrun('${b.guid}')">cmd</button>
-      <button class="ln designer" onclick="event.stopPropagation();launch('${b.guid}','designer')">Конф</button>
-      <button class="ln" onclick="event.stopPropagation();launch('${b.guid}','enterprise')">1С</button>
+      <button class="ln gear" onclick="event.stopPropagation();openSettings('${b.guid}')" title="настройки базы">⚙</button>
+      <button class="ln cmd" onclick="event.stopPropagation();dryrun('${b.guid}')" title="показать команду запуска, ничего не запуская (dry-run)">cmd</button>
+      <button class="ln designer" onclick="event.stopPropagation();launch('${b.guid}','designer')" title="запустить Конфигуратор">Конф</button>
+      <button class="ln" onclick="event.stopPropagation();launch('${b.guid}','enterprise')" title="запустить Предприятие">Предпр</button>
     </td></tr>`;
 }
 /* свёрнутый блок «Недавние»: быстрый запуск того, что запускали последним */
@@ -345,8 +345,8 @@ function recentBlock(){
     <td class="path" title="${esc(r.path||'')}">${esc(r.path||'')}</td>
     <td class="plat"><span class="tag ${r.day}">${esc(ago(r.last_ts))}</span>${r.mode==='designer'?'<span class="ver">конфигуратор</span>':''}${r.count>1?`<span class="ver">×${r.count}</span>`:''}</td>
     <td class="act">
-      <button class="ln" onclick="event.stopPropagation();launch('${r.guid}','enterprise')">1С</button>
-      <button class="ln designer" onclick="event.stopPropagation();launch('${r.guid}','designer')">Конф</button>
+      <button class="ln" onclick="event.stopPropagation();launch('${r.guid}','enterprise')" title="запустить Предприятие">Предпр</button>
+      <button class="ln designer" onclick="event.stopPropagation();launch('${r.guid}','designer')" title="запустить Конфигуратор">Конф</button>
     </td></tr>`).join('');
   return h;
 }
