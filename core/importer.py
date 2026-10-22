@@ -77,7 +77,7 @@ def build_state() -> dict:
             folders.append({'guid': keys.get('ID', '').strip().lower(), 'name': name,
                             'folder': keys.get('Folder', '/'), 'order': keys.get('OrderInTree', '')})
             continue
-        path, srvr, ref = parsers.parse_connect(connect)
+        path, srvr, ref, ws = parsers.parse_connect(connect)
         guid = keys.get('ID', '').strip().lower()
         sm = sm_cfg.get(guid, {})
         our = (overrides.get('bases') or {}).get(guid, {})
@@ -107,7 +107,7 @@ def build_state() -> dict:
             pwd=str(our.get('pwd') or ''),
             folder=keys.get('Folder', '/'),
             connect=connect,
-            path=path, server=srvr, ref=ref,
+            path=path, server=srvr, ref=ref, ws=ws,
             app=keys.get('App', 'Auto'),
             order=keys.get('OrderInTree', ''),
             sm={'Description': sm.get('Description', ''),
@@ -171,7 +171,8 @@ def build_state() -> dict:
         b['last_launch'] = m['last_ts'] or None
         b['launches'] = m['count']
         b['launch_day'] = day
-        loc = b['path'] or ((b['server'] + ('\\' + b['ref'] if b['ref'] else '')) if b['server'] else '')
+        loc = b['path'] or b.get('ws') or \
+            ((b['server'] + ('\\' + b['ref'] if b['ref'] else '')) if b['server'] else '')
         recent.append({'guid': b['guid'], 'name': b['name'], 'path': loc,
                        'mode': m['mode'], 'last_ts': m['last_ts'],
                        'count': m['count'], 'day': day})
@@ -182,6 +183,7 @@ def build_state() -> dict:
     by_path: dict[str, list[dict]] = {}
     by_srv: dict[str, list[dict]] = {}
     by_name: dict[str, list[dict]] = {}
+    by_ws: dict[str, list[dict]] = {}
     for b in bases:
         b['running_modes'] = []
         b['running_pids'] = {}
@@ -191,25 +193,48 @@ def build_state() -> dict:
             by_path.setdefault(procs._norm_path(b['path']), []).append(b)
         if b['server']:
             by_srv.setdefault('%s|%s' % (b['server'].lower(), (b['ref'] or '').lower()), []).append(b)
+        if b.get('ws'):
+            by_ws.setdefault(b['ws'].rstrip('/').lower(), []).append(b)
         by_name.setdefault(b['name'].strip().lower(), []).append(b)
     live = []
+    # лучший pid на (база, режим): окно > без окна, настоящий заголовок > сплэш
+    # (веб-базы: толстый клиент грузит «Загрузка конфигурационной информации...»
+    # и перепоручает тонкому — реальное окно у тонкого клиента)
+    best: dict[tuple, tuple] = {}
+
+    def _prio(s: dict) -> tuple:
+        t = (s.get('title') or '').strip()
+        splash = t.startswith('Загрузка конфигурационной информации') \
+            or t.startswith('Запуск 1С:Предприятия')
+        return (1 if s.get('window') else 0, 0 if splash else 1)
+
     for s in sessions:
         cand = []
         if s['path']:
             cand = by_path.get(procs._norm_path(s['path']), [])
         elif s['server']:
             cand = by_srv.get('%s|%s' % (s['server'].lower(), (s['ref'] or '').lower()), [])
+        elif s.get('ws'):
+            cand = by_ws.get(s['ws'].rstrip('/').lower(), [])
         elif s['name']:
             cand = by_name.get(s['name'].strip().lower(), [])
         for b in cand:
             b['running'] = True
             if s['mode'] not in b['running_modes']:
                 b['running_modes'].append(s['mode'])
-            b['running_pids'][s['mode']] = s['pid']
-            b['running_win'][s['mode']] = bool(s.get('window'))
+            key = (b['guid'], s['mode'])
+            pr = _prio(s)
+            if key not in best or pr > best[key][0]:
+                best[key] = (pr, s['pid'])
+            b['running_win'][s['mode']] = bool(b['running_win'].get(s['mode'])) or bool(s.get('window'))
             live.append({'guid': b['guid'], 'name': b['name'], 'mode': s['mode'],
                          'pid': s['pid'], 'exe': s['exe'],
                          'window': bool(s.get('window')), 'title': s.get('title', '')})
+    for (g, m), (_pr, pid) in best.items():
+        for b in bases:
+            if b['guid'] == g:
+                b['running_pids'][m] = pid
+                break
 
     state = {
         'generated_at': datetime.datetime.now().isoformat(timespec='seconds'),

@@ -25,6 +25,7 @@ class BaseEntry:
     path: str           # каталог файловой базы ('' для серверных)
     server: str         # Srvr для серверных баз ('')
     ref: str            # Ref для серверных баз ('')
+    ws: str             # URL веб-базы (Connect=ws="https://…")
     app: str            # App из v8i (Auto/Thick/Thin)
     order: str          # OrderInTree
     sm: dict = field(default_factory=dict)        # пер-базовые настройки SM (v8config.smc)

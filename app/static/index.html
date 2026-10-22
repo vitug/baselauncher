@@ -226,6 +226,7 @@ button.ln.gear:hover{border-color:var(--green)}
 <div id="ovl"><div id="modal">
   <h2 id="md-title">Настройки базы</h2>
   <div class="eff" id="md-eff"></div>
+  <div class="eff" id="md-conn"></div>
 
   <label>Имя</label>
   <input type="text" id="s-name">
@@ -384,7 +385,7 @@ function launchDot(b){
   return '';
 }
 function baseRow(b,depth){
-  const loc=b.path||((b.server?(b.server+(b.ref?'\\'+b.ref:'')):''));
+  const loc=b.path||b.ws||((b.server?(b.server+(b.ref?'\\'+b.ref:'')):''));
   const desc=b.descr?` title="${esc(b.descr)}"`:'';
   const dcl=b.launch_day==='today'?' today':(b.launch_day==='yesterday'?' yesterday':'');
   const run=b.running
@@ -415,7 +416,7 @@ function openBlock(){
       `<span class="tag${wins[m]===false?' nowin':''}" title="${wins[m]===false?'у сеанса нет видимого окна (запуск из EDT)':'PID '+(pids[m]||'')}">`
       +`${m==='designer'?'конф':'предпр'}${pids[m]?' '+pids[m]:''}${wins[m]===false?' · нет окна':''}</span>`).join('');
     const first=(b.running_modes||[])[0]||'enterprise';
-    const loc=b.path||((b.server?(b.server+(b.ref?'\\'+b.ref:'')):''));
+    const loc=b.path||b.ws||((b.server?(b.server+(b.ref?'\\'+b.ref:'')):''));
     return `<tr class="base open" data-g="${b.guid}">
       <td class="name" style="padding-left:24px"><span class="dot today" title="сеанс открыт"></span>${esc(b.name)}</td>
       <td class="path" title="${esc(loc)}">${esc(loc)}</td>
@@ -509,7 +510,7 @@ function render(){
     const list=STATE.bases.filter(b=>{
       if(fam==='__bad'&&!(b.path_ok===false||b.exe_ok===false)) return false;
       if(fam!=='__bad'&&fam!=='all'&&b.family!==fam) return false;
-      return (b.name+' '+(b.path||'')+' '+(b.server||'')+' '+(b.ref||'')+' '+(b.descr||'')).toLowerCase().includes(ql);
+      return (b.name+' '+(b.path||'')+' '+(b.ws||'')+' '+(b.server||'')+' '+(b.ref||'')+' '+(b.descr||'')).toLowerCase().includes(ql);
     });
     $('rows').innerHTML=list.map(b=>baseRow(b,0)).join('');
     shown=list.length;
@@ -729,6 +730,9 @@ async function openSettings(guid){
   $('md-title').textContent='Настройки: '+(our.name||b.name);
   $('md-eff').textContent=(b.exe?('эффективно: '+b.exe+' ['+b.exe_src+(b.thin?', thin':'')+']'):'эффективный exe не определён')
     +(b.storage&&b.storage.dir?(' · хранилище: '+b.storage.dir):'');
+  $('md-conn').textContent=b.ws?('веб-база (ws): '+b.ws)
+    :(b.path?('папка: '+b.path)
+    :(b.server?('сервер: '+b.server+(b.ref?' \\ '+b.ref:'')):''));
   $('s-name').value=our.name||''; $('s-name').placeholder=b.name;
   $('s-descr').value=our.descr||''; $('s-descr').placeholder=(b.sm&&b.sm.Description)||'';
   $('s-user-ib').value=our.user||''; $('s-user-ib').placeholder=(b.sm&&b.sm.UserLogin)||'';
