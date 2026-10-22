@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """REST-слой BaseLauncher (FastAPI). Только 127.0.0.1."""
 import json
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -8,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from core import config, hotkey, importer, launcher, platforms_share, procs, tray, v8i_writer
 
-app = FastAPI(title='BaseLauncher', version='0.12.4')
+app = FastAPI(title='BaseLauncher', version='0.14.0')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -18,7 +19,18 @@ ICON = Path(__file__).parent.parent / 'assets' / 'baselauncher.ico'
 @app.on_event('startup')
 def _startup():
     """Глобальная клавиша Ctrl+Shift+S (показать / убрать в трей) и иконка в трее."""
-    hotkey.start(PORT)
+    hotkey.start(PORT)          # клавиша Ctrl+Shift+S + сторож геометрии окна
+
+    def _ensure_window():
+        import time
+        time.sleep(0.8)
+        try:
+            if not hotkey.find_starter_window(PORT):
+                hotkey.focus_starter(PORT)      # окна нет — открыть (и одно!)
+        except Exception:                       # noqa: BLE001
+            pass
+
+    threading.Thread(target=_ensure_window, daemon=True, name='bl-window').start()
     tray.start(PORT)
 
 
@@ -65,7 +77,7 @@ def mcp_info():
 @app.get('/api/state')
 def state():
     """Полное состояние: базы (со своим конфигом), папки, платформы, семейства."""
-    return importer.build_state()
+    return {**importer.build_state(), 'version': app.version}
 
 
 @app.get('/api/sessions')
@@ -432,3 +444,48 @@ def shutdown():
 
     threading.Timer(0.3, _bye).start()
     return {'ok': True, 'bye': 'shutting down'}
+
+
+@app.post('/api/quit')
+def quit_app():
+    """Полный выход: закрыть окно приложения, убрать иконку из трея, остановить сервер."""
+    import os
+    import threading
+
+    def _bye():
+        try:
+            hotkey.close_starter(PORT)          # WM_CLOSE окну Edge --app
+            tray.remove_icon()                  # значок не должен остаться «мёртвым»
+        finally:
+            os._exit(0)
+
+    threading.Timer(0.4, _bye).start()
+    return {'ok': True, 'bye': 'closing window and server'}
+
+
+@app.post('/api/restart')
+def restart_app():
+    """Перезапуск: закрыть окно, поднять сервер и окно заново (boot.py, )."""
+    import os
+    import subprocess
+    import sys
+    import threading
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent     # корень репозитория, не app/
+    boot = root / 'boot.py'
+    pythonw = Path(sys.executable).with_name('pythonw.exe')
+
+    def _bye():
+        try:
+            hotkey.close_starter(PORT)                  # окно закроем, новое откроет boot.py
+            tray.remove_icon()
+            # boot.py --wait-down дождётся освобождения порта, поднимет сервер и окно
+            subprocess.Popen([str(pythonw if pythonw.is_file() else sys.executable),
+                              str(boot), '--wait-down'], cwd=str(root),
+                             close_fds=True, creationflags=0x00000008)  # DETACHED_PROCESS
+        finally:
+            os._exit(0)
+
+    threading.Timer(0.4, _bye).start()
+    return {'ok': True, 'bye': 'restarting'}
