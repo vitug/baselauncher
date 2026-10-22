@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from core import config, hotkey, importer, launcher, platforms_share, procs, v8i_writer
 
-app = FastAPI(title='BaseLauncher', version='0.11.0')
+app = FastAPI(title='BaseLauncher', version='0.11.7')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -76,6 +76,9 @@ def _build_cmd_from_body(body: dict, base: dict):
     exe = body.get('exe') or base['exe']
     mode = body.get('mode', 'enterprise')
     extra = body.get('extra_keys')
+    err = _check_execute(extra)
+    if err:
+        return JSONResponse({'error': err}, status_code=400), mode
     storage = body.get('storage')
     if storage is None:
         storage = base.get('storage') or {}
@@ -112,6 +115,43 @@ def _build_cmd_from_body(body: dict, base: dict):
                                   user, pwd), mode
     except ValueError as e:
         return JSONResponse({'error': str(e)}, status_code=400), mode
+
+
+def _check_execute(extra: list | None) -> str | None:
+    """Разовый ключ /Execute — файл обработки должен существовать (иначе 1С молча падает)."""
+    for k in extra or []:
+        s = str(k).strip()
+        if not s.lower().startswith('/execute'):
+            continue
+        p = s[len('/execute'):].strip().strip('"')
+        if not p:
+            return 'пустой путь в /Execute'
+        if not Path(p).is_file():
+            return f'файл обработки не найден: {p}'
+        if Path(p).suffix.lower() not in ('.epf', '.erf'):
+            return f'/Execute ждёт .epf или .erf, а не {Path(p).suffix or "(без расширения)"}'
+    return None
+
+
+@app.post('/api/pickfile')
+def pickfile(req: dict):
+    """Нативный диалог выбора файла обработки (сервер на этой же машине)."""
+    try:
+        from core import filedlg
+        p = filedlg.pick_file(title=req.get('title') or 'Выбрать файл',
+                              initial_dir=_initial_dir(req.get('initial')))
+        return {'path': p, 'cancelled': p == ''}
+    except Exception as e:                     # noqa: BLE001
+        return JSONResponse({'error': f'{type(e).__name__}: {e}'}, status_code=500)
+
+
+def _initial_dir(p: str | None) -> str:
+    if not p:
+        return ''
+    q = Path(str(p))
+    if q.is_file():
+        return str(q.parent)
+    return str(q) if q.is_dir() else ''
 
 
 @app.post('/api/dryrun')
