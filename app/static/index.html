@@ -48,6 +48,11 @@ table{width:100%;border-collapse:collapse}
 tr.base,tr.folder{cursor:pointer}
 tr.base:hover td{background:var(--row-hi)}
 tr.folder td{background:var(--panel);font-weight:600;padding-top:8px;padding-bottom:8px}
+tr.folder .fld{display:flex;align-items:center;gap:8px;min-width:0}
+tr.folder .fld-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+tr.folder .fld-act{display:flex;align-items:center;gap:6px;flex:0 0 auto;margin-left:8px}
+tr.folder button.fld-toggle{border-style:solid;color:var(--muted);text-align:center}
+tr.folder:hover button.fld-toggle{color:var(--fg);border-color:var(--blue)}
 tr.folder .arrow{display:inline-block;width:14px;color:var(--muted);font-size:11px}
 tr.folder .cnt{color:var(--muted);font-weight:400;font-size:11.5px;margin-left:6px}
 /* групповые кнопки «развернуть/свернуть всё внутри» — в заголовке папки, по наведению */
@@ -57,6 +62,7 @@ tr.folder:hover .grp{display:inline-block}
 tr.folder .grp:hover{border-color:var(--blue)}
 /* «＋ папка» в строке папки — всегда видна, как кнопка «+ папка» в шапке */
 tr.folder .grp.add-folder{display:inline-block;border-style:dashed;color:var(--muted)}
+tr.folder button.fld-toggle{display:inline-block}   /* переключатель справа виден всегда, без hover */
 tr.folder .grp.add-folder:hover{color:var(--fg)}
 tr.base.flash td{animation:fl 1.6s}
 @keyframes fl{0%{background:#2d4a2f}100%{background:transparent}}
@@ -542,7 +548,12 @@ function openBlock(){
   const idx=FOLDERS.length; FOLDERS.push('__open');
   const open=!COLLAPSED.has('__open');
   let h=`<tr class="folder open-h" onclick="toggleBlock('__open')"><td colspan="4" style="padding-left:6px">
-    <span class="arrow">${open?'▼':'▶'}</span>● Открытые<span class="cnt">${bs.length}</span></td></tr>`;
+    <div class="fld"><span class="arrow">${open?'▼':'▶'}</span>
+      <span class="fld-name">● Открытые</span><span class="cnt">${bs.length}</span>
+      <span class="fld-act"><button class="grp fld-toggle"
+        onclick="event.stopPropagation();toggleBlock('__open')"
+        title="${open?'свернуть блок':'развернуть блок'}">${open?'▴ свернуть':'▾ развернуть'}</button></span>
+    </div></td></tr>`;
   if(open) h+=bs.map(b=>{
     const pids=b.running_pids||{}, wins=b.running_win||{};
     const modes=(b.running_modes||[]).map(m=>
@@ -572,7 +583,12 @@ function recentBlock(){
   const idx=FOLDERS.length; FOLDERS.push('__recent');
   const open=!COLLAPSED.has('__recent');
   let h=`<tr class="folder recent-h" onclick="toggleBlock('__recent')"><td colspan="4" style="padding-left:6px">
-    <span class="arrow">${open?'▼':'▶'}</span>⟲ Недавние<span class="cnt">${rec.length}</span></td></tr>`;
+    <div class="fld"><span class="arrow">${open?'▼':'▶'}</span>
+      <span class="fld-name">⟲ Недавние</span><span class="cnt">${rec.length}</span>
+      <span class="fld-act"><button class="grp fld-toggle"
+        onclick="event.stopPropagation();toggleBlock('__recent')"
+        title="${open?'свернуть блок':'развернуть блок'}">${open?'▴ свернуть':'▾ развернуть'}</button></span>
+    </div></td></tr>`;
   if(open) h+=rec.map(r=>`<tr class="base recent${r.day==='today'?' today':r.day==='yesterday'?' yesterday':''}" data-g="${r.guid}">
     <td class="name" style="padding-left:24px"><span class="rc ${r.day==='yesterday'?'yesterday':''}">◷</span>${esc(r.name)}</td>
     <td class="path" title="${esc(r.path||'')}">${esc(r.path||'')}</td>
@@ -591,11 +607,18 @@ function folderRow(n,depth){
   const open=isPathOpen(n.path);
   return `<tr class="folder" onclick="toggleF(${idx})">
       <td colspan="4" style="padding-left:${depth*18+6}px">
-      <span class="arrow">${open?'▼':'▶'}</span>${esc(n.name)}<span class="cnt">${countBases(n)}</span>${
-      n.path&&n.path.startsWith('__')?''
-      :`<button class="grp" onclick="event.stopPropagation();expandGroup(${idx})" title="развернуть всё внутри этой группы">+ всё</button>
-        <button class="grp" onclick="event.stopPropagation();collapseGroup(${idx})" title="свернуть всё внутри этой группы">− всё</button>
-        <button class="grp add-folder" onclick="event.stopPropagation();openNew('folder',FOLDERS[${idx}])" title="добавить подпапку внутрь «${esc(n.name)}»">＋ папка</button>`}</td></tr>`
+      <div class="fld">
+        <span class="arrow">${open?'▼':'▶'}</span>
+        <span class="fld-name">${esc(n.name)}</span><span class="cnt">${countBases(n)}</span>
+        <span class="fld-act">${
+        n.path&&n.path.startsWith('__')?''
+        :`<button class="grp" onclick="event.stopPropagation();expandGroup(${idx})" title="развернуть всё внутри этой группы">+ всё</button>
+          <button class="grp" onclick="event.stopPropagation();collapseGroup(${idx})" title="свернуть всё внутри этой группы">− всё</button>
+          <button class="grp add-folder" onclick="event.stopPropagation();openNew('folder',FOLDERS[${idx}])" title="добавить подпапку внутрь «${esc(n.name)}»">＋ папка</button>`}
+          <button class="grp fld-toggle" onclick="event.stopPropagation();toggleF(${idx})"
+            title="${open?'свернуть папку':'развернуть папку'}">${open?'▴ свернуть':'▾ развернуть'}</button>
+        </span>
+      </div></td></tr>`
     +(open?renderNode(n,depth+1):'');
 }
 function renderNode(n,depth){
