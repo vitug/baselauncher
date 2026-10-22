@@ -60,6 +60,28 @@ class WNDCLASSW(ctypes.Structure):
                 ('lpszMenuName', wt.LPCWSTR), ('lpszClassName', wt.LPCWSTR)]
 
 
+# Без argtypes ctypes не преобразует python-str в LPCWSTR: AppendMenuW бросает
+# ArgumentError, пункты не добавляются, и меню выходит пустым (ошибка тонула в try).
+u32.AppendMenuW.argtypes = [wt.HMENU, wt.UINT, ctypes.c_size_t, wt.LPCWSTR]
+u32.AppendMenuW.restype = wt.BOOL
+u32.CreatePopupMenu.restype = wt.HMENU
+u32.DestroyMenu.argtypes = [wt.HMENU]
+u32.GetMenuItemCount.argtypes = [wt.HMENU]
+u32.GetMenuItemCount.restype = ctypes.c_int
+u32.GetMenuStringW.argtypes = [wt.HMENU, wt.UINT, wt.LPWSTR, ctypes.c_int, wt.UINT]
+u32.GetMenuStringW.restype = ctypes.c_int
+u32.GetCursorPos.argtypes = [ctypes.POINTER(wt.POINT)]
+u32.TrackPopupMenu.argtypes = [wt.HMENU, wt.UINT, ctypes.c_int, ctypes.c_int,
+                               ctypes.c_int, wt.HWND, ctypes.c_void_p]
+u32.TrackPopupMenu.restype = ctypes.c_int
+u32.PostMessageW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
+u32.SetForegroundWindow.argtypes = [wt.HWND]
+u32.DestroyWindow.argtypes = [wt.HWND]
+u32.DefWindowProcW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
+u32.DefWindowProcW.restype = ctypes.c_ssize_t
+u32.PostQuitMessage.argtypes = [ctypes.c_int]
+
+
 def _icon_path() -> str:
     from pathlib import Path
     return str(Path(__file__).resolve().parent.parent / 'assets' / 'baselauncher.ico')
@@ -80,13 +102,40 @@ def _notify(hwnd, add=False, modify=False, tip='BaseLauncher — баз 1С (Ctr
     return bool(ok), nid.hIcon
 
 
+def _build_menu(port: int):
+    """Меню трея: подпись «Показать/Скрыть» зависит от того, видно ли окно."""
+    vis = hotkey._visible_starter(port)
+    try:
+        menu = u32.CreatePopupMenu()
+        u32.AppendMenuW(menu, MF_STRING, ID_SHOW,
+                        'Скрыть в трей' if vis else 'Показать окно')
+        u32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
+        u32.AppendMenuW(menu, MF_STRING, ID_WEB, 'Открыть в браузере')
+        u32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
+        u32.AppendMenuW(menu, MF_STRING, ID_QUIT, 'Выход (остановить сервер)')
+        _state['menu_items'] = u32.GetMenuItemCount(menu)
+        # читаем подписи обратно из меню: доказательство, что Windows их приняла
+        texts = []
+        for i in range(_state['menu_items']):
+            buf = ctypes.create_unicode_buffer(120)
+            if u32.GetMenuStringW(menu, i, buf, 120, 0x0400):    # MF_BYPOSITION
+                texts.append(buf.value)
+        _state['menu_text'] = texts
+        _state['menu_labels'] = ['Скрыть в трей' if vis else 'Показать окно',
+                                 'Открыть в браузере', 'Выход (остановить сервер)']
+        return menu
+    except Exception as e:                                     # noqa: BLE001
+        _state['error'] = f'меню: {type(e).__name__}: {e}'
+        return None
+
+
 def _run(port: int):
     hinst = k32.GetModuleHandleW(None)
     WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_longlong, wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM)
 
     def on_menu(cmd: int):
-        if cmd == ID_SHOW:
-            hotkey.show_starter(port)
+        if cmd in (ID_SHOW, ID_HIDE):
+            hotkey.toggle_starter(port)          # подпись зависит от состояния окна
         elif cmd == ID_HIDE:
             hotkey.hide_starter(port)
         elif cmd == ID_WEB:
@@ -95,13 +144,16 @@ def _run(port: int):
             except Exception as e:                  # noqa: BLE001
                 _state['error'] = f'открыть в браузере: {e}'
         elif cmd == ID_QUIT:
+            # полный выход: сервер сам закроет окно, уберёт иконку и завершит процесс
             try:
                 import urllib.request
                 op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-                op.open(urllib.request.Request('http://127.0.0.1:%d/api/shutdown' % port,
-                                               data=b'{}', method='POST'), timeout=10)
+                op.open(urllib.request.Request('http://127.0.0.1:%d/api/quit' % port,
+                                               data=b'{}', method='POST'), timeout=5)
             except Exception:
-                pass
+                hotkey.close_starter(port)          # сервер уже недоступен — хотя бы окно
+                remove_icon()
+                u32.PostQuitMessage(0)
 
     def wndproc(hwnd, msg, wparam, lparam):
         try:
@@ -111,19 +163,16 @@ def _run(port: int):
                     r = hotkey.toggle_starter(port)
                     _state['last'] = str(r)[:300]
                     return 0
-                if ev == WM_RBUTTONUP:
-                    menu = u32.CreatePopupMenu()
-                    u32.AppendMenuW(menu, MF_STRING, ID_SHOW, 'Показать окно')
-                    u32.AppendMenuW(menu, MF_STRING, ID_HIDE, 'Скрыть в трей')
-                    u32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
-                    u32.AppendMenuW(menu, MF_STRING, ID_WEB, 'Открыть в браузере')
-                    u32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
-                    u32.AppendMenuW(menu, MF_STRING, ID_QUIT, 'Выход (остановить сервер)')
+                if ev in (WM_RBUTTONUP, WM_CONTEXTMENU):
+                    menu = _build_menu(port)
+                    if not menu:
+                        return 0
                     pt = wt.POINT()
                     u32.GetCursorPos(ctypes.byref(pt))
                     u32.SetForegroundWindow(hwnd)      # иначе меню не закрывается по клику вне
                     cmd = u32.TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY,
                                              pt.x, pt.y, 0, hwnd, None)
+                    u32.PostMessageW(hwnd, 0x0000, 0, 0)   # WM_NULL — закрыть меню корректно
                     u32.DestroyMenu(menu)
                     if cmd:
                         on_menu(int(cmd))
@@ -176,6 +225,20 @@ def _arr(hwnd):
     return nid
 
 
+def remove_icon() -> bool:
+    """Убрать иконку из трея (иначе остаётся «мёртвый» значок до наведения мышью)."""
+    hwnd = _state.get('hwnd') or 0
+    if not hwnd:
+        return False
+    try:
+        shell32.Shell_NotifyIconW(NIM_DELETE, ctypes.byref(_arr(hwnd)))
+        _state['ready'] = False
+        return True
+    except Exception as e:                                     # noqa: BLE001
+        _state['error'] = f'remove_icon: {e}'
+        return False
+
+
 def start(port: int = 8797) -> dict:
     """Поднять трей-иконку в фоновом потоке (повторный вызов — no-op)."""
     if _state['thread'] and _state['thread'].is_alive():
@@ -189,4 +252,7 @@ def start(port: int = 8797) -> dict:
 
 def status() -> dict:
     return {'ready': _state['ready'], 'error': _state['error'],
-            'hwnd': _state['hwnd'], 'last': _state['last']}
+            'hwnd': _state['hwnd'], 'last': _state['last'],
+            'menu_items': _state.get('menu_items', 0),
+            'menu_labels': _state.get('menu_labels', []),
+            'menu_text': _state.get('menu_text', [])}
