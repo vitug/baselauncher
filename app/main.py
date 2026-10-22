@@ -12,6 +12,7 @@ app = FastAPI(title='BaseLauncher', version='0.12.0')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
+ICON = Path(__file__).parent.parent / 'assets' / 'baselauncher.ico'
 
 
 @app.on_event('startup')
@@ -23,6 +24,14 @@ def _startup():
 @app.get('/')
 def index():
     return FileResponse(INDEX)
+
+
+@app.get('/favicon.ico')
+def favicon():
+    """Иконка приложения: та же, что у ярлыка в меню «Пуск» (assets/baselauncher.ico)."""
+    if ICON.is_file():
+        return FileResponse(ICON, media_type='image/x-icon')
+    return JSONResponse({'error': 'assets/baselauncher.ico отсутствует'}, status_code=404)
 
 
 # ---------------------------------------------------------------- MCP (часть приложения)

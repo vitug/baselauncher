@@ -6,7 +6,7 @@ $ws = New-Object -ComObject WScript.Shell
 $lnkPath = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\BaseLauncher.lnk'
 $vbs     = 'D:\git_repos\baselauncher\deploy\BaseLauncher-autostart.vbs'
 $wscript = Join-Path $env:WINDIR 'System32\wscript.exe'
-$icon    = 'C:\Program Files\1cv8\8.3.27.2325\bin\1cv8.exe'
+$icon    = 'D:\git_repos\baselauncher\assets\baselauncher.ico'
 if (-not (Test-Path $icon)) { $icon = $wscript }
 
 $s = $ws.CreateShortcut($lnkPath)
