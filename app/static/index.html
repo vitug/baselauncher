@@ -1554,6 +1554,34 @@ async function pollSessions(){
   }catch(e){ /* сервер занят/перезапускается */ }
   SESS_BUSY=false;
 }
+/* ---------- 1С не запустилась: событие сторожа + снимок окна 1С ---------- */
+let LAST_LAUNCH_EV=null;
+async function pollLaunchErrors(){
+  if(!STATE) return;
+  try{
+    const j=await (await fetch('/api/launch/events')).json();
+    const ev=(j.events||[])[0];
+    if(!ev||LAST_LAUNCH_EV===ev.id)return;
+    LAST_LAUNCH_EV=ev.id;
+    showLaunchError(ev);
+  }catch(e){}
+}
+function showLaunchError(ev){
+  stat('1С не запустилась: '+(ev.name||''),'err');
+  toast('1С не запустилась: '+(ev.name||'')+'\n'+(ev.hint||''),12000);
+  askBox('1С не запустилась: '+(ev.name||''),
+    (ev.hint||'')+(ev.shot?'\n\nНиже — как выглядело окно 1С:':'')
+    +(ev.client_version?'\nКлиент '+ev.client_version+' · PID '+ev.pid:''),
+    [{t:'Понятно',primary:true},
+     {t:'Настройки базы',f:()=>openSettings(ev.guid)}]);
+  if(ev.shot){
+    const img=document.createElement('img');
+    img.src='/api/launch/shot/'+encodeURIComponent(String(ev.shot).split(/[\\/]/).pop());
+    img.title='окно 1С в момент ошибки';
+    img.style.cssText='display:block;max-width:100%;margin-top:10px;border-radius:6px;border:1px solid var(--border)';
+    $('a-text').appendChild(img);
+  }
+}
 
 async function syncState(){
   if(SYNC_BUSY||document.hidden||!STATE) return;
@@ -1583,6 +1611,7 @@ let PAGE_VER=null;   // версия, с которой загружена эт�
   document.querySelector('main table').addEventListener('click',e=>{
     const tr=e.target.closest('tr.base'); if(tr)clickBase(tr.dataset.g)});
   setInterval(pollSessions, 3000);
+  setInterval(pollLaunchErrors, 3000);
   // последняя выбранная обработка для /Execute — помним между перезагрузками страницы
   const exMem=localStorage.getItem('bl_exec')||'';
   if(exMem && $('a-exec')) $('a-exec').value=exMem;

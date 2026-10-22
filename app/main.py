@@ -7,9 +7,9 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from core import cache, config, hotkey, importer, launcher, platforms_share, procs, tray, v8i_writer
+from core import cache, config, hotkey, importer, launcher, platforms_share, procs, tray, v8i_writer, watch
 
-app = FastAPI(title='BaseLauncher', version='0.17.2')
+app = FastAPI(title='BaseLauncher', version='0.18.0')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -250,6 +250,19 @@ async def launch(req: Request):
                 status_code=409)
     pid = launcher.launch(cmd)
     launcher.log_launch(base['name'], mode, pid, cmd, base['guid'])
+    # сторож: если 1С не дойдёт до окна базы (например «Несоответствие версий клиента и сервера»),
+    # пришлём событие с подсказкой и снимком окна 1С
+    try:
+        if base.get('server'):
+            conn = 'Srvr="%s";Ref="%s";' % (base['server'], base.get('ref') or '')
+        elif base.get('ws'):
+            conn = base['ws']
+        else:
+            conn = 'File="%s";' % (base.get('path') or '')
+        fam = [p.get('key', '') for p in importer.build_state().get('platforms', [])]
+        watch.start(pid, base['guid'], base['name'], exe, conn, fam)
+    except Exception:                       # noqa: BLE001
+        pass
     # стартер не должен остаться на переднем плане: как только у базы появится настоящее
     # окно (не сплэш «Загрузка конфигурационной информации…»), выносим его наверх
     import threading
@@ -354,6 +367,29 @@ def base_delete(guid: str):
         return JSONResponse({'error': str(e)}, status_code=400)
     st = importer.build_state()
     return {'ok': True, 'deleted': name, 'bases': len(st['bases'])}
+
+
+@app.get('/api/launch/events')
+def launch_events():
+    """События сторожа запуска: 1С не дошла до окна базы (ошибка подключения и т.п.)."""
+    return {'events': watch.events()}
+
+
+@app.post('/api/launch/events/clear')
+def launch_events_clear():
+    watch.clear()
+    return {'ok': True}
+
+
+@app.get('/api/launch/shot/{name}')
+def launch_shot(name: str):
+    """Снимок окна 1С, сохранённый сторожем (BMP)."""
+    safe = Path(name).name
+    p = ROOT / 'data' / 'errors' / safe
+    if not p.is_file():
+        return JSONResponse({'error': 'нет такого снимка'}, status_code=404)
+    return FileResponse(p, media_type='image/bmp',
+                        headers={'Cache-Control': 'no-store'})
 
 
 @app.get('/api/cache')
