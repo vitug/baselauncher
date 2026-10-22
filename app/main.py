@@ -6,11 +6,18 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from core import importer, launcher, procs, v8i_writer
+from core import hotkey, importer, launcher, platforms_share, procs, v8i_writer
 
-app = FastAPI(title='BaseLauncher', version='0.8.1')
+app = FastAPI(title='BaseLauncher', version='0.9.0')
+PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
+
+
+@app.on_event('startup')
+def _startup():
+    """Глобальная клавиша Ctrl+Shift+D — поднять окно стартера."""
+    hotkey.start(PORT)
 
 
 @app.get('/')
@@ -244,6 +251,50 @@ async def activate(req: Request):
     if not r.get('ok'):
         return JSONResponse(r, status_code=400)
     return r
+
+
+@app.post('/api/starter/focus')
+def starter_focus():
+    """Поднять окно стартера (то же, что глобальная Ctrl+Shift+D)."""
+    r = hotkey.focus_starter(PORT)
+    return JSONResponse(r, status_code=200 if r.get('ok') else 400)
+
+
+@app.get('/api/hotkey')
+def hotkey_status():
+    return hotkey.status()
+
+
+@app.post('/api/platform/probe')
+async def platform_probe(req: Request):
+    """Есть ли дистрибутив версии на шаре и не установлена ли она уже."""
+    body = await req.json()
+    v = (body.get('version') or '').strip()
+    if not v:
+        return JSONResponse({'error': 'не передана версия платформы'}, status_code=400)
+    return platforms_share.probe(v)
+
+
+@app.post('/api/platform/install')
+async def platform_install(req: Request):
+    """Поставить отсутствующую платформу с шары (UAC подтверждает пользователь)."""
+    body = await req.json()
+    v = (body.get('version') or '').strip()
+    kind = (body.get('kind') or 'setup64full').strip()
+    if not v:
+        return JSONResponse({'error': 'не передана версия платформы'}, status_code=400)
+    try:
+        return platforms_share.install(v, kind)
+    except ValueError as e:
+        return JSONResponse({'error': str(e)}, status_code=400)
+
+
+@app.post('/api/platform/reveal')
+async def platform_reveal(req: Request):
+    """Открыть папку дистрибутива на шаре в проводнике."""
+    body = await req.json()
+    v = (body.get('version') or '').strip()
+    return platforms_share.reveal(v)
 
 
 @app.post('/api/shutdown')

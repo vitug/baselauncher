@@ -75,6 +75,12 @@ tr.base.yesterday td{background:rgba(230,180,70,.07)}
   color:var(--muted);white-space:nowrap;margin-left:4px}
 .tag.today{border-color:var(--green);color:var(--green)}
 .tag.yesterday{border-color:var(--amber);color:var(--amber)}
+.tag.mode-tgl{cursor:pointer;margin-left:6px;font-weight:600}
+.tag.mode-tgl.auto{opacity:.55;font-weight:400}
+.tag.mode-tgl.p{border-color:var(--blue);color:var(--blue)}
+.tag.mode-tgl.k{border-color:var(--amber);color:var(--amber)}
+button.ln.def{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
+.tag.nowin{opacity:.6;border-style:dashed}
 tr.folder.recent-h td{color:var(--green)}
 tr.folder.open-h td{color:var(--green)}
 tr.base.open td.name{box-shadow:inset 3px 0 0 var(--green)}
@@ -210,13 +216,9 @@ button.ln.gear:hover{border-color:var(--green)}
 </div></div>
 
 <div id="askovl"><div id="amodal">
-  <h2>База уже открыта</h2>
+  <h2 id="a-title">База уже открыта</h2>
   <div id="a-text" class="hint"></div>
-  <div class="btns">
-    <button class="save" onclick="askSwitch()">Переключиться</button>
-    <button onclick="askOpenAgain()">Открыть ещё раз</button>
-    <button onclick="closeAsk()">Отмена</button>
-  </div>
+  <div class="btns" id="a-btns"></div>
 </div></div>
 
 <div id="ovl"><div id="modal">
@@ -352,9 +354,27 @@ function modeOf(g){
 }
 function clickLaunch(g){launch(g,modeOf(g))}
 function modeTag(b){
-  if(b.default_mode==='enterprise')return '<span class="tag" title="режим по умолчанию: Предприятие (клик по строке)">П</span>';
-  if(b.default_mode==='designer')return '<span class="tag" title="режим по умолчанию: Конфигуратор (клик по строке)">К</span>';
-  return '';
+  const m=b.default_mode||'';
+  const label=m==='enterprise'?'П':m==='designer'?'К':'⇢';
+  const hint=m==='enterprise'?'по клику на строку: Предприятие'
+    :m==='designer'?'по клику на строку: Конфигуратор'
+    :'по клику на строку: как переключатель в шапке';
+  return `<span class="tag mode-tgl ${m==='enterprise'?'p':m==='designer'?'k':'auto'}"
+    title="режим по умолчанию — ${hint}. Клик — сменить"
+    onclick="event.stopPropagation();cycleMode('${b.guid}')">${label}</span>`;
+}
+async function cycleMode(guid){
+  const b=(STATE.bases||[]).find(x=>x.guid===guid); if(!b)return;
+  const cur=b.default_mode||'';
+  const next=cur===''?'enterprise':cur==='enterprise'?'designer':'';
+  const r=await fetch('/api/base/'+guid,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({mode:next})});
+  const j=await r.json();
+  if(!j.ok){toast('ОШИБКА: '+(j.error||''));return}
+  b.default_mode=next;
+  toast(next===''?'клик по строке: как в шапке':next==='enterprise'
+    ?'клик по строке: Предприятие':'клик по строке: Конфигуратор');
+  render();
 }
 function launchDot(b){
   if(b.launch_day==='today')return `<span class="rc" title="запускалась ${esc(ago(b.last_launch))}">◷</span>`;
@@ -374,8 +394,8 @@ function baseRow(b,depth){
     <td class="plat">${badge(b)}</td>
     <td class="act">
       <button class="ln gear" onclick="event.stopPropagation();openSettings('${b.guid}')" title="настройки базы">⚙</button>
-      <button class="ln designer" onclick="event.stopPropagation();launch('${b.guid}','designer')" title="запустить Конфигуратор">Конф</button>
-      <button class="ln" onclick="event.stopPropagation();launch('${b.guid}','enterprise')" title="запустить Предприятие">Предпр</button>
+      <button class="ln designer${b.default_mode==='designer'?' def':''}" onclick="event.stopPropagation();launch('${b.guid}','designer')" title="запустить Конфигуратор${b.default_mode==='designer'?' (режим по умолчанию для этой базы)':''}">Конф</button>
+      <button class="ln${b.default_mode==='enterprise'?' def':''}" onclick="event.stopPropagation();launch('${b.guid}','enterprise')" title="запустить Предприятие${b.default_mode==='enterprise'?' (режим по умолчанию для этой базы)':''}">Предпр</button>
       <button class="ln cmd" onclick="event.stopPropagation();dryrun('${b.guid}')" title="показать команду запуска, ничего не запуская (dry-run)">cmd</button>
     </td></tr>`;
 }
@@ -388,17 +408,18 @@ function openBlock(){
   let h=`<tr class="folder open-h" onclick="toggleF(${idx})"><td colspan="4" style="padding-left:6px">
     <span class="arrow">${open?'▼':'▶'}</span>● Открытые<span class="cnt">${bs.length}</span></td></tr>`;
   if(open) h+=bs.map(b=>{
-    const pids=b.running_pids||{};
+    const pids=b.running_pids||{}, wins=b.running_win||{};
     const modes=(b.running_modes||[]).map(m=>
-      `<span class="tag" title="PID ${pids[m]||''}">${m==='designer'?'конф':'предпр'}${pids[m]?' '+pids[m]:''}</span>`).join('');
-    const first=pids.enterprise||pids.designer||0;
+      `<span class="tag${wins[m]===false?' nowin':''}" title="${wins[m]===false?'у сеанса нет видимого окна (запуск из EDT)':'PID '+(pids[m]||'')}">`
+      +`${m==='designer'?'конф':'предпр'}${pids[m]?' '+pids[m]:''}${wins[m]===false?' · нет окна':''}</span>`).join('');
+    const first=(b.running_modes||[])[0]||'enterprise';
     const loc=b.path||((b.server?(b.server+(b.ref?'\\'+b.ref:'')):''));
     return `<tr class="base open" data-g="${b.guid}">
       <td class="name" style="padding-left:24px"><span class="dot today" title="сеанс открыт"></span>${esc(b.name)}</td>
       <td class="path" title="${esc(loc)}">${esc(loc)}</td>
       <td class="plat">${modes}</td>
       <td class="act">
-        <button class="ln" onclick="event.stopPropagation();activate(${first})" title="переключиться на окно сеанса">Перекл</button>
+        <button class="ln" onclick="event.stopPropagation();switchTo('${b.guid}','${first}')" title="переключиться на окно сеанса${(b.running_modes||[]).length>1?' (с выбором режима)':''}">Перекл</button>
         <button class="ln designer" onclick="event.stopPropagation();launch('${b.guid}','designer')" title="запустить Конфигуратор">Конф</button>
         <button class="ln" onclick="event.stopPropagation();launch('${b.guid}','enterprise')" title="запустить Предприятие">Предпр</button>
       </td></tr>`}).join('');
@@ -490,7 +511,7 @@ function setFam(f){fam=f;render()}
 
 async function launch(guid,mode,force){
   const b=STATE.bases.find(x=>x.guid===guid); if(!b)return;
-  if(!b.exe){stat(`у «${b.name}» не определён exe платформы`,'err');return}
+  if(!b.exe){stat(`у «${b.name}» не определён exe платформы`,'err');await platformMissing(guid,mode);return}
   stat(`запуск «${b.name}» (${mode==='designer'?'конфигуратор':'предприятие'})…`);
   const r=await fetch('/api/launch',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({guid,mode,extra_keys:adhocKeys(),force:!!force})});
@@ -498,6 +519,11 @@ async function launch(guid,mode,force){
   if(r.status===409){                     // такой режим уже открыт — спрашиваем
     askMode(guid,mode,j.pid);
     stat(`«${b.name}» уже открыта (PID ${j.pid})`,'');
+    return;
+  }
+  if(r.status===400 && /exe платформы/.test(j.error||'')){   // платформы нет на диске
+    stat(j.error,'err');
+    await platformMissing(guid,mode);
     return;
   }
   if(j.ok){stat(`запущено: ${b.name} → PID ${j.pid}`,'ok');toast(j.cmd);
@@ -510,7 +536,8 @@ async function activate(pid){
   const r=await fetch('/api/activate',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({pid})});
   const j=await r.json();
-  if(j.ok)stat(`переключились на сеанс PID ${pid}${j.title?' ('+j.title+')':''}`,'ok');
+  if(j.ok&&j.foreground===false)stat(`переключились на PID ${pid}, но окно не получило фокус`,'err');
+  else if(j.ok)stat(`переключились на сеанс PID ${pid}${j.title?' ('+j.title+')':''}`,'ok');
   else toast('не удалось переключиться: '+(j.error||''));
   return j;
 }
@@ -519,22 +546,134 @@ async function loadSessions(){   // подтянуть состояние без
 }
 function clickBase(g){
   const b=(STATE.bases||[]).find(x=>x.guid===g); if(!b)return;
-  const pids=b.running_pids?Object.values(b.running_pids):[];
-  if(pids.length){activate(pids[0]);return}
+  const modes=(b.running_modes||[]).filter(m=>pidOf(b,m));
+  if(modes.length>1){askChoose(g);return}          // и конф, и предпр — куда перейти?
+  if(modes.length===1){switchTo(g,modes[0]);return}
   launch(g,modeOf(g));
 }
 let ASK=null;
-function askMode(guid,mode,pid){
-  ASK={guid,mode,pid};
-  const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
-  $('a-text').textContent=`«${b.name||guid}» уже открыта в режиме `
-    +(mode==='designer'?'Конфигуратор':'Предприятие')+` (PID ${pid}). `
-    +'Переключиться на неё или открыть ещё один сеанс?';
+/* одно мини-окно на все вопросы: заголовок, текст и произвольные кнопки */
+function askBox(title,text,buttons){
+  ASK={buttons:buttons||[]};
+  $('a-title').textContent=title;
+  $('a-text').textContent=text;
+  const box=$('a-btns'); box.innerHTML='';
+  (buttons&&buttons.length?buttons:[{t:'Закрыть'}]).forEach(b=>{
+    const el=document.createElement('button');
+    el.textContent=b.t; if(b.primary)el.className='save';
+    el.onclick=()=>{closeAsk(); if(b.f)setTimeout(b.f,0)};
+    box.appendChild(el);
+  });
   $('askovl').classList.add('on');
 }
 function closeAsk(){ASK=null;$('askovl').classList.remove('on')}
-function askSwitch(){const a=ASK;closeAsk();if(a)activate(a.pid)}
-function askOpenAgain(){const a=ASK;closeAsk();if(a)launch(a.guid,a.mode,true)}
+function modeName(m){return m==='designer'?'Конфигуратор':'Предприятие'}
+function pidOf(b,m){return ((b&&b.running_pids)||{})[m]||0}
+function winOf(b,m){return !((b&&b.running_win)||{})[m]===false}
+/* переключение на сеанс: с проверкой, есть ли у него вообще окно (EDT — без окна) */
+async function switchTo(guid,mode){
+  const b=(STATE.bases||[]).find(x=>x.guid===guid); if(!b)return;
+  const pid=pidOf(b,mode);
+  if(!pid){launch(guid,mode);return}
+  if(((b.running_win||{})[mode]===false)){noWindow(b,mode,pid);return}
+  const r=await activate(pid);
+  if(r&&r.ok===false&&r.no_window)noWindow(b,mode,pid);
+}
+function noWindow(b,mode,pid){
+  askBox('Сеанс без окна',
+    `«${b.name}» открыта в режиме ${modeName(mode)} (PID ${pid}), но у процесса нет видимого окна —`
+    +' так бывает, когда базу запустил EDT. Переключаться не на что: можно открыть ещё один сеанс.',
+    [{t:'Открыть ещё сеанс',primary:true,f:()=>launch(b.guid,mode,true)},{t:'Закрыть'}]);
+}
+/* база открыта и в конфигураторе, и в предприятии — спрашиваем, куда перейти */
+function askChoose(guid){
+  const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
+  const modes=(b.running_modes||[]).filter(m=>pidOf(b,m));
+  const btns=modes.map(m=>({t:`→ ${modeName(m)} (PID ${pidOf(b,m)})`,primary:false,f:()=>switchTo(guid,m)}));
+  if(btns.length)btns[0].primary=true;
+  btns.push({t:'Отмена'});
+  askBox('Открыта в двух режимах',
+    `«${b.name}» запущена и в Конфигураторе, и в Предприятии. Куда переключиться?`, btns);
+}
+function askMode(guid,mode,pid){
+  const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
+  askBox('База уже открыта',
+    `«${b.name||guid}» уже открыта в режиме ${modeName(mode)} (PID ${pid}). `
+    +'Переключиться на неё или открыть ещё один сеанс?',
+    [{t:'Переключиться',primary:true,f:()=>switchTo(guid,mode)},
+     {t:'Открыть ещё раз',f:()=>launch(guid,mode,true)},
+     {t:'Отмена'}]);
+}
+/* платформа не найдена на диске: предложить поставить с шары или заменить */
+function exeVersion(b){
+  return ((b&&b.exe)||'').split('\\').filter(s=>/^\d+\.\d+\.\d+/.test(s))[0]||'';
+}
+function verKey(p){const m=String((p&&p.key)||p).match(/\d+(?:\.\d+)+/);return m?m[0]:String((p&&p.key)||p)}
+function cmpVer(a,b){
+  const A=verKey(a).split('.').map(Number),B=verKey(b).split('.').map(Number);
+  for(let i=0;i<Math.max(A.length,B.length);i++){const d=(B[i]||0)-(A[i]||0);if(d)return d}
+  return 0;
+}
+async function platformMissing(guid,mode){
+  const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
+  const ver=exeVersion(b);
+  let p={};
+  if(ver){
+    try{
+      p=await (await fetch('/api/platform/probe',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({version:ver})})).json();
+    }catch(e){p={error:String(e)}}
+  }
+  const fam=b.family||'';
+  const pool=(STATE.platforms||[]).filter(x=>!fam||x.family===fam);
+  const alt=(pool.length?pool:(STATE.platforms||[])).slice().sort(cmpVer)[0];
+  let text=(ver?`Платформы ${ver} нет на диске`:'У базы не определён exe платформы')
+    +(b.exe?` (${b.exe}).`:' (путь не задан).');
+  if(ver){
+    if(p.exists){
+      const kinds=Object.keys(p.kinds||{});
+      text+=` На шаре ${p.share} версия есть: ${kinds.join(', ')||'каталоги без setup.exe'}.`;
+    }else if(p.share_ok===false){
+      text+=` Шара ${p.share} недоступна.`;
+    }else{
+      text+=` На шаре ${p.share} (${p.line||''}) этой версии нет.`;
+    }
+  }
+  if(alt)text+=` Ближайшая установленная: ${alt.key} · ${alt.bitness} · ${alt.source}.`;
+  const btns=[];
+  if(p.exists&&Object.keys(p.kinds||{}).length){
+    const kind=(p.kinds['setup64full']?'setup64full':Object.keys(p.kinds)[0]);
+    btns.push({t:`Поставить ${ver} с шары`,primary:true,f:()=>installPlatform(ver,kind)});
+  }
+  if(ver)btns.push({t:'Открыть папку дистрибутивов',f:()=>revealShare(ver)});
+  if(alt)btns.push({t:`Заменить на ${alt.key}`,primary:!btns.length,f:()=>replaceExe(guid,alt.exe,mode)});
+  btns.push({t:'Выбрать другую…',f:()=>openSettings(guid)});
+  btns.push({t:'Отмена'});
+  askBox('Платформа не найдена',text,btns);
+}
+async function installPlatform(version,kind){
+  const r=await fetch('/api/platform/install',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({version,kind})});
+  const j=await r.json();
+  if(!j.ok){toast('ОШИБКА: '+(j.error||''));return}
+  toast('установка '+version+' запущена — подтвердите UAC. Лог: '+j.log,20000);
+  stat('идёт установка '+version+' (~2 мин). После EXIT=0 нажмите ⟳ и запускайте базу','');
+}
+async function revealShare(version){
+  const r=await fetch('/api/platform/reveal',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({version})});
+  const j=await r.json();
+  if(j.ok)toast('открыто: '+j.opened); else toast('не удалось открыть: '+(j.error||''));
+}
+async function replaceExe(guid,exe,mode){
+  const r=await fetch('/api/base/'+guid,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({exe})});
+  const j=await r.json();
+  if(!j.ok){toast('ОШИБКА: '+(j.error||''));return}
+  toast('платформа заменена');
+  await reload();
+  launch(guid,mode);
+}
 async function dryrun(guid){
   const r=await fetch('/api/dryrun',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({guid,mode:MODE,extra_keys:adhocKeys()})});
@@ -662,7 +801,29 @@ async function deleteCurrent(){
 $('n-kind').addEventListener('change',newKindToggle);
 $('novl').addEventListener('click',e=>{if(e.target.id==='novl')closeNew()});
 $('ovl').addEventListener('click',e=>{if(e.target.id==='ovl')closeModal()});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();closeNew()}});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){closeModal();closeNew();closeAsk();return}
+  // Ctrl+Shift+D — поднять окно стартера. Сверяем e.code (физическая клавиша),
+  // поэтому работает и в русской раскладке, когда e.key = 'В'.
+  if(e.ctrlKey&&e.shiftKey&&(e.code==='KeyD'||String(e.key).toLowerCase()==='d'
+     ||String(e.key).toLowerCase()==='в')){
+    e.preventDefault(); focusStarter(); return}
+});
+async function focusStarter(){
+  const r=await fetch('/api/starter/focus',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:'{}'});
+  const j=await r.json();
+  if(!j.ok)toast('окно стартера: '+(j.error||'не найдено'));
+  else if(j.foreground===false)toast('окно стартера найдено, но фокус не отдан');
+  else window.focus();
+}
+async function hotkeyInfo(){
+  try{
+    const j=await (await fetch('/api/hotkey')).json();
+    if(!j.registered&&j.error)$('st-left').title='горячая клавиша: '+j.error;
+    else $('st-left').title='Ctrl+Shift+D — показать окно стартера';
+  }catch(e){}
+}
 
 async function reload(){
   const r=await fetch('/api/state'); STATE=await r.json();
@@ -671,7 +832,7 @@ async function reload(){
 }
 
 (async()=>{
-  await reload(); setMode(MODE);
+  await reload(); setMode(MODE); hotkeyInfo();
   $('search').addEventListener('input',e=>{q=e.target.value;render()});
   document.querySelector('main table').addEventListener('click',e=>{
     const tr=e.target.closest('tr.base'); if(tr)clickBase(tr.dataset.g)});

@@ -185,6 +185,7 @@ def build_state() -> dict:
     for b in bases:
         b['running_modes'] = []
         b['running_pids'] = {}
+        b['running_win'] = {}
         b['running'] = False
         if b['path']:
             by_path.setdefault(procs._norm_path(b['path']), []).append(b)
@@ -205,8 +206,10 @@ def build_state() -> dict:
             if s['mode'] not in b['running_modes']:
                 b['running_modes'].append(s['mode'])
             b['running_pids'][s['mode']] = s['pid']
+            b['running_win'][s['mode']] = bool(s.get('window'))
             live.append({'guid': b['guid'], 'name': b['name'], 'mode': s['mode'],
-                         'pid': s['pid'], 'exe': s['exe']})
+                         'pid': s['pid'], 'exe': s['exe'],
+                         'window': bool(s.get('window')), 'title': s.get('title', '')})
 
     state = {
         'generated_at': datetime.datetime.now().isoformat(timespec='seconds'),

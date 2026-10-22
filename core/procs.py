@@ -107,8 +107,34 @@ def parse_session(cmd: str) -> dict:
     return out
 
 
+def titled_windows() -> dict[int, str]:
+    """pid → заголовок первого видимого окна с заголовком (одним проходом EnumWindows).
+
+    У сеансов, запущенных из EDT (`/AgentMode`), видимого окна нет — их в словаре не будет.
+    """
+    out: dict[int, str] = {}
+    CB = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
+
+    def cb(hwnd, _):
+        if not u32.IsWindowVisible(hwnd):
+            return True
+        n = u32.GetWindowTextLengthW(hwnd)
+        if not n:
+            return True
+        p = wt.DWORD()
+        u32.GetWindowThreadProcessId(hwnd, ctypes.byref(p))
+        if p.value not in out:
+            buf = ctypes.create_unicode_buffer(n + 1)
+            u32.GetWindowTextW(hwnd, buf, n + 1)
+            out[p.value] = buf.value
+        return True
+    u32.EnumWindows(CB(cb), 0)
+    return out
+
+
 def running_sessions() -> list[dict]:
-    """Список живых клиентских сеансов 1С."""
+    """Список живых клиентских сеансов 1С (с признаком «есть видимое окно»)."""
+    wins = titled_windows()
     res = []
     for pid, exe in _processes():
         if exe.lower() not in CLIENT_EXES:
@@ -117,7 +143,8 @@ def running_sessions() -> list[dict]:
         if not cmd:
             continue
         s = parse_session(cmd)
-        s.update({'pid': pid, 'exe': exe})
+        s.update({'pid': pid, 'exe': exe,
+                  'title': wins.get(pid, ''), 'window': pid in wins})
         res.append(s)
     return res
 
@@ -139,15 +166,17 @@ def _top_windows(pid: int) -> list[int]:
 
 
 def focus_window(pid: int) -> dict:
-    """Вывести главное окно сеанса наверх. Возвращает {ok, title} или {ok:False, error}."""
+    """Вывести главное окно сеанса наверх. Возвращает {ok, title} или {ok:False, no_window}."""
     hwnds = _top_windows(pid)
     if not hwnds:
-        return {'ok': False, 'error': 'окно сеанса не найдено (может, он закрывается)'}
+        return {'ok': False, 'no_window': True,
+                'error': 'у сеанса нет видимого окна (так бывает при запуске из EDT) — '
+                         'переключаться не на что'}
     hwnd = hwnds[0]
     title_len = u32.GetWindowTextLengthW(hwnd)
     buf = ctypes.create_unicode_buffer(title_len + 1)
     u32.GetWindowTextW(hwnd, buf, title_len + 1)
-    try:
+    def _activate() -> bool:
         if u32.IsIconic(hwnd):
             u32.ShowWindow(hwnd, SW_RESTORE)
         fg = u32.GetForegroundWindow()
@@ -161,6 +190,18 @@ def focus_window(pid: int) -> dict:
         u32.SetActiveWindow(hwnd)
         if attached:
             u32.AttachThreadInput(tid_cur, tid_fg, False)
+        return u32.GetForegroundWindow() == hwnd
+    try:
+        fg_ok = _activate()
+        if not fg_ok:
+            # второй заход: TOPMOST-трюк для окон, которые Windows не отдаёт фокусу
+            u32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0002 | 0x0001)   # TOPMOST
+            u32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, 0x0002 | 0x0001)   # NOTOPMOST
+            fg_ok = _activate()
     except Exception as e:
         return {'ok': False, 'error': f'не удалось активировать окно: {e}'}
-    return {'ok': True, 'title': buf.value, 'pid': pid}
+    res = {'ok': True, 'title': buf.value, 'pid': pid, 'foreground': fg_ok}
+    if not fg_ok:
+        res['warning'] = ('окно найдено, но Windows не отдала ему фокус '
+                          '(свёрнуто на другом виртуальном столе или перехвачено)')
+    return res
