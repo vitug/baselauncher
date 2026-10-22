@@ -242,9 +242,9 @@ button.ln.gear:hover{border-color:var(--green)}
     <div><label>Пользователь ИБ (/N)</label><input type="text" id="s-user-ib"></div>
     <div><label>Пароль ИБ (/P)</label><input type="password" id="s-pass-ib"></div>
   </div>
-  <div class="hint">Пусто — берётся пароль из SM (расшифровывается автоматически:
-    «Предприятие» — EntPassword, «Конфигуратор» — CfgPassword). Свой пароль здесь
-    перекрывает SM и хранится локально в data/overrides.json открытым текстом.</div>
+  <div class="hint">Хранится в своём конфиге data/config.json не открытым текстом
+    (обфускация «от дурака»). Пароль показывается расшифрованным — поменяйте поле и сохраните.
+    Пустое поле = входить без пароля.</div>
 
   <div class="ksec">Платформа</div>
   <label>Исполняемый файл (exe)</label>
@@ -766,11 +766,11 @@ async function openSettings(guid){
     :(b.path?('папка: '+b.path)
     :(b.server?('сервер: '+b.server+(b.ref?' \\ '+b.ref:'')):''));
   $('s-name').value=our.name||''; $('s-name').placeholder=b.name;
-  $('s-descr').value=our.descr||''; $('s-descr').placeholder=(b.sm&&b.sm.Description)||'';
-  $('s-user-ib').value=our.user||''; $('s-user-ib').placeholder=(b.sm&&b.sm.UserLogin)||'';
-  $('s-pass-ib').value=our.pwd||'';
-  $('s-pass-ib').placeholder=b.pwd_sm_note==='new' ? 'в SM пароль нового метода — введите свой'
-    : (b.pwd_sm||b.pwd_sm_cfg ? 'как в SM (расшифрован)' : '');
+  $('s-descr').value=our.descr||''; $('s-descr').placeholder='';
+  $('s-user-ib').value=our.user||''; $('s-user-ib').placeholder='';
+  $('s-pass-ib').value=b.pwd||b.pwd_cfg||'';
+  $('s-pass-ib').placeholder=b.pwd_note==='broken'
+    ? 'не расшифровался (конфиг с другой машины) — введите заново' : '';
   const sel=$('s-exe');
   const cur=b.exe?(b.exe.split('\\').filter(s=>/^\d+\.\d+\.\d+/.test(s))[0]||'…'):'';
   let opts=`<option value="">Авто — по умолчанию${b.exe?' (сейчас: '+cur+')':''}</option>`;
@@ -800,11 +800,11 @@ async function openSettings(guid){
   if(b.has_designer===false&&$('s-mode').value==='designer') $('s-mode').value='';
   $('s-thin').checked=!!our.thin;
   $('s-dir').value=(our.storage&&our.storage.dir)||'';
-  $('s-dir').placeholder=(b.sm&&b.sm.StorageDir)?('из SM: '+b.sm.StorageDir):'путь к хранилищу (.1ccr)';
+  $('s-dir').placeholder='путь к хранилищу (.1ccr)';
   $('s-user').value=(our.storage&&our.storage.user)||'';
-  $('s-user').placeholder=(b.sm&&b.sm.StorageUser)||'';
-  $('s-pass').value=(our.storage&&our.storage.password)||'';
-  $('s-pass').placeholder=(b.storage&&b.storage.password_sm)?'как в SM (расшифрован)':'';
+  $('s-user').placeholder='';
+  $('s-pass').value=(b.storage&&b.storage.password)||'';
+  $('s-pass').placeholder='';
   $('ovl').classList.add('on');
 }
 function closeModal(){$('ovl').classList.remove('on');CUR=null}
@@ -825,7 +825,7 @@ async function resetSettings(){
   const r=await fetch('/api/base/'+CUR,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({clear:true})});
   const j=await r.json();
-  if(j.ok){toast('свои настройки сброшены (вернулись SM/авто)');closeModal();await reload()}
+  if(j.ok){toast('свои настройки сброшены (вернулись значения по умолчанию)');closeModal();await reload()}
 }
 /* ---------- добавление базы/папки: запись в ibases.v8i ---------- */
 function folderPaths(){

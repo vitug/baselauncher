@@ -28,9 +28,9 @@ class BaseEntry:
     ws: str             # URL веб-базы (Connect=ws="https://…")
     app: str            # App из v8i (Auto/Thick/Thin)
     order: str          # OrderInTree
-    sm: dict = field(default_factory=dict)        # пер-базовые настройки SM (v8config.smc)
+    sm: dict = field(default_factory=dict)        # пусто (оставлено для совместимости UI)
     exe: str = ''           # эффективный exe платформы
-    exe_src: str = ''       # откуда: our | sm | slot | auto | none
+    exe_src: str = ''       # откуда: our | config | auto | none
     family: str = ''        # семейство эффективной платформы ('8.3'...)
     thin: bool = False      # тонкий клиент (1cv8c.exe)
     has_designer: bool = True  # есть ли конфигуратор: веб-база (ws) — нет; только тонкий клиент — нет
@@ -44,10 +44,9 @@ class BaseEntry:
     default_mode: str = ''   # режим запуска по клику: 'enterprise' | 'designer' | '' (как в шапке)
     descr: str = ''          # описание (эффективное: наше или из SM)
     user: str = ''           # пользователь ИБ /N (эффективное: наше или UserLogin из SM)
-    pwd: str = ''            # пароль ИБ /P (только наш; из SM не импортируется)
-    pwd_sm: str = ''         # пароль «Предприятие», расшифрованный из SM (EntPassword)
-    pwd_sm_cfg: str = ''     # пароль «Конфигуратор», расшифрованный из SM (CfgPassword)
-    pwd_sm_note: str = ''    # '' | 'old' (расшифрован) | 'new' (новый метод SM, не поддерживается)
+    pwd: str = ''            # пароль ИБ (Предприятие) /P — расшифрован из config.json
+    pwd_cfg: str = ''        # пароль для Конфигуратора (свой, если отличается)
+    pwd_note: str = ''       # '' | 'set' (есть пароль) | 'broken' (не расшифровался: чужая машина)
 
     def as_dict(self):
         return asdict(self)

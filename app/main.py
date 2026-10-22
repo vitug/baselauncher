@@ -6,9 +6,9 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from core import hotkey, importer, launcher, platforms_share, procs, v8i_writer
+from core import config, hotkey, importer, launcher, platforms_share, procs, v8i_writer
 
-app = FastAPI(title='BaseLauncher', version='0.9.1')
+app = FastAPI(title='BaseLauncher', version='0.11.0')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -47,57 +47,18 @@ def base_detail(guid: str):
 
 @app.put('/api/base/{guid}')
 async def base_save(guid: str, req: Request):
-    """Сохранить наши настройки базы в data/overrides.json.
+    """Сохранить настройки базы в свой конфиг (data/config.json).
 
-    Поля: exe ('' = авто), thin (bool), storage {dir,user,password}, extra_keys [..].
+    Поля: exe ('' = авто), thin (bool), mode, fav, name/descr/user,
+    pwd / pwd_cfg (пароли ИБ для Предприятия/Конфигуратора — кладутся зашифрованными),
+    storage {dir,user,password}, extra_keys [..].
     Отсутствующие поля не трогаются; {'clear': true} — сбросить всё.
     """
     _, base = _base_or_404(guid)
     if not base:
         return JSONResponse({'error': 'база не найдена'}, status_code=404)
     body = await req.json()
-
-    ov = importer.load_overrides()
-    bases = ov.setdefault('bases', {})
-    guid = guid.lower()
-    if body.get('clear'):
-        bases.pop(guid, None)
-    else:
-        cur = bases.setdefault(guid, {})
-        if 'exe' in body:
-            if body['exe']:
-                cur['exe'] = body['exe']
-            else:
-                cur.pop('exe', None)
-        if 'thin' in body:
-            cur['thin'] = bool(body['thin'])
-        if 'fav' in body:
-            cur['fav'] = bool(body['fav'])
-        if 'mode' in body:  # режим по умолчанию для клика по строке
-            if body['mode'] in ('enterprise', 'designer'):
-                cur['mode'] = body['mode']
-            else:
-                cur.pop('mode', None)
-        for fld in ('name', 'descr', 'user', 'pwd'):
-            if fld in body:
-                if body[fld]:
-                    cur[fld] = body[fld]
-                else:
-                    cur.pop(fld, None)
-        if 'extra_keys' in body:
-            cur['extra_keys'] = [k for k in body['extra_keys'] if k]
-        if 'storage' in body:
-            s = body['storage'] or {}
-            if s.get('dir'):
-                cur['storage'] = {'dir': s.get('dir', ''),
-                                  'user': s.get('user', ''),
-                                  'password': s.get('password', '')}
-            else:
-                cur.pop('storage', None)
-        if not cur:
-            bases.pop(guid, None)
-    importer.OVERRIDES_PATH.write_text(
-        json.dumps(ov, ensure_ascii=False, indent=1), encoding='utf-8')
+    config.set_base(guid, body)
 
     st = importer.build_state()
     return {'ok': True, 'base': importer.find_base(st, guid)}
@@ -111,12 +72,13 @@ def _build_cmd_from_body(body: dict, base: dict):
     if storage is None:
         storage = base.get('storage') or {}
     user = body.get('user') or base.get('user') or ''
-    pwd = body.get('pwd') or base.get('pwd') or ''
+    # пароль: из запроса -> свой для режима -> свой для другого режима (config.json, sealed)
+    pwd = (body.get('pwd') or '').strip()
     if not pwd:
-        # своего пароля нет — берём расшифрованный из SM (crypto-module)
-        pwd = (base.get('pwd_sm_cfg') or '') if mode == 'designer' else (base.get('pwd_sm') or '')
-    if storage and not storage.get('password') and storage.get('password_sm'):
-        storage = dict(storage, password=storage['password_sm'])
+        if mode == 'designer':
+            pwd = base.get('pwd_cfg') or base.get('pwd') or ''
+        else:
+            pwd = base.get('pwd') or base.get('pwd_cfg') or ''
     # конфигуратора может не быть: веб-база (ws) или платформа «только тонкий клиент»
     if mode == 'designer' and base.get('has_designer') is False:
         if base.get('ws'):
