@@ -119,6 +119,7 @@ td.act{white-space:nowrap;text-align:right}
 button.ln{padding:5px 10px;margin-left:5px;border-radius:6px;border:1px solid var(--border);
   background:var(--row);color:var(--fg);cursor:pointer;font-size:12.5px}
 button.ln:hover{border-color:var(--blue)}
+button.ln:disabled{opacity:.4;cursor:not-allowed;border-color:var(--border)}
 button.ln.designer:hover{border-color:var(--purple)}
 button.ln.cmd:hover{border-color:var(--amber)}
 button.ln.gear:hover{border-color:var(--green)}
@@ -361,11 +362,17 @@ function launchTag(b){
 /* режим запуска по клику: свой у базы, иначе переключатель в шапке */
 function modeOf(g){
   const b=(STATE.bases||[]).find(x=>x.guid===g);
+  if(b&&b.has_designer===false) return 'enterprise';   // конфигуратора нет
   return (b&&b.default_mode)||MODE;
 }
 function clickLaunch(g){launch(g,modeOf(g))}
+function hasDesigner(g){                       // есть ли конфигуратор у базы
+  const b=(STATE.bases||[]).find(x=>x.guid===g);
+  return !b||b.has_designer!==false;
+}
 function modeTag(b){
-  const m=b.default_mode||'';
+  let m=b.default_mode||'';
+  if(b.has_designer===false && m==='designer') m='';   // К недоступен: веб-база/только тонкий клиент
   const label=m==='enterprise'?'П':m==='designer'?'К':'⇢';
   const hint=m==='enterprise'?'по клику на строку: Предприятие'
     :m==='designer'?'по клику на строку: Конфигуратор'
@@ -377,7 +384,11 @@ function modeTag(b){
 async function cycleMode(guid){
   const b=(STATE.bases||[]).find(x=>x.guid===guid); if(!b)return;
   const cur=b.default_mode||'';
-  const next=cur===''?'enterprise':cur==='enterprise'?'designer':'';
+  let next=cur===''?'enterprise':cur==='enterprise'?'designer':'';
+  if(next==='designer'&&b.has_designer===false){        // конфигуратора нет — пропускаем К
+    toast('у «'+b.name+'» конфигуратора нет ('+(b.ws?'веб-база':'только тонкий клиент')+')');
+    next='';
+  }
   const r=await fetch('/api/base/'+guid,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({mode:next})});
   const j=await r.json();
@@ -406,7 +417,7 @@ function baseRow(b,depth){
     <td class="act">
       <button class="ln gear" onclick="event.stopPropagation();openSettings('${b.guid}')" title="настройки базы">⚙</button>
       ${b.ws?`<button class="ln web" onclick="event.stopPropagation();openWeb('${b.guid}')" title="открыть в браузере (веб-клиент): ${esc(b.ws)}">🌐</button>`:''}
-      <button class="ln designer${b.default_mode==='designer'?' def':''}" onclick="event.stopPropagation();launch('${b.guid}','designer')" title="запустить Конфигуратор${b.default_mode==='designer'?' (режим по умолчанию для этой базы)':''}">Конф</button>
+      <button class="ln designer${b.default_mode==='designer'?' def':''}" ${b.has_designer===false?'disabled':''} onclick="event.stopPropagation();launch('${b.guid}','designer')" title="${b.has_designer===false?'конфигуратора нет: '+(b.ws?'веб-база (сайт)':'платформа только с тонким клиентом'):'запустить Конфигуратор'+(b.default_mode==='designer'?' (режим по умолчанию для этой базы)':'')}">Конф</button>
       <button class="ln${b.default_mode==='enterprise'?' def':''}" onclick="event.stopPropagation();launch('${b.guid}','enterprise')" title="запустить Предприятие${b.default_mode==='enterprise'?' (режим по умолчанию для этой базы)':''}">Предпр</button>
       <button class="ln cmd" onclick="event.stopPropagation();dryrun('${b.guid}')" title="показать команду запуска, ничего не запуская (dry-run)">cmd</button>
     </td></tr>`;
@@ -434,7 +445,7 @@ function openBlock(){
         <button class="ln" onclick="event.stopPropagation();switchTo('${b.guid}','${first}')" title="переключиться на окно сеанса${(b.running_modes||[]).length>1?' (с выбором режима)':''}">Перекл</button>
         <button class="ln goto" onclick="event.stopPropagation();jumpToRow('${b.guid}')" title="показать эту базу в дереве (общем списке)">↳ список</button>
         ${b.ws?`<button class="ln web" onclick="event.stopPropagation();openWeb('${b.guid}')" title="открыть в браузере (веб-клиент): ${esc(b.ws)}">🌐</button>`:''}
-        <button class="ln designer" onclick="event.stopPropagation();launch('${b.guid}','designer')" title="запустить Конфигуратор">Конф</button>
+        <button class="ln designer" ${b.has_designer===false?'disabled':''} onclick="event.stopPropagation();launch('${b.guid}','designer')" title="${b.has_designer===false?'конфигуратора нет':'запустить Конфигуратор'}">Конф</button>
         <button class="ln" onclick="event.stopPropagation();launch('${b.guid}','enterprise')" title="запустить Предприятие">Предпр</button>
       </td></tr>`}).join('');
   return h;
@@ -453,7 +464,7 @@ function recentBlock(){
     <td class="plat"><span class="tag ${r.day}">${esc(ago(r.last_ts))}</span>${r.mode==='designer'?'<span class="ver">конфигуратор</span>':''}${r.count>1?`<span class="ver">×${r.count}</span>`:''}</td>
     <td class="act">
       <button class="ln" onclick="event.stopPropagation();launch('${r.guid}','enterprise')" title="запустить Предприятие">Предпр</button>
-      <button class="ln designer" onclick="event.stopPropagation();launch('${r.guid}','designer')" title="запустить Конфигуратор">Конф</button>
+      <button class="ln designer" onclick="event.stopPropagation();launch('${r.guid}','designer')" ${hasDesigner(r.guid)?'':'disabled'} title="запустить Конфигуратор">Конф</button>
     </td></tr>`).join('');
   return h;
 }
@@ -555,6 +566,11 @@ function setFam(f){fam=f;render()}
 
 async function launch(guid,mode,force){
   const b=STATE.bases.find(x=>x.guid===guid); if(!b)return;
+  if(mode==='designer'&&b.has_designer===false){
+    const m='у «'+b.name+'» конфигуратора нет ('+(b.ws?'веб-база (сайт)':'только тонкий клиент')+')';
+    toast(m); stat(m,'err');
+    return;
+  }
   if(!b.exe){stat(`у «${b.name}» не определён exe платформы`,'err');await platformMissing(guid,mode);return}
   stat(`запуск «${b.name}» (${mode==='designer'?'конфигуратор':'предприятие'})…`);
   const r=await fetch('/api/launch',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -780,6 +796,8 @@ async function openSettings(guid){
   sel.innerHTML=opts;
   sel.value=our.exe||'';
   $('s-mode').value=b.default_mode||'';
+  [...$('s-mode').options].forEach(o=>{o.disabled=(o.value==='designer'&&b.has_designer===false)});
+  if(b.has_designer===false&&$('s-mode').value==='designer') $('s-mode').value='';
   $('s-thin').checked=!!our.thin;
   $('s-dir').value=(our.storage&&our.storage.dir)||'';
   $('s-dir').placeholder=(b.sm&&b.sm.StorageDir)?('из SM: '+b.sm.StorageDir):'путь к хранилищу (.1ccr)';
