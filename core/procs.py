@@ -212,3 +212,51 @@ def focus_window(pid: int) -> dict:
         res['warning'] = ('окно найдено, но Windows не отдала ему фокус '
                           '(свёрнуто на другом виртуальном столе или перехвачено)')
     return res
+
+
+def foreground_pid() -> int:
+    """PID процесса, которому принадлежит окно на переднем плане."""
+    hwnd = u32.GetForegroundWindow()
+    p = wt.DWORD()
+    u32.GetWindowThreadProcessId(hwnd, ctypes.byref(p))
+    return int(p.value)
+
+
+# заголовки «ещё грузится» — фокус им отдавать рано
+SPLASH_TITLES = ('Загрузка конфигурационной информации', 'Запуск 1С:Предприятия')
+
+
+def wait_and_focus(match, mode: str, timeout: float = 120.0, settle: int = 2) -> dict:
+    """Дождаться настоящего окна запущенной базы и вынести его наверх.
+
+    match(session) -> bool: сеанс принадлежит базе. Сплэш-загрузчик («Загрузка конфигурационной
+    информации…») пропускаем — у веб-баз он перепоручает работу тонкому клиенту.
+    settle: сколько раз добивать фокус (1С иногда перебивает его при инициализации окна).
+    """
+    import time
+    end = time.time() + timeout
+    target = None
+    while time.time() < end and target is None:
+        try:
+            for s in running_sessions():
+                if s['mode'] != mode or not s.get('window'):
+                    continue
+                t = (s.get('title') or '').strip()
+                if any(t.startswith(x) for x in SPLASH_TITLES):
+                    continue
+                if match(s):
+                    target = s
+                    break
+        except Exception:
+            pass
+        if target is None:
+            time.sleep(1.0)
+    if target is None:
+        return {'ok': False, 'timeout': True}
+    res = {}
+    for i in range(max(1, settle)):
+        res = focus_window(target['pid'])
+        if res.get('ok') and res.get('foreground'):
+            break
+        time.sleep(2.0)
+    return dict(res, waited=True)
