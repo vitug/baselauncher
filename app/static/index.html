@@ -1152,10 +1152,13 @@ function renderFolderTree(){
     const {n,sub}=count(p);
     const has=(map[p]||[]).length>0;
     const open=PT_OPEN.has(p);
+    /* отступ только у папок с вложенными: лист выравнивается по своему родителю,
+       иначе строка «висит» с отступом, но без стрелки раскрытия */
+    const ind=(has?depth:Math.max(0,depth-1))*10+4;
     let h=`<div class="pt-row${p===cur?' sel':''}" data-p="${esc(p)}"
-        style="padding-left:${depth*10+4}px" onclick="setParent('${esc(p)}');$('n-folder-tree').style.display='none'">
+        style="padding-left:${ind}px" onclick="setParent('${esc(p)}');$('n-folder-tree').style.display='none'">
         <span class="pt-arrow${has?'':' empty'}"
-          onclick="event.stopPropagation();ptToggle('${esc(p)}')">${has?(open?'▼':'▶'):'•'}</span>
+          onclick="event.stopPropagation();ptToggle('${esc(p)}')">${has?(open?'▼':'▶'):''}</span>
         <span class="pt-name">${p==='/'?'(корень дерева)':esc(p.split('/').pop())}</span>
         <span class="pt-cnt">${sub?sub+' б.':''}${sub&&n?' · ':''}${n?'папок '+n:''}</span>
       </div>`;
