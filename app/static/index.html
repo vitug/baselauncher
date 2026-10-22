@@ -67,6 +67,8 @@ td.plat{white-space:nowrap;font-size:12.5px}
 .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:middle}
 .dot.today{background:var(--green);box-shadow:0 0 5px var(--green)}
 .dot.yesterday{background:var(--amber)}
+.rc{font-size:12px;line-height:1;color:var(--blue);margin-right:6px}
+.rc.yesterday{color:var(--amber)}
 tr.base.today td{background:rgba(90,200,140,.09)}
 tr.base.yesterday td{background:rgba(230,180,70,.07)}
 .tag{font-size:10.5px;padding:1px 6px;border-radius:9px;border:1px solid var(--border);
@@ -74,6 +76,8 @@ tr.base.yesterday td{background:rgba(230,180,70,.07)}
 .tag.today{border-color:var(--green);color:var(--green)}
 .tag.yesterday{border-color:var(--amber);color:var(--amber)}
 tr.folder.recent-h td{color:var(--green)}
+tr.folder.open-h td{color:var(--green)}
+tr.base.open td.name{box-shadow:inset 3px 0 0 var(--green)}
 .run{color:var(--green);font-weight:600;font-size:11px;margin-left:6px;white-space:nowrap}
 tr.base.running td.name{box-shadow:inset 3px 0 0 var(--green)}
 #askovl{position:fixed;inset:0;background:#000a;display:none;z-index:12}
@@ -353,8 +357,8 @@ function modeTag(b){
   return '';
 }
 function launchDot(b){
-  if(b.launch_day==='today')return `<span class="dot today" title="запускалась ${esc(ago(b.last_launch))}"></span>`;
-  if(b.launch_day==='yesterday')return `<span class="dot yesterday" title="запускалась ${esc(ago(b.last_launch))}"></span>`;
+  if(b.launch_day==='today')return `<span class="rc" title="запускалась ${esc(ago(b.last_launch))}">◷</span>`;
+  if(b.launch_day==='yesterday')return `<span class="rc yesterday" title="запускалась ${esc(ago(b.last_launch))}">◷</span>`;
   return '';
 }
 function baseRow(b,depth){
@@ -375,6 +379,31 @@ function baseRow(b,depth){
       <button class="ln cmd" onclick="event.stopPropagation();dryrun('${b.guid}')" title="показать команду запуска, ничего не запуская (dry-run)">cmd</button>
     </td></tr>`;
 }
+/* свёрнутый блок «Открытые»: живые сеансы — переключение вместо нового запуска */
+function openBlock(){
+  const bs=(STATE.bases||[]).filter(b=>b.running);
+  if(!bs.length)return '';
+  const idx=FOLDERS.length; FOLDERS.push('__open');
+  const open=!COLLAPSED.has('__open');
+  let h=`<tr class="folder open-h" onclick="toggleF(${idx})"><td colspan="4" style="padding-left:6px">
+    <span class="arrow">${open?'▼':'▶'}</span>● Открытые<span class="cnt">${bs.length}</span></td></tr>`;
+  if(open) h+=bs.map(b=>{
+    const pids=b.running_pids||{};
+    const modes=(b.running_modes||[]).map(m=>
+      `<span class="tag" title="PID ${pids[m]||''}">${m==='designer'?'конф':'предпр'}${pids[m]?' '+pids[m]:''}</span>`).join('');
+    const first=pids.enterprise||pids.designer||0;
+    const loc=b.path||((b.server?(b.server+(b.ref?'\\'+b.ref:'')):''));
+    return `<tr class="base open" data-g="${b.guid}">
+      <td class="name" style="padding-left:24px"><span class="dot today" title="сеанс открыт"></span>${esc(b.name)}</td>
+      <td class="path" title="${esc(loc)}">${esc(loc)}</td>
+      <td class="plat">${modes}</td>
+      <td class="act">
+        <button class="ln" onclick="event.stopPropagation();activate(${first})" title="переключиться на окно сеанса">Перекл</button>
+        <button class="ln designer" onclick="event.stopPropagation();launch('${b.guid}','designer')" title="запустить Конфигуратор">Конф</button>
+        <button class="ln" onclick="event.stopPropagation();launch('${b.guid}','enterprise')" title="запустить Предприятие">Предпр</button>
+      </td></tr>`}).join('');
+  return h;
+}
 /* свёрнутый блок «Недавние»: быстрый запуск того, что запускали последним */
 function recentBlock(){
   const rec=STATE.recent||[];
@@ -384,7 +413,7 @@ function recentBlock(){
   let h=`<tr class="folder recent-h" onclick="toggleF(${idx})"><td colspan="4" style="padding-left:6px">
     <span class="arrow">${open?'▼':'▶'}</span>⟲ Недавние<span class="cnt">${rec.length}</span></td></tr>`;
   if(open) h+=rec.map(r=>`<tr class="base recent${r.day==='today'?' today':r.day==='yesterday'?' yesterday':''}" data-g="${r.guid}">
-    <td class="name" style="padding-left:24px"><span class="dot ${r.day==='today'?'today':r.day==='yesterday'?'yesterday':''}"></span>${esc(r.name)}</td>
+    <td class="name" style="padding-left:24px"><span class="rc ${r.day==='yesterday'?'yesterday':''}">◷</span>${esc(r.name)}</td>
     <td class="path" title="${esc(r.path||'')}">${esc(r.path||'')}</td>
     <td class="plat"><span class="tag ${r.day}">${esc(ago(r.last_ts))}</span>${r.mode==='designer'?'<span class="ver">конфигуратор</span>':''}${r.count>1?`<span class="ver">×${r.count}</span>`:''}</td>
     <td class="act">
@@ -438,6 +467,7 @@ function render(){
       prune(tree['/']);
     }
     let h='';
+    h+=openBlock();
     h+=recentBlock();
     const favs=STATE.bases.filter(b=>b.fav&&(fam==='all'||b.family===fam));
     if(favs.length){ h+=folderRow({path:'__fav',name:'★ Избранное',folders:[],bases:favs},0) }
