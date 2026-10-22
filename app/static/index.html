@@ -230,6 +230,13 @@ button.ln.gear:hover{border-color:var(--green)}
     <option value="-Force">/AllowExecuteScheduledJobs -Force</option>
   </select>
   <input id="a-C" placeholder="/C параметры запуска" style="width:180px">
+  <span id="a-exec-wrap" title="внешняя обработка/отчёт, которая откроется сразу при входе: /Execute &quot;файл&quot;">
+    <label style="display:inline-block">обработка&nbsp;
+      <input id="a-exec" placeholder="обработка.epf / отчёт.erf" style="width:250px">
+    </label>
+    <button class="add" onclick="pickExec()" title="выбрать файл .epf/.erf на диске">…</button>
+    <button class="add" onclick="clearExec()" title="убрать обработку">✕</button>
+  </span>
   <span class="hint">действуют только на следующий запуск, в настройках базы не сохраняются</span>
 </div>
 <main><table><tbody id="rows"></tbody></table>
@@ -351,10 +358,22 @@ function adhocKeys(){
   A_BOOL.forEach(k=>{if($('a-'+k).checked)out.push('/'+k)});
   const aj=$('a-AllowExecuteScheduledJobs').value;
   if(aj)out.push('/AllowExecuteScheduledJobs '+aj);
+  const ex=($('a-exec').value||'').trim();
+  if(ex) out.push('/Execute "'+ex+'"');      // внешняя обработка/отчёт при старте
   const c=$('a-C').value.trim();
   if(c)out.push('/C '+c);
   return out;
 }
+/* выбор внешней обработки: нативный диалог на сервере (он на этой же машине) */
+async function pickExec(){
+  const r=await fetch('/api/pickfile',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({title:'Выбрать внешнюю обработку 1С',initial:$('a-exec').value.trim()})});
+  const j=await r.json();
+  if(j.path){ $('a-exec').value=j.path; localStorage.setItem('bl_exec',j.path);
+              stat('обработка: '+j.path,'ok') }
+  else if(j.error) toast('не удалось выбрать файл: '+j.error);
+}
+function clearExec(){ $('a-exec').value=''; localStorage.setItem('bl_exec','') }
 
 /* ---------- дерево ---------- */
 function num(o){const n=parseFloat(o);return isFinite(n)?n:1e12}
@@ -531,6 +550,7 @@ function recentBlock(){
     <td class="path" title="${esc(r.path||'')}">${esc(r.path||'')}</td>
     <td class="plat"><span class="tag ${r.day}">${esc(ago(r.last_ts))}</span>${r.mode==='designer'?'<span class="ver">конфигуратор</span>':''}${r.count>1?`<span class="ver">×${r.count}</span>`:''}</td>
     <td class="act">
+      <button class="ln goto" onclick="event.stopPropagation();jumpToRow('${r.guid}')" title="показать эту базу в дереве (общем списке)">↳ список</button>
       <button class="ln" ${modeDisabled(r.guid,'enterprise')?'disabled':''} onclick="event.stopPropagation();launch('${r.guid}','enterprise')" title="${modeTitle(r.guid,'enterprise','запустить Предприятие')}">Предпр</button>
       <button class="ln designer" ${modeDisabled(r.guid,'designer')?'disabled':''} onclick="event.stopPropagation();launch('${r.guid}','designer')" title="${hasDesigner(r.guid)?modeTitle(r.guid,'designer','запустить Конфигуратор'):'конфигуратора нет'}">Конф</button>
     </td></tr>`).join('');
@@ -1121,6 +1141,9 @@ async function syncState(){
   document.querySelector('main table').addEventListener('click',e=>{
     const tr=e.target.closest('tr.base'); if(tr)clickBase(tr.dataset.g)});
   setInterval(pollSessions, 3000);
+  // последняя выбранная обработка для /Execute — помним между перезагрузками страницы
+  const exMem=localStorage.getItem('bl_exec')||'';
+  if(exMem && $('a-exec')) $('a-exec').value=exMem;
   setInterval(syncState, 10000);
   window.addEventListener('focus', ()=>{pollSessions(); syncState()});
   document.addEventListener('visibilitychange', ()=>{
