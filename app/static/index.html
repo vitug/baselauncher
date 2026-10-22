@@ -308,7 +308,7 @@ body{padding-bottom:46px}
 
 <div id="status"><span id="st-sub"></span><span id="st-left"></span><span id="st-msg"></span>
   <button id="b-restart" onclick="restartApp()" title="перезапустить сервер и окно заново">⟳ перезапустить</button>
-  <button id="b-cache" onclick="openCacheDialog()" title="очистить кэш 1С или кэш приложения">⌫ кэш</button>
+  <button id="b-cache" onclick="event.stopPropagation();openCacheMenu(this)" title="очистка кэша: отдельно кэш пользователя 1С, отдельно кэш программы">⌫ кэш</button>
   <button id="b-quit-foot" onclick="quitApp()" title="закрыть приложение совсем: окно, иконку в трее и сервер">✕ закрыть</button>
 </div>
 <div id="toast"></div>
@@ -460,7 +460,7 @@ function buildTree(){
   (STATE.folders||[]).forEach(f=>{
     const parent=(f.folder||'/');
     const path=(parent==='/'?'':parent)+'/'+f.name;
-    const n=ensure(path); n.name=f.name; n.order=f.order;
+    const n=ensure(path); n.name=f.name; n.order=f.order; n.guid=f.guid;
     ensure(parent).folders.push(n);
   });
   STATE.bases.forEach(b=>{ ensure(b.folder||'/').bases.push(b) });
@@ -650,7 +650,7 @@ function folderRow(n,depth){
   // по умолчанию папка СВЕРНУТА: развёрнута только если пользователь раскрыл её сам
   // (служебные блоки __fav/__open/__recent живут в COLLAPSED, обычные папки — в OPEN)
   const open=isPathOpen(n.path);
-  return `<tr class="folder" onclick="toggleF(${idx})">
+  return `<tr class="folder" data-g="${n.guid||''}" onclick="toggleF(${idx})">
       <td colspan="4" style="padding-left:${depth*18+6}px">
       <div class="fld">
         <span class="arrow">${open?'▼':'▶'}</span>
@@ -859,20 +859,46 @@ function askClearBaseCache(guid){
     +(b.running?'\n\nСеансы этой базы открыты — сначала закрой их, иначе часть файлов останется.':''),
     [{t:'Очистить',primary:true,f:()=>clearCacheNow('one_c_base',guid)},{t:'Отмена'}]);
 }
-async function openCacheDialog(){
-  let info=null;
-  try{ info=await (await fetch('/api/cache')).json(); }catch(e){}
-  const one=info&&info.one_c?`${info.one_c.human} · каталогов ${info.one_c.dirs}${info.one_c.partial?' (оценка)':''}`:'…';
-  const app=info&&info.app?`${info.app.human} · ${info.app.items.map(i=>i.name).join(', ')||'пусто'}`:'…';
-  askBox('Очистка кэша',
-    `Кэш 1С (у пользователя): ${one}\n${(info&&info.one_c?info.one_c.path:'%LOCALAPPDATA%\\1C\\1cv8')}\n\n`
-    +`Кэш приложения: ${app}\n${(info&&info.app?info.app.path:'data')}\n\n`
-    +'Кэш 1С — это копии конфигураций баз; после очистки первый запуск каждой базы будет дольше. '
-    +'Кэш приложения — производные файлы стартера (bases.json, логи), настройки (config.json) не трогаются.',
-    [{t:`Очистить кэш 1С (${info&&info.one_c?info.one_c.human:'?'})`,cls:'del',
-      f:()=>clearCacheNow('one_c')},
-     {t:'Очистить кэш приложения',f:()=>clearCacheNow('app')},
-     {t:'Отмена'}]);
+/* кэш пользователя 1С и кэш программы — отдельные команды, каждая со своим подтверждением */
+let CACHE_INFO=null;
+async function openCacheMenu(el){
+  const box=$('ctxm');
+  if(CTX_GUID==='__cache'&&box.style.display!=='none'){ctxClose();return}
+  try{ CACHE_INFO=await (await fetch('/api/cache')).json(); }catch(e){ CACHE_INFO=null; }
+  CTX_GUID='__cache';
+  const one=CACHE_INFO&&CACHE_INFO.one_c?CACHE_INFO.one_c.human:'…';
+  const app=CACHE_INFO&&CACHE_INFO.app?CACHE_INFO.app.human:'…';
+  box.innerHTML='';
+  const mk=(t,cls,fn)=>{
+    const d=document.createElement('div'); d.className='ci'+(cls?' '+cls:'');
+    d.textContent=t; d.onclick=()=>{ctxClose();fn()}; box.appendChild(d);
+  };
+  mk(`Очистить кэш пользователя 1С (${one})…`,'',askClearUserCache);
+  mk(`Очистить кэш программы (${app})…`,'',askClearAppCache);
+  box.style.display='block'; box.style.left='0px'; box.style.top='0px';
+  const r=box.getBoundingClientRect();
+  const rr=el?el.getBoundingClientRect():{left:innerWidth-r.width-20,bottom:innerHeight-60};
+  box.style.left=Math.max(8,Math.min(rr.left, innerWidth-r.width-8))+'px';
+  box.style.top=Math.max(8,Math.min(rr.bottom+4, innerHeight-r.height-8))+'px';
+}
+function askClearUserCache(){
+  const c=CACHE_INFO&&CACHE_INFO.one_c;
+  askBox('Очистить кэш пользователя 1С?',
+    `Будут удалены кэши конфигураций всех баз: ${c?c.human:'?'}, каталогов ${c?c.dirs:'?'}.\n`
+    +`${c?c.path:'%LOCALAPPDATA%\\1C\\1cv8'}\n\n`
+    +'Данные баз не затрагиваются. После очистки первый запуск каждой базы будет дольше '
+    +'(1С заново получает конфигурацию с сервера). Сеансы 1С лучше закрыть — иначе занятые файлы останутся.',
+    [{t:'Очистить',cls:'del',f:()=>clearCacheNow('one_c')},{t:'Отмена'}]);
+}
+function askClearAppCache(){
+  const a=CACHE_INFO&&CACHE_INFO.app;
+  askBox('Очистить кэш программы?',
+    `Будут удалены служебные файлы стартера: ${a?a.human:'?'}`
+    +`${a&&a.items.length?' ('+a.items.map(i=>i.name).join(', ')+')':''}.\n`
+    +`${a?a.path:'data'}\n\n`
+    +'Это bases.json (кэш состояния из ibases.v8i), логи и папка install. Настройки баз (config.json) '
+    +'и положение окна не трогаются; состояние перечитается сразу после очистки.',
+    [{t:'Очистить',f:()=>clearCacheNow('app')},{t:'Отмена'}]);
 }
 /* меню копирования рядом с кнопкой ⧉ в строке базы */
 function copyMenuFor(guid,el){
@@ -883,8 +909,26 @@ function copyMenuFor(guid,el){
   ctxShow(r.left, r.bottom+4, guid);
 }
 function ctxShow(x,y,guid){
-  const b=(STATE.bases||[]).find(v=>v.guid===guid); if(!b)return;
+  const b=(STATE.bases||[]).find(v=>v.guid===guid);
+  const fld=b?null:(STATE.folders||[]).find(v=>v.guid===guid);
+  if(!b&&!fld)return;
   CTX_GUID=guid;
+  const box=$('ctxm'); box.innerHTML='';
+  if(fld){                       /* папка: можно скопировать путь и удалить пустую папку */
+    const path='/'+(fld.name||'');
+    const mk=(t,cls,fn)=>{
+      const d=document.createElement('div'); d.className='ci'+(cls?' '+cls:'');
+      d.textContent=t; d.onclick=fn; box.appendChild(d);
+    };
+    mk('Копировать путь папки', '', ()=>{ctxClose();copyText(path,'путь папки')});
+    const sep0=document.createElement('div'); sep0.className='sep'; box.appendChild(sep0);
+    mk('Удалить папку из списка…','danger',()=>{ctxClose();askDeleteBase(guid)});
+    box.style.display='block'; box.style.left='0px'; box.style.top='0px';
+    const rf=box.getBoundingClientRect();
+    box.style.left=Math.min(x, innerWidth-rf.width-8)+'px';
+    box.style.top=Math.min(y, innerHeight-rf.height-8)+'px';
+    return;
+  }
   const i=baseCopyInfo(b);
   const items=[
     {t:'Копировать имя базы', k:'', v:i.name, lab:'имя'},
@@ -895,7 +939,6 @@ function ctxShow(x,y,guid){
     {t:'Копировать строку соединения', k:'', v:i.conn, lab:'строка соединения'},
   ];
   if(i.ws)items.push({t:'Копировать адрес сайта', k:'', v:i.ws, lab:'сайт'});
-  const box=$('ctxm'); box.innerHTML='';
   items.forEach((it,idx)=>{
     const d=document.createElement('div');
     d.className='ci'+(it.off?' off':'');
@@ -923,7 +966,7 @@ function ctxShow(x,y,guid){
   box.style.top=Math.min(y, innerHeight-r.height-8)+'px';
 }
 document.addEventListener('contextmenu',e=>{
-  const tr=e.target.closest&&e.target.closest('tr.base');
+  const tr=e.target.closest&&e.target.closest('tr.base,tr.folder');
   if(!tr||!tr.dataset.g)return;
   e.preventDefault();
   /* второй правый клик по той же строке закрывает меню */
