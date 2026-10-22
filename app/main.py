@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from core import importer, launcher, v8i_writer
 
-app = FastAPI(title='BaseLauncher', version='0.6.0')
+app = FastAPI(title='BaseLauncher', version='0.7.0')
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
 
@@ -66,6 +66,11 @@ async def base_save(guid: str, req: Request):
             cur['thin'] = bool(body['thin'])
         if 'fav' in body:
             cur['fav'] = bool(body['fav'])
+        if 'mode' in body:  # режим по умолчанию для клика по строке
+            if body['mode'] in ('enterprise', 'designer'):
+                cur['mode'] = body['mode']
+            else:
+                cur.pop('mode', None)
         for fld in ('name', 'descr', 'user', 'pwd'):
             if fld in body:
                 if body[fld]:
