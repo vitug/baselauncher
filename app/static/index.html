@@ -226,6 +226,15 @@ button.ln.gear:hover{border-color:var(--green)}
   </div>
   <div class="hint">Ключи конфигуратора: /ConfigurationRepositoryF /N /P.</div>
 
+  <div class="ksec">Режим запуска по умолчанию</div>
+  <select id="s-mode">
+    <option value="">Как в шапке (переключатель Предприятие/Конфигуратор)</option>
+    <option value="enterprise">Предприятие</option>
+    <option value="designer">Конфигуратор</option>
+  </select>
+  <div class="hint">С ним база запускается по клику на строку. Кнопки «Предпр»/«Конф» всегда
+    запускают свой режим.</div>
+
   <div class="btns">
     <button class="save" onclick="saveSettings()">Сохранить</button>
     <button class="reset" onclick="resetSettings()">Сбросить свои настройки</button>
@@ -311,6 +320,17 @@ function launchTag(b){
   if(b.launch_day==='yesterday')return `<span class="tag yesterday" title="последний запуск">${esc(ago(b.last_launch))}</span>`;
   return '';
 }
+/* режим запуска по клику: свой у базы, иначе переключатель в шапке */
+function modeOf(g){
+  const b=(STATE.bases||[]).find(x=>x.guid===g);
+  return (b&&b.default_mode)||MODE;
+}
+function clickLaunch(g){launch(g,modeOf(g))}
+function modeTag(b){
+  if(b.default_mode==='enterprise')return '<span class="tag" title="режим по умолчанию: Предприятие (клик по строке)">П</span>';
+  if(b.default_mode==='designer')return '<span class="tag" title="режим по умолчанию: Конфигуратор (клик по строке)">К</span>';
+  return '';
+}
 function launchDot(b){
   if(b.launch_day==='today')return `<span class="dot today" title="запускалась ${esc(ago(b.last_launch))}"></span>`;
   if(b.launch_day==='yesterday')return `<span class="dot yesterday" title="запускалась ${esc(ago(b.last_launch))}"></span>`;
@@ -322,14 +342,14 @@ function baseRow(b,depth){
   const dcl=b.launch_day==='today'?' today':(b.launch_day==='yesterday'?' yesterday':'');
   return `<tr class="base${dcl}" id="r-${b.guid}" data-g="${b.guid}" ${desc}>
     <td class="name" style="padding-left:${depth*18+6}px"><span class="star${b.fav?' on':''}"
-      onclick="event.stopPropagation();toggleFav('${b.guid}')" title="избранное">${b.fav?'★':'☆'}</span>${launchDot(b)}${esc(b.name)}${launchTag(b)}</td>
+      onclick="event.stopPropagation();toggleFav('${b.guid}')" title="избранное">${b.fav?'★':'☆'}</span>${launchDot(b)}${esc(b.name)}${modeTag(b)}${launchTag(b)}</td>
     <td class="path" title="${esc(loc)}">${esc(loc)}</td>
     <td class="plat">${badge(b)}</td>
     <td class="act">
       <button class="ln gear" onclick="event.stopPropagation();openSettings('${b.guid}')" title="настройки базы">⚙</button>
-      <button class="ln cmd" onclick="event.stopPropagation();dryrun('${b.guid}')" title="показать команду запуска, ничего не запуская (dry-run)">cmd</button>
       <button class="ln designer" onclick="event.stopPropagation();launch('${b.guid}','designer')" title="запустить Конфигуратор">Конф</button>
       <button class="ln" onclick="event.stopPropagation();launch('${b.guid}','enterprise')" title="запустить Предприятие">Предпр</button>
+      <button class="ln cmd" onclick="event.stopPropagation();dryrun('${b.guid}')" title="показать команду запуска, ничего не запуская (dry-run)">cmd</button>
     </td></tr>`;
 }
 /* свёрнутый блок «Недавние»: быстрый запуск того, что запускали последним */
@@ -452,9 +472,30 @@ async function openSettings(guid){
   $('s-user-ib').value=our.user||''; $('s-user-ib').placeholder=(b.sm&&b.sm.UserLogin)||'';
   $('s-pass-ib').value=our.pwd||'';
   const sel=$('s-exe');
-  sel.innerHTML=`<option value="">Авто — по умолчанию${b.exe?' (сейчас: '+(b.exe.split('\\').filter(s=>/^\d+\.\d+\.\d+/.test(s))[0]||'…')+')':''}</option>`
-    +j.platforms.map(p=>`<option value="${p.exe}">${esc(p.key)} · ${p.bitness} · ${esc(p.source)}</option>`).join('');
+  const cur=b.exe?(b.exe.split('\\').filter(s=>/^\d+\.\d+\.\d+/.test(s))[0]||'…'):'';
+  let opts=`<option value="">Авто — по умолчанию${b.exe?' (сейчас: '+cur+')':''}</option>`;
+  // дерево: семейство (8.5 / 8.3 / 8.1) → разрядность (64 — разработка, 32 — тонкий клиент)
+  const numV=p=>{const m=String(p.key).match(/\d+(?:\.\d+)+/);return m?m[0]:''};
+  const cmpV=(a,b)=>{const A=numV(a).split('.').map(Number),B=numV(b).split('.').map(Number);
+    for(let i=0;i<Math.max(A.length,B.length);i++){const d=(B[i]||0)-(A[i]||0);if(d)return d}
+    return 0};
+  const famNum=f=>{const m=String(f).match(/\d+(\.\d+)?/);return m?parseFloat(m[0]):0};
+  const groups={};
+  (j.platforms||[]).forEach(p=>{const k=(p.family||'другие')+'|'+(p.bitness||'?');
+    (groups[k]=groups[k]||[]).push(p)});
+  Object.keys(groups).sort((a,b)=>{
+    const [fa,ba]=a.split('|'),[fb,bb]=b.split('|');
+    return (famNum(fb)-famNum(fa)) || ((ba==='x86')-(bb==='x86')) || a.localeCompare(b);
+  }).forEach(k=>{
+    const [fam,bit]=k.split('|');
+    const bits=bit==='x64'?'64 бита (разработка)':bit==='x86'?'32 бита (тонкий клиент)':bit;
+    opts+=`<optgroup label="Платформа ${esc(fam)} · ${esc(bits)}">`
+      +groups[k].sort(cmpV).map(p=>`<option value="${esc(p.exe)}">${esc(p.key)} · ${esc(p.source)}</option>`).join('')
+      +'</optgroup>';
+  });
+  sel.innerHTML=opts;
   sel.value=our.exe||'';
+  $('s-mode').value=b.default_mode||'';
   $('s-thin').checked=!!our.thin;
   $('s-dir').value=(our.storage&&our.storage.dir)||'';
   $('s-dir').placeholder=(b.sm&&b.sm.StorageDir)?('из SM: '+b.sm.StorageDir):'путь к хранилищу (.1ccr)';
@@ -468,7 +509,7 @@ async function saveSettings(){
   if(!CUR)return;
   const body={name:$('s-name').value.trim(), descr:$('s-descr').value.trim(),
     user:$('s-user-ib').value.trim(), pwd:$('s-pass-ib').value,
-    exe:$('s-exe').value, thin:$('s-thin').checked,
+    exe:$('s-exe').value, thin:$('s-thin').checked, mode:$('s-mode').value,
     storage:{dir:$('s-dir').value.trim(),user:$('s-user').value.trim(),password:$('s-pass').value}};
   const r=await fetch('/api/base/'+CUR,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify(body)});
@@ -543,7 +584,7 @@ async function reload(){
   await reload(); setMode(MODE);
   $('search').addEventListener('input',e=>{q=e.target.value;render()});
   document.querySelector('main table').addEventListener('click',e=>{
-    const tr=e.target.closest('tr.base'); if(tr)launch(tr.dataset.g,MODE)});
+    const tr=e.target.closest('tr.base'); if(tr)clickLaunch(tr.dataset.g)});
 })().catch(e=>{$('sub').textContent='ошибка загрузки: '+e});
 </script>
 </body>
