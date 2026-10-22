@@ -63,11 +63,43 @@ def launch(cmd: str) -> int:
     return p.pid
 
 
-def log_launch(base: str, mode: str, pid: int, cmd: str):
+def log_launch(base: str, mode: str, pid: int, cmd: str, guid: str | None = None):
     rec = {'ts': datetime.now().isoformat(timespec='seconds'),
            'base': base, 'mode': mode, 'pid': pid, 'cmd': cmd}
+    if guid:
+        rec['guid'] = guid
     with LOG.open('a', encoding='utf-8') as f:
         f.write(json.dumps(rec, ensure_ascii=False) + '\n')
+
+
+def history() -> list[dict]:
+    """Сводка запусков по базам: последний запуск, сколько всего, режим.
+
+    Ключ — guid (в новых записях), иначе имя базы (старые записи без guid).
+    """
+    if not LOG.is_file():
+        return []
+    agg: dict[str, dict] = {}
+    for ln in LOG.read_text(encoding='utf-8').splitlines():
+        try:
+            r = json.loads(ln)
+        except json.JSONDecodeError:
+            continue
+        ts = r.get('ts') or ''
+        key = (r.get('guid') or '').lower() or ('#' + (r.get('base') or ''))
+        cur = agg.get(key)
+        if cur is None:
+            agg[key] = {'guid': (r.get('guid') or '').lower(), 'name': r.get('base'),
+                        'mode': r.get('mode'), 'last_ts': ts, 'count': 1}
+        else:
+            cur['count'] += 1
+            if ts > (cur['last_ts'] or ''):
+                cur['last_ts'] = ts
+                cur['mode'] = r.get('mode')
+                cur['name'] = r.get('base')
+            if not cur['guid'] and r.get('guid'):
+                cur['guid'] = r['guid'].lower()
+    return sorted(agg.values(), key=lambda x: x['last_ts'] or '', reverse=True)
 
 
 def tail_log(n: int = 50) -> list[dict]:

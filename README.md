@@ -27,7 +27,8 @@ D:/python/WPy64-31241/python-3.12.4.amd64/python.exe run_server.py
 - `core/` — логика на чистом stdlib (движко-независимая):
   - `parsers.py` — ibases.v8i, v8config.smc, settings.cnf (форматы разведаны реверсом launcher.exe);
   - `scanner.py` — поиск платформ в Program Files и `D:\storage1C\ПлатформаКвас`;
-  - `launcher.py` — сборка команды СТРОКОЙ (`/IBConnectionString` из Connect) + Popen + лог;
+  - `launcher.py` — сборка команды СТРОКОЙ (`/IBConnectionString` из Connect) + Popen + лог и
+    сводка истории запусков (`history()`);
   - `v8i_writer.py` — запись в `ibases.v8i`: добавление базы/папки, удаление секции;
   - `importer.py` — слияние источников → `data/bases.json`.
 - `app/main.py` — REST: `GET /api/state`, `GET|PUT|DELETE /api/base/{guid}`,
@@ -99,6 +100,25 @@ D:/python/WPy64-31241/python-3.12.4.amd64/python.exe run_server.py
 `/RunModeOrdinaryApplication`, `/AllowExecuteScheduledJobs`, `/C`) — **разовые**:
 выбираются в шапке («разовые ключи») и действуют только на следующий запуск,
 в настройках базы не сохраняются.
+
+## История запусков (v0.6.0)
+
+Пишется в `data/launches.log` (JSON-строки: `ts`, `base`, `guid`, `mode`, `pid`, `cmd`).
+`GET /api/state` отдаёт готовую сводку:
+
+- `recent` (до 20) — базы по последнему запуску, свежие сверху: `guid`, `name`, `path`, `mode`,
+  `last_ts`, `count`, `day` = `today` / `yesterday` / `older`;
+- у каждой базы: `last_launch`, `launches` (сколько раз), `launch_day`.
+
+В UI:
+
+- блок **⟲ Недавние** в начале дерева (сворачивается, как папки): одна строка на базу, метка
+  «сегодня 12:13 · ×7», кнопки `1С` / `Конф` — клик по строке запускает в текущем режиме;
+- в дереве базы, запускавшиеся сегодня, подсвечены зелёной точкой ● и фоном строки, вчерашние —
+  жёлтой; в статус-строке счётчик «запускалось сегодня: N · вчера: M».
+
+Сводка строится по `guid`; старые записи без `guid` привязываются по имени, если имя в списке
+однозначно (поэтому переименование базы в настройках «теряет» её давнюю историю — только давнюю).
 
 ## Приоритет exe платформы для базы
 
