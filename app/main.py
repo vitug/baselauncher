@@ -7,13 +7,14 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from core import config, hotkey, importer, launcher, platforms_share, procs, tray, v8i_writer
+from core import cache, config, hotkey, importer, launcher, platforms_share, procs, tray, v8i_writer
 
-app = FastAPI(title='BaseLauncher', version='0.16.0')
+app = FastAPI(title='BaseLauncher', version='0.17.0')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
 ICON = Path(__file__).parent.parent / 'assets' / 'baselauncher.ico'
+ROOT = Path(__file__).parent.parent
 
 
 @app.on_event('startup')
@@ -353,6 +354,37 @@ def base_delete(guid: str):
         return JSONResponse({'error': str(e)}, status_code=400)
     st = importer.build_state()
     return {'ok': True, 'deleted': name, 'bases': len(st['bases'])}
+
+
+@app.get('/api/cache')
+def cache_info():
+    """Размеры кэшей: клиентский кэш 1С у пользователя и служебные файлы стартера."""
+    return cache.info(ROOT)
+
+
+@app.post('/api/cache/clear')
+async def cache_clear(req: Request):
+    """Очистить кэш: what=one_c (все базы), one_c_base (с guid), app (стартер)."""
+    body = await req.json()
+    what = (body.get('what') or '').strip()
+    guid = (body.get('guid') or '').strip() or None
+    try:
+        if what == 'one_c':
+            res = cache.clear_one_c(None)
+        elif what == 'one_c_base':
+            if not guid:
+                return JSONResponse({'error': 'не передан guid базы'}, status_code=400)
+            res = cache.clear_one_c(guid)
+        elif what == 'app':
+            res = cache.clear_app(ROOT)
+            importer._BASES_CACHE.clear()       # состояние перечитается из ibases.v8i
+        else:
+            return JSONResponse({'error': "what: one_c | one_c_base | app"}, status_code=400)
+    except Exception as e:                      # noqa: BLE001
+        return JSONResponse({'error': str(e)}, status_code=500)
+    running = len(procs.running_sessions())
+    res['sessions_running'] = running
+    return res
 
 
 @app.post('/api/activate')
