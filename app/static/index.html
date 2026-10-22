@@ -1041,10 +1041,10 @@ $('novl').addEventListener('click',e=>{if(e.target.id==='novl')closeNew()});
 $('ovl').addEventListener('click',e=>{if(e.target.id==='ovl')closeModal()});
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){closeModal();closeNew();closeAsk();return}
-  // Ctrl+Shift+D — поднять окно стартера. Сверяем e.code (физическая клавиша),
-  // поэтому работает и в русской раскладке, когда e.key = 'В'.
-  if(e.ctrlKey&&e.shiftKey&&(e.code==='KeyD'||String(e.key).toLowerCase()==='d'
-     ||String(e.key).toLowerCase()==='в')){
+  // Ctrl+Shift+S — поднять окно стартера. Сверяем e.code (физическая клавиша),
+  // поэтому работает и в русской раскладке, когда e.key = 'Ы'.
+  if(e.ctrlKey&&e.shiftKey&&(e.code==='KeyS'||String(e.key).toLowerCase()==='s'
+     ||String(e.key).toLowerCase()==='ы')){
     e.preventDefault(); focusStarter(); return}
 });
 async function focusStarter(){
@@ -1059,7 +1059,7 @@ async function hotkeyInfo(){
   try{
     const j=await (await fetch('/api/hotkey')).json();
     if(!j.registered&&j.error)$('st-left').title='горячая клавиша: '+j.error;
-    else $('st-left').title='Ctrl+Shift+D — показать окно стартера';
+    else $('st-left').title='Ctrl+Shift+S — показать окно стартера';
   }catch(e){}
 }
 

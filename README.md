@@ -40,6 +40,44 @@ D:/python/WPy64-31241/python-3.12.4.amd64/python.exe run_server.py
 - `data/overrides.json` — свои правки поверх импорта (высший приоритет).
 - `start_bl.bat` — стартер: сервер + отдельное окно приложения.
 
+## MCP-сервер (часть приложения, v0.12.0)
+
+Приложение само является MCP-сервером: `POST http://127.0.0.1:8797/mcp` (JSON-RPC 2.0,
+streamable HTTP; `GET /mcp` — справка со списком инструментов). Отдельный процесс не нужен,
+инструменты работают с тем же состоянием, что и UI: `ibases.v8i`, `data/config.json`,
+живые сеансы 1С. Реализация — `app/mcp.py`, маршрут — `app/main.py`.
+
+Инструменты (15): `launcher_status`, `list_bases`, `get_base`, `add_base`, `add_folder`,
+`delete_base`, `dryrun`, `launch_base`, `run_processing`, `list_sessions`, `activate_session`,
+`list_platforms`, `list_storages`, `recent_launches`, `open_web`.
+
+Подключение в клиенте:
+
+```yaml
+mcp_servers:
+  baselauncher:
+    url: http://127.0.0.1:8797/mcp
+```
+
+Только-stdio клиентам — мост `mcp_server.py` (`command: <python>`, `args: [mcp_server.py]`):
+он построчно читает JSON-RPC из stdin и пересылает в приложение.
+
+Пароли наружу не отдаются: в ответах только флаги `pwd_set` / `pwd_cfg_set` /
+`storage.pwd_set`, в `dryrun`/`launch_base` значения `/P` замаскированы как `"***"`.
+
+## Горячая клавиша и автозапуск (v0.12.1)
+
+- **Ctrl+Shift+S** — поднять окно стартера из любого приложения (раньше было Ctrl+Shift+D).
+  `core/hotkey.py`: `RegisterHotKey` на физическую клавишу `VK_S`, поэтому работает и в
+  русской, и в английской раскладке. Статус — `GET /api/hotkey`.
+- **Автозапуск**: `deploy/BaseLauncher-autostart.vbs` в папке «Автозагрузка» пользователя
+  (`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`). Скрипт поднимает сервер
+  `pythonw.exe` (без окна консоли), ждёт ответа `/api/state` (до 20 с) и открывает окно
+  `msedge --app=http://127.0.0.1:8797`. SM (`HKCU\...\Run\SM14`) из
+  автозапуска удалён; бэкап ветки — `data/autostart-hkcu-run-backup.reg`.
+- `run_server.py` при `pythonw` (когда `sys.stdout is None`) перенаправляет вывод в
+  `data/server.log` — иначе uvicorn падает на логировании в несуществующий stdout.
+
 ## Важно: командная строка 1С — строкой, не списком
 
 1С парсит `/IBConnectionString` не по правилам CRT. `Popen(list)` заэкранирует кавычки
