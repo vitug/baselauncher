@@ -275,12 +275,16 @@ button.ln.gear:hover{border-color:var(--green)}
 
 <script>
 let STATE=null, fam='all', q='', MODE=localStorage.getItem('bl_mode')||'enterprise';
-let COLLAPSED=new Set(JSON.parse(localStorage.getItem('bl_collapsed')||'[]'));
+let COLLAPSED=new Set(JSON.parse(localStorage.getItem('bl_collapsed')||'[]')); // блоки: Открытые/Недавние/Избранное
+let OPEN=new Set(JSON.parse(localStorage.getItem('bl_open')||'[]'));          // папки дерева, развёрнутые ЯВНО
 let FOLDERS=[], CUR=null;   // CUR = guid базы, открытой в редакторе
 const $=id=>document.getElementById(id);
 
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
-function saveColl(){localStorage.setItem('bl_collapsed',JSON.stringify([...COLLAPSED]))}
+function saveColl(){
+  localStorage.setItem('bl_collapsed',JSON.stringify([...COLLAPSED]));
+  localStorage.setItem('bl_open',JSON.stringify([...OPEN]));
+}
 function setMode(m){MODE=m;localStorage.setItem('bl_mode',m);
   $('m-ent').className=m==='enterprise'?'on':''; $('m-dsg').className=m==='designer'?'on d':'';
   stat('режим клика: '+(m==='enterprise'?'предприятие':'конфигуратор'))}
@@ -451,7 +455,8 @@ function recentBlock(){
 }
 function folderRow(n,depth){
   const idx=FOLDERS.length; FOLDERS.push(n.path);
-  const open=!COLLAPSED.has(n.path);
+  // по умолчанию папка СВЕРНУТА: развёрнута только если пользователь раскрыл её сам
+  const open=OPEN.has(n.path);
   return `<tr class="folder" onclick="toggleF(${idx})">
       <td colspan="4" style="padding-left:${depth*18+6}px">
       <span class="arrow">${open?'▼':'▶'}</span>${esc(n.name)}<span class="cnt">${countBases(n)}</span></td></tr>`
@@ -464,18 +469,17 @@ function renderNode(n,depth){
   return h;
 }
 function toggleF(i){const p=FOLDERS[i];
-  COLLAPSED.has(p)?COLLAPSED.delete(p):COLLAPSED.add(p); saveColl();render()}
+  OPEN.has(p)?OPEN.delete(p):OPEN.add(p); saveColl();render()}
 /* свернуть/развернуть все папки дерева (блоки «Открытые»/«Недавние»/«Избранное» не трогаем) */
 function collapseAll(){
-  (STATE.folders||[]).forEach(f=>{
-    const parent=(f.folder||'/');
-    COLLAPSED.add((parent==='/'?'':parent)+'/'+f.name);
-  });
+  OPEN.clear();
   saveColl(); render();
 }
 function expandAll(){
-  const keep=['__open','__recent','__fav'].filter(k=>COLLAPSED.has(k));
-  COLLAPSED.clear(); keep.forEach(k=>COLLAPSED.add(k));
+  (STATE.folders||[]).forEach(f=>{
+    const parent=(f.folder||'/');
+    OPEN.add((parent==='/'?'':parent)+'/'+f.name);
+  });
   saveColl(); render();
 }
 /* из блока «Открытые» — к строке базы в дереве: раскрыть её папки, снять фильтры,
@@ -485,9 +489,9 @@ function jumpToRow(guid){
   // раскрыть все папки по пути базы: /Работа → /Работа/Проект
   let prefix='';
   (b.folder||'/').split('/').filter(Boolean).forEach(seg=>{
-    prefix+='/'+seg; COLLAPSED.delete(prefix);
+    prefix+='/'+seg; OPEN.add(prefix);
   });
-  COLLAPSED.delete(b.folder||'/');
+  OPEN.add(b.folder||'/');
   if(q||fam!=='all'){ q=''; fam='all'; $('search').value=''; }
   saveColl(); render();
   const tr=document.getElementById('r-'+guid);
