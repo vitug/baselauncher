@@ -57,6 +57,16 @@ def _add(ev: dict) -> None:
         del _EVENTS[40:]
 
 
+def _drop(ev_id: str) -> bool:
+    """Убрать событие (например, окно базы всё-таки появилось — ложная тревога)."""
+    with _LOCK:
+        for i, e in enumerate(_EVENTS):
+            if e.get('id') == ev_id:
+                del _EVENTS[i]
+                return True
+    return False
+
+
 def _alive(pid: int) -> bool:
     """Процесс жив? (tasklist через subprocess — без psutil)."""
     try:
@@ -88,10 +98,11 @@ def _windows_of(pid: int) -> list[tuple[int, str, str]]:
 
 
 def _ready(pid: int) -> tuple[str, int]:
-    """(заголовок готового окна базы | '', hwnd диалога-сообщения 1С | 0).
+    """(заголовок окна, если он уже не сплэш | '', hwnd видимого диалога-сообщения 1С | 0).
 
-    Готовность определяем по классу главного окна 1С (V8TopLevelFrame…), а не по любому
-    заголовку: сообщения 1С — отдельные окна, и раньше они могли сойти за «окно базы».
+    Внимание: у открывшейся базы заголовок главного окна 1С часто ОСТАЁТСЯ
+    «Загрузка конфигурационной информации…» (проверено: 75 с и больше), поэтому по одному
+    заголовку готовность определять нельзя — только как ранний признак «уже открылось».
     """
     ready = ''
     dialog = 0
@@ -104,6 +115,30 @@ def _ready(pid: int) -> tuple[str, int]:
         if cls.startswith('V8ConfirmationWindow') or cls.startswith('V8MessageBox'):
             dialog = dialog or hwnd
     return ready, dialog
+
+
+def _dialog_shown(pid: int) -> int:
+    """hwnd видимого диалога-сообщения 1С (ошибка/предупреждение), иначе 0.
+
+    Только классы сообщений и только top-level окна: во время сплэша у 1С полно видимых
+    служебных `V8Window`, и любое «не-рамное» окно считать диалогом нельзя.
+    """
+    wanted = ('V8ConfirmationWindow', 'V8MessageBox', 'V8InformationWindow',
+              'V8ValidationMessageWnd', 'V8AlertWindow')
+    GWL_STYLE = -16
+    WS_CHILD = 0x40000000
+    for hwnd, cls, _title in _windows_of(pid):
+        if not cls.startswith(wanted):
+            continue
+        style = u32.GetWindowLongW(hwnd, GWL_STYLE) or 0
+        if style & WS_CHILD:
+            continue
+        r = wt.RECT()
+        u32.GetWindowRect(hwnd, ctypes.byref(r))
+        w, h = r.right - r.left, r.bottom - r.top
+        if w >= 200 and h >= 90:          # диалог, а не служебный микро-контрол
+            return hwnd
+    return 0
 
 
 class _BITMAPINFOHEADER(ctypes.Structure):
@@ -222,12 +257,19 @@ def hint(kind: str, exe: str, conn: str, family_versions: list[str]) -> str:
 
 
 def watch(pid: int, guid: str, name: str, exe: str, conn: str,
-          family_versions: list[str] | None = None, splash_timeout: float = 18.0) -> None:
-    """Фоновый сторож одного запуска (вызывать в отдельном потоке)."""
+          family_versions: list[str] | None = None, watch_timeout: float = 120.0) -> None:
+    """Фоновый сторож одного запуска (вызывать в отдельном потоке).
+
+    Тревогу поднимаем только по фактам: 1С показала диалог-сообщение или процесс умер,
+    не открыв базу. Таймаут сам по себе тревогой НЕ считается: заголовок окна у нормально
+    открытой базы часто остаётся сплэшным, и по времени «медленный старт» не отличить
+    от ошибки — лучше промолчать, чем пугать ложной тревогой (предпроверка соединения
+    ловит недоступный сервер и битый путь заранее).
+    """
     started = time.time()
     ready = ''
     dialog = 0
-    while time.time() - started < splash_timeout:
+    while time.time() - started < watch_timeout:
         time.sleep(1.0)
         if not _alive(pid):
             break
@@ -236,11 +278,18 @@ def watch(pid: int, guid: str, name: str, exe: str, conn: str,
             return                      # нормальный запуск: окно базы появилось
         if dialog:
             break                       # 1С показала сообщение — сразу снимаем его
+        d = _dialog_shown(pid)
+        if d:
+            dialog = d
+            time.sleep(0.6)             # даём диалогу дорисоваться
+            break
     if ready:
         return
-    if _alive(pid):
-        kind = 'dialog' if dialog else 'stuck'
-        shots = ([_shot(dialog, pid)] if dialog else []) or capture(pid, name)
+    if _alive(pid) and not dialog:
+        return                          # процесс жив и молчит: считаем, что база открылась медленно
+    if dialog and _alive(pid):
+        kind = 'dialog'
+        shots = [_shot(dialog, pid)] or capture(pid, name)
     else:
         kind = 'exited'
         shots = []
