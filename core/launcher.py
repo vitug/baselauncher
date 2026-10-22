@@ -52,7 +52,11 @@ def build_cmd(exe: str, mode: str, connect: str,
             parts += ['/ConfigurationRepositoryN', _q(storage['user'])]
         if storage.get('password'):
             parts += ['/ConfigurationRepositoryP', _q(storage['password'])]
-    parts += ['/IBConnectionString', conn]
+    # Значение /IBConnectionString — в кавычках, внутренние кавычки удваиваются:
+    #   /IBConnectionString "File=""D:\база с пробелом"";"
+    # Иначе 1С обрывает значение на первом пробеле, не понимает строку подключения
+    # и открывает стартовое окно «Запуск 1С:Предприятия» вместо самой базы.
+    parts += ['/IBConnectionString', '"' + conn.replace('"', '""') + '"']
     return ' '.join(parts)
 
 
