@@ -64,6 +64,16 @@ td.plat{white-space:nowrap;font-size:12.5px}
 .warn{color:var(--red);font-weight:600;font-size:11px;margin-left:6px;white-space:nowrap}
 .chip.warn-chip{border-color:var(--red);color:var(--red)}
 .chip.warn-chip.on{background:var(--red);border-color:var(--red);color:#fff}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.dot.today{background:var(--green);box-shadow:0 0 5px var(--green)}
+.dot.yesterday{background:var(--amber)}
+tr.base.today td{background:rgba(90,200,140,.09)}
+tr.base.yesterday td{background:rgba(230,180,70,.07)}
+.tag{font-size:10.5px;padding:1px 6px;border-radius:9px;border:1px solid var(--border);
+  color:var(--muted);white-space:nowrap;margin-left:4px}
+.tag.today{border-color:var(--green);color:var(--green)}
+.tag.yesterday{border-color:var(--amber);color:var(--amber)}
+tr.folder.recent-h td{color:var(--green)}
 .add{padding:6px 11px;border-radius:7px;border:1px dashed var(--border);background:transparent;
   color:var(--muted);cursor:pointer;font-size:12.5px}
 .add:hover{border-color:var(--green);color:var(--green)}
@@ -286,12 +296,33 @@ function badge(b){
   s+= v?`<span class="ver">${v} · ${src}</span>`:`<span class="ver">нет exe</span>`;
   return s;
 }
+/* «сегодня 14:32» / «вчера 09:12» / «21.10 17:40» по ISO-метке запуска */
+function ago(ts){
+  if(!ts)return '';
+  const d=new Date(ts), now=new Date();
+  const hm=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+  const same=(a,b)=>a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
+  if(same(d,now))return 'сегодня '+hm;
+  if(same(d,new Date(now.getFullYear(),now.getMonth(),now.getDate()-1)))return 'вчера '+hm;
+  return String(d.getDate()).padStart(2,'0')+'.'+String(d.getMonth()+1).padStart(2,'0')+' '+hm;
+}
+function launchTag(b){
+  if(b.launch_day==='today')return `<span class="tag today" title="последний запуск">${esc(ago(b.last_launch))}</span>`;
+  if(b.launch_day==='yesterday')return `<span class="tag yesterday" title="последний запуск">${esc(ago(b.last_launch))}</span>`;
+  return '';
+}
+function launchDot(b){
+  if(b.launch_day==='today')return `<span class="dot today" title="запускалась ${esc(ago(b.last_launch))}"></span>`;
+  if(b.launch_day==='yesterday')return `<span class="dot yesterday" title="запускалась ${esc(ago(b.last_launch))}"></span>`;
+  return '';
+}
 function baseRow(b,depth){
   const loc=b.path||((b.server?(b.server+(b.ref?'\\'+b.ref:'')):''));
   const desc=b.descr?` title="${esc(b.descr)}"`:'';
-  return `<tr class="base" id="r-${b.guid}" data-g="${b.guid}" ${desc}>
+  const dcl=b.launch_day==='today'?' today':(b.launch_day==='yesterday'?' yesterday':'');
+  return `<tr class="base${dcl}" id="r-${b.guid}" data-g="${b.guid}" ${desc}>
     <td class="name" style="padding-left:${depth*18+6}px"><span class="star${b.fav?' on':''}"
-      onclick="event.stopPropagation();toggleFav('${b.guid}')" title="избранное">${b.fav?'★':'☆'}</span>${esc(b.name)}</td>
+      onclick="event.stopPropagation();toggleFav('${b.guid}')" title="избранное">${b.fav?'★':'☆'}</span>${launchDot(b)}${esc(b.name)}${launchTag(b)}</td>
     <td class="path" title="${esc(loc)}">${esc(loc)}</td>
     <td class="plat">${badge(b)}</td>
     <td class="act">
@@ -300,6 +331,24 @@ function baseRow(b,depth){
       <button class="ln designer" onclick="event.stopPropagation();launch('${b.guid}','designer')">Конф</button>
       <button class="ln" onclick="event.stopPropagation();launch('${b.guid}','enterprise')">1С</button>
     </td></tr>`;
+}
+/* свёрнутый блок «Недавние»: быстрый запуск того, что запускали последним */
+function recentBlock(){
+  const rec=STATE.recent||[];
+  if(!rec.length)return '';
+  const idx=FOLDERS.length; FOLDERS.push('__recent');
+  const open=!COLLAPSED.has('__recent');
+  let h=`<tr class="folder recent-h" onclick="toggleF(${idx})"><td colspan="4" style="padding-left:6px">
+    <span class="arrow">${open?'▼':'▶'}</span>⟲ Недавние<span class="cnt">${rec.length}</span></td></tr>`;
+  if(open) h+=rec.map(r=>`<tr class="base recent${r.day==='today'?' today':r.day==='yesterday'?' yesterday':''}" data-g="${r.guid}">
+    <td class="name" style="padding-left:24px"><span class="dot ${r.day==='today'?'today':r.day==='yesterday'?'yesterday':''}"></span>${esc(r.name)}</td>
+    <td class="path" title="${esc(r.path||'')}">${esc(r.path||'')}</td>
+    <td class="plat"><span class="tag ${r.day}">${esc(ago(r.last_ts))}</span>${r.mode==='designer'?'<span class="ver">конфигуратор</span>':''}${r.count>1?`<span class="ver">×${r.count}</span>`:''}</td>
+    <td class="act">
+      <button class="ln" onclick="event.stopPropagation();launch('${r.guid}','enterprise')">1С</button>
+      <button class="ln designer" onclick="event.stopPropagation();launch('${r.guid}','designer')">Конф</button>
+    </td></tr>`).join('');
+  return h;
 }
 function folderRow(n,depth){
   const idx=FOLDERS.length; FOLDERS.push(n.path);
@@ -346,6 +395,7 @@ function render(){
       prune(tree['/']);
     }
     let h='';
+    h+=recentBlock();
     const favs=STATE.bases.filter(b=>b.fav&&(fam==='all'||b.family===fam));
     if(favs.length){ h+=folderRow({path:'__fav',name:'★ Избранное',folders:[],bases:favs},0) }
     h+=renderNode(tree['/'],0);
@@ -353,7 +403,9 @@ function render(){
     shown=countBases(tree['/'])+favs.length;
   }
   $('empty').style.display=shown?'none':'block';
-  $('st-left').textContent=`${shown} баз · папок: ${(STATE.folders||[]).length} · платформ: ${STATE.platforms.length} · избранное: ${STATE.bases.filter(b=>b.fav).length} · ⚠ нет папки: ${STATE.bases.filter(b=>b.path_ok===false).length} · нет exe: ${STATE.bases.filter(b=>b.exe_ok===false).length}`;
+  const cntToday=STATE.bases.filter(b=>b.launch_day==='today').length;
+  const cntYest=STATE.bases.filter(b=>b.launch_day==='yesterday').length;
+  $('st-left').textContent=`${shown} баз · папок: ${(STATE.folders||[]).length} · платформ: ${STATE.platforms.length} · избранное: ${STATE.bases.filter(b=>b.fav).length} · запускалось сегодня: ${cntToday}${cntYest?' · вчера: '+cntYest:''} · ⚠ нет папки: ${STATE.bases.filter(b=>b.path_ok===false).length} · нет exe: ${STATE.bases.filter(b=>b.exe_ok===false).length}`;
 }
 
 /* ---------- действия ---------- */
