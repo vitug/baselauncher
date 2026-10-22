@@ -1,2 +1,6 @@
 data/launches.log
 __pycache__/
+# генерируемые данные и локальные настройки (не коммитить)
+data/bases.json
+data/overrides.json
+data/launches.log
