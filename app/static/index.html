@@ -130,6 +130,26 @@ tr.base.running td.name{box-shadow:inset 3px 0 0 var(--green)}
   background:var(--bg);color:var(--fg);font-size:13px}
 #nmodal .row2{display:flex;gap:10px} #nmodal .row2>div{flex:1}
 #nmodal .btns{display:flex;gap:8px;margin-top:16px}
+#n-folder-pick{position:relative}
+#n-folder-btn{width:100%;display:flex;align-items:center;gap:8px;box-sizing:border-box;
+  padding:7px 10px;border-radius:7px;border:1px solid var(--border);
+  background:var(--bg);color:var(--fg);font:inherit;cursor:pointer;text-align:left}
+#n-folder-btn:hover{border-color:var(--blue)}
+#n-folder-btn #n-folder-label{flex:1 1 auto;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+#n-folder-btn .pick-caret{color:var(--muted);flex:0 0 auto}
+#n-folder-tree{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:30;
+  max-height:260px;overflow:auto;padding:4px;border-radius:8px;
+  border:1px solid var(--border);background:var(--panel);box-shadow:0 10px 26px #0008}
+.pt-row{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:6px;
+  cursor:pointer;font-size:12.5px;color:var(--fg)}
+.pt-row:hover{background:var(--row-hi)}
+.pt-row.sel{background:var(--row-hi);outline:1px solid var(--blue)}
+.pt-row .pt-arrow{flex:0 0 14px;color:var(--muted);text-align:center;cursor:pointer;
+  user-select:none}
+.pt-row .pt-arrow.empty{visibility:hidden}
+.pt-row .pt-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pt-row .pt-cnt{color:var(--muted);font-size:11px;margin-left:auto}
 #nmodal .btns button{flex:1;padding:9px;border-radius:7px;border:1px solid var(--border);
   background:var(--row);color:var(--fg);cursor:pointer;font-size:13px}
 #nmodal .btns .save{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
@@ -283,7 +303,13 @@ body{padding-bottom:46px}
   <input type="text" id="n-name" placeholder="Имя базы или папки">
   <div id="n-folder-wrap">
     <label>Куда добавить (родительская папка; чтобы получить подпапку — выберите папку-родителя)</label>
-    <select id="n-folder"></select>
+    <div id="n-folder-pick">
+      <button type="button" id="n-folder-btn" class="pick-btn" onclick="toggleFolderTree(event)">
+        <span id="n-folder-label">(корень дерева)</span><span class="pick-caret">▾</span>
+      </button>
+      <div id="n-folder-tree" class="pick-tree" style="display:none"></div>
+      <input type="hidden" id="n-folder" value="/">
+    </div>
   </div>
   <div id="n-base-wrap">
     <label>Тип подключения</label>
@@ -1038,17 +1064,83 @@ function folderPaths(){
   (STATE.folders||[]).forEach(f=>{const p=(f.folder==='/'?'':f.folder)+'/'+f.name; s.add(p)});
   return ['/'].concat([...s].filter(p=>p!=='/').sort());
 }
+/* ---- выбор родительской папки деревом (вместо плоского списка) ---- */
+let PT_OPEN=new Set(['/']);          // развёрнутые узлы в дереве выбора
+function folderTreeMap(){
+  const map={'/':[]};
+  (STATE.folders||[]).forEach(f=>{
+    const p=(f.folder==='/'?'':f.folder)+'/'+f.name;
+    const par=f.folder||'/';
+    (map[par]=map[par]||[]).push({path:p,name:f.name});
+    map[p]=map[p]||[];
+  });
+  Object.keys(map).forEach(k=>map[k].sort((a,b)=>a.name.localeCompare(b.name,'ru')));
+  return map;
+}
+function parentOf(p){                       // '/A/B' -> '/A'
+  if(p==='/'||!p)return '/';
+  const i=p.lastIndexOf('/');
+  return i<=0?'/':p.slice(0,i);
+}
+function expandAncestors(p){
+  PT_OPEN.add('/');
+  let cur=p;
+  while(cur&&cur!=='/'){PT_OPEN.add(parentOf(cur)); cur=parentOf(cur);}
+  PT_OPEN.add(p);
+}
+function setParent(p){
+  $('n-folder').value=p||'/';
+  $('n-folder-label').textContent=(p==='/'||!p)?'(корень дерева)':p;
+  expandAncestors(p||'/');
+  if($('n-folder-tree').style.display!=='none') renderFolderTree();
+}
+function toggleFolderTree(e){
+  if(e)e.stopPropagation();
+  const box=$('n-folder-tree');
+  const show=box.style.display==='none';
+  if(show){expandAncestors($('n-folder').value||'/'); renderFolderTree(); box.style.display='';}
+  else box.style.display='none';
+}
+function renderFolderTree(){
+  const map=folderTreeMap(), cur=$('n-folder').value||'/';
+  const count=p=>{
+    const n=(map[p]||[]).length;
+    const sub=(STATE.bases||[]).filter(b=>b.folder===p).length;
+    return {n,sub};
+  };
+  const rows=(p,depth)=>{
+    const {n,sub}=count(p);
+    const has=(map[p]||[]).length>0;
+    const open=PT_OPEN.has(p);
+    let h=`<div class="pt-row${p===cur?' sel':''}" data-p="${esc(p)}"
+        style="padding-left:${depth*14+4}px" onclick="setParent('${esc(p)}');$('n-folder-tree').style.display='none'">
+        <span class="pt-arrow${has?'':' empty'}"
+          onclick="event.stopPropagation();ptToggle('${esc(p)}')">${has?(open?'▼':'▶'):'•'}</span>
+        <span class="pt-name">${p==='/'?'(корень дерева)':esc(p.split('/').pop())}</span>
+        <span class="pt-cnt">${sub?sub+' б.':''}${sub&&n?' · ':''}${n?'папок '+n:''}</span>
+      </div>`;
+    if(open) (map[p]||[]).forEach(c=>{h+=rows(c.path,depth+1)});
+    return h;
+  };
+  $('n-folder-tree').innerHTML=rows('/',0);
+}
+/* клик мимо дерева — закрыть его */
+document.addEventListener('click', e=>{
+  const pick=document.getElementById('n-folder-pick');
+  const tree=document.getElementById('n-folder-tree');
+  if(pick&&tree&&tree.style.display!=='none'&&!pick.contains(e.target)) tree.style.display='none';
+});
+function ptToggle(p){
+  PT_OPEN.has(p)?PT_OPEN.delete(p):PT_OPEN.add(p);
+  renderFolderTree();
+}
 function openNew(kind, parent){
   $('novl').dataset.kind=kind;
   $('n-title').textContent=kind==='base'?'Новая база (в ibases.v8i)':'Новая папка (в дереве)';
   $('n-name').value=''; $('n-path').value=''; $('n-server').value=''; $('n-ref').value='';
   $('n-base-wrap').style.display=kind==='base'?'':'none';
-  $('n-folder').innerHTML=folderPaths().map(p=>{
-    const depth=(p.match(/\//g)||[]).length-1;
-    const nm=p==='/'?'(корень дерева)':'   '.repeat(depth)+p.split('/').pop();
-    return `<option value="${esc(p)}">${esc(nm)}</option>`;
-  }).join('');
-  if(parent!=null&&parent!=='') $('n-folder').value=parent;
+  setParent(parent||'/');
+  $('n-folder-tree').style.display='none';
   $('novl').classList.add('on'); $('n-name').focus();
 }
 function closeNew(){$('novl').classList.remove('on')}
