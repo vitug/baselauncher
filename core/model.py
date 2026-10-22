@@ -39,6 +39,7 @@ class BaseEntry:
     path_info: str = ''          # 'ok' | 'папки базы нет' | 'нет файла 1Cv8.1CD' | 'серверная'
     exe_ok: bool = False         # exe платформы существует на диске
     fav: bool = False        # избранное (наша отметка)
+    default_mode: str = ''   # режим запуска по клику: 'enterprise' | 'designer' | '' (как в шапке)
     descr: str = ''          # описание (эффективное: наше или из SM)
     user: str = ''           # пользователь ИБ /N (эффективное: наше или UserLogin из SM)
     pwd: str = ''            # пароль ИБ /P (только наш; из SM не импортируется)

@@ -123,6 +123,7 @@ def build_state() -> dict:
             extra_keys=list(our.get('extra_keys') or []),
             our=our,
             fav=bool(our.get('fav')),
+            default_mode=(our.get('mode') if our.get('mode') in ('enterprise', 'designer') else ''),
             path_ok=path_ok,
             path_info=path_info,
             exe_ok=exe_ok,
