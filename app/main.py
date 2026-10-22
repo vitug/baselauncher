@@ -1,60 +1,136 @@
 # -*- coding: utf-8 -*-
 """REST-слой BaseLauncher (FastAPI). Только 127.0.0.1."""
-import subprocess
+import json
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from core import importer, launcher
 
-app = FastAPI(title='BaseLauncher', version='0.1.0')
+app = FastAPI(title='BaseLauncher', version='0.3.0')
 
-STATIC = FileResponse(__import__('pathlib').Path(__file__).parent / 'static' / 'index.html')
+INDEX = Path(__file__).parent / 'static' / 'index.html'
 
 
 @app.get('/')
 def index():
-    return STATIC
+    return FileResponse(INDEX)
 
 
 @app.get('/api/state')
 def state():
-    """Полное состояние: базы (слитые с настройками SM), платформы, слоты."""
+    """Полное состояние: базы (слитые с настройками SM), папки, платформы, слоты."""
     return importer.build_state()
+
+
+def _base_or_404(guid: str):
+    st = importer.build_state()
+    base = importer.find_base(st, guid)
+    return (st, base) if base else (None, None)
+
+
+@app.get('/api/base/{guid}')
+def base_detail(guid: str):
+    st, base = _base_or_404(guid)
+    if not base:
+        return JSONResponse({'error': 'база не найдена'}, status_code=404)
+    return {'base': base, 'platforms': st['platforms']}
+
+
+@app.put('/api/base/{guid}')
+async def base_save(guid: str, req: Request):
+    """Сохранить наши настройки базы в data/overrides.json.
+
+    Поля: exe ('' = авто), thin (bool), storage {dir,user,password}, extra_keys [..].
+    Отсутствующие поля не трогаются; {'clear': true} — сбросить всё.
+    """
+    _, base = _base_or_404(guid)
+    if not base:
+        return JSONResponse({'error': 'база не найдена'}, status_code=404)
+    body = await req.json()
+
+    ov = importer.load_overrides()
+    bases = ov.setdefault('bases', {})
+    guid = guid.lower()
+    if body.get('clear'):
+        bases.pop(guid, None)
+    else:
+        cur = bases.setdefault(guid, {})
+        if 'exe' in body:
+            if body['exe']:
+                cur['exe'] = body['exe']
+            else:
+                cur.pop('exe', None)
+        if 'thin' in body:
+            cur['thin'] = bool(body['thin'])
+        if 'fav' in body:
+            cur['fav'] = bool(body['fav'])
+        for fld in ('name', 'descr', 'user', 'pwd'):
+            if fld in body:
+                if body[fld]:
+                    cur[fld] = body[fld]
+                else:
+                    cur.pop(fld, None)
+        if 'extra_keys' in body:
+            cur['extra_keys'] = [k for k in body['extra_keys'] if k]
+        if 'storage' in body:
+            s = body['storage'] or {}
+            if s.get('dir'):
+                cur['storage'] = {'dir': s.get('dir', ''),
+                                  'user': s.get('user', ''),
+                                  'password': s.get('password', '')}
+            else:
+                cur.pop('storage', None)
+        if not cur:
+            bases.pop(guid, None)
+    importer.OVERRIDES_PATH.write_text(
+        json.dumps(ov, ensure_ascii=False, indent=1), encoding='utf-8')
+
+    st = importer.build_state()
+    return {'ok': True, 'base': importer.find_base(st, guid)}
+
+
+def _build_cmd_from_body(body: dict, base: dict):
+    exe = body.get('exe') or base['exe']
+    mode = body.get('mode', 'enterprise')
+    extra = body.get('extra_keys')
+    storage = body.get('storage')
+    if storage is None:
+        storage = base.get('storage') or {}
+    user = body.get('user') or base.get('user') or ''
+    pwd = body.get('pwd') or base.get('pwd') or ''
+    try:
+        return launcher.build_cmd(exe, mode, base['connect'], extra, storage,
+                                  user, pwd), mode
+    except ValueError as e:
+        return JSONResponse({'error': str(e)}, status_code=400), mode
 
 
 @app.post('/api/dryrun')
 async def dryrun(req: Request):
     body = await req.json()
-    st = importer.build_state()
-    base = importer.find_base(st, body.get('guid', ''))
+    _, base = _base_or_404(body.get('guid', ''))
     if not base:
         return JSONResponse({'error': 'база не найдена'}, status_code=404)
-    exe = body.get('exe') or base['exe']
-    try:
-        argv = launcher.build_argv(exe, body.get('mode', 'enterprise'), base['connect'],
-                                   body.get('extra_keys'))
-    except ValueError as e:
-        return JSONResponse({'error': str(e)}, status_code=400)
-    return {'cmd': subprocess.list2cmdline(argv), 'argv': argv}
+    cmd, _ = _build_cmd_from_body(body, base)
+    if isinstance(cmd, JSONResponse):
+        return cmd
+    return {'cmd': cmd}
 
 
 @app.post('/api/launch')
 async def launch(req: Request):
     body = await req.json()
-    st = importer.build_state()
-    base = importer.find_base(st, body.get('guid', ''))
+    _, base = _base_or_404(body.get('guid', ''))
     if not base:
         return JSONResponse({'error': 'база не найдена'}, status_code=404)
-    exe = body.get('exe') or base['exe']
-    try:
-        argv = launcher.build_argv(exe, body.get('mode', 'enterprise'), base['connect'],
-                                   body.get('extra_keys'))
-    except ValueError as e:
-        return JSONResponse({'error': str(e)}, status_code=400)
-    pid = launcher.launch(argv)
-    launcher.log_launch(base['name'], body.get('mode', 'enterprise'), pid, argv)
-    return {'ok': True, 'pid': pid, 'cmd': subprocess.list2cmdline(argv)}
+    cmd, mode = _build_cmd_from_body(body, base)
+    if isinstance(cmd, JSONResponse):
+        return cmd
+    pid = launcher.launch(cmd)
+    launcher.log_launch(base['name'], mode, pid, cmd)
+    return {'ok': True, 'pid': pid, 'cmd': cmd}
 
 
 @app.get('/api/log')

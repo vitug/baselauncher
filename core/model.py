@@ -31,6 +31,14 @@ class BaseEntry:
     exe: str = ''           # эффективный exe платформы
     exe_src: str = ''       # откуда: our | sm | slot | auto | none
     family: str = ''        # семейство эффективной платформы ('8.3'...)
+    thin: bool = False      # тонкий клиент (1cv8c.exe)
+    storage: dict = field(default_factory=dict)  # хранилище конфигурации: dir/user/password
+    extra_keys: list = field(default_factory=list)  # доп. ключи запуска
+    our: dict = field(default_factory=dict)        # наши правки (overrides.json) как есть
+    fav: bool = False        # избранное (наша отметка)
+    descr: str = ''          # описание (эффективное: наше или из SM)
+    user: str = ''           # пользователь ИБ /N (эффективное: наше или UserLogin из SM)
+    pwd: str = ''            # пароль ИБ /P (только наш; из SM не импортируется)
 
     def as_dict(self):
         return asdict(self)
