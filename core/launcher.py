@@ -77,8 +77,10 @@ def launch(cmd: str) -> int:
 
 
 def log_launch(base: str, mode: str, pid: int, cmd: str, guid: str | None = None):
+    # пароли в командной строке в лог не пишем
+    safe = re.sub(r'(/(?:P|ConfigurationRepositoryP))\s+"[^"]*"', r'\1 "***"', cmd or '')
     rec = {'ts': datetime.now().isoformat(timespec='seconds'),
-           'base': base, 'mode': mode, 'pid': pid, 'cmd': cmd}
+           'base': base, 'mode': mode, 'pid': pid, 'cmd': safe}
     if guid:
         rec['guid'] = guid
     with LOG.open('a', encoding='utf-8') as f:

@@ -54,8 +54,11 @@ td.name{white-space:nowrap;max-width:360px;overflow:hidden;text-overflow:ellipsi
 td.path{font:12px/1.5 Consolas,monospace;color:var(--muted);max-width:310px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 td.plat{white-space:nowrap;font-size:12.5px}
-.star{cursor:pointer;color:var(--muted);margin-right:5px;font-size:13px}
-.star:hover{color:var(--amber)} .star.on{color:var(--amber)}
+.star{cursor:pointer;color:var(--muted);margin-right:5px;font-size:18px;line-height:1;
+  display:inline-block;width:24px;height:22px;text-align:center;vertical-align:-5px;
+  border-radius:6px;user-select:none}
+.star:hover{color:var(--amber);background:rgba(255,193,7,.18)}
+.star.on{color:var(--amber)}
 .fam{display:inline-block;padding:2px 8px;border-radius:5px;font-weight:600;font-size:11.5px}
 .f-8\.3{background:#1d3a5f;color:var(--blue)} .f-8\.5{background:#32285f;color:var(--purple)}
 .f-8\.2{background:#1d4a33;color:var(--green)} .f-8\.1{background:#4a3a1d;color:var(--amber)}
@@ -238,8 +241,9 @@ button.ln.gear:hover{border-color:var(--green)}
     <div><label>Пользователь ИБ (/N)</label><input type="text" id="s-user-ib"></div>
     <div><label>Пароль ИБ (/P)</label><input type="password" id="s-pass-ib"></div>
   </div>
-  <div class="hint">Пароль хранится локально в data/overrides.json открытым текстом
-    (пароль из SM не переносится — он зашифрован).</div>
+  <div class="hint">Пусто — берётся пароль из SM (расшифровывается автоматически:
+    «Предприятие» — EntPassword, «Конфигуратор» — CfgPassword). Свой пароль здесь
+    перекрывает SM и хранится локально в data/overrides.json открытым текстом.</div>
 
   <div class="ksec">Платформа</div>
   <label>Исполняемый файл (exe)</label>
@@ -749,6 +753,8 @@ async function openSettings(guid){
   $('s-descr').value=our.descr||''; $('s-descr').placeholder=(b.sm&&b.sm.Description)||'';
   $('s-user-ib').value=our.user||''; $('s-user-ib').placeholder=(b.sm&&b.sm.UserLogin)||'';
   $('s-pass-ib').value=our.pwd||'';
+  $('s-pass-ib').placeholder=b.pwd_sm_note==='new' ? 'в SM пароль нового метода — введите свой'
+    : (b.pwd_sm||b.pwd_sm_cfg ? 'как в SM (расшифрован)' : '');
   const sel=$('s-exe');
   const cur=b.exe?(b.exe.split('\\').filter(s=>/^\d+\.\d+\.\d+/.test(s))[0]||'…'):'';
   let opts=`<option value="">Авто — по умолчанию${b.exe?' (сейчас: '+cur+')':''}</option>`;
@@ -780,6 +786,7 @@ async function openSettings(guid){
   $('s-user').value=(our.storage&&our.storage.user)||'';
   $('s-user').placeholder=(b.sm&&b.sm.StorageUser)||'';
   $('s-pass').value=(our.storage&&our.storage.password)||'';
+  $('s-pass').placeholder=(b.storage&&b.storage.password_sm)?'как в SM (расшифрован)':'';
   $('ovl').classList.add('on');
 }
 function closeModal(){$('ovl').classList.remove('on');CUR=null}
