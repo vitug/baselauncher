@@ -68,15 +68,33 @@ def build_state() -> dict:
     platforms = scanner.scan_platforms()
 
     bases = []
+    folders = []
     for keys in v8i_secs:
         connect = keys.get('Connect', '')
+        name = keys.get('__name__', '')
+        if not connect.strip():
+            # секция-папка стартера (без Connect; в живом файле у них OrderInList=-1)
+            folders.append({'guid': keys.get('ID', '').strip().lower(), 'name': name,
+                            'folder': keys.get('Folder', '/'), 'order': keys.get('OrderInTree', '')})
+            continue
         path, srvr, ref = parsers.parse_connect(connect)
         guid = keys.get('ID', '').strip().lower()
         sm = sm_cfg.get(guid, {})
+        our = (overrides.get('bases') or {}).get(guid, {})
         exe, exe_src = _resolve_exe(guid, sm, overrides, slots, platforms)
+        if our.get('thin') and exe:  # тонкий клиент: 1cv8c.exe рядом с выбранным exe
+            alt = str(Path(exe).with_name('1cv8c.exe'))
+            if Path(alt).is_file():
+                exe = alt
+        storage = dict(our.get('storage') or {})
+        if not storage.get('dir') and sm.get('StorageDir'):
+            storage = {'dir': sm.get('StorageDir', ''), 'user': sm.get('StorageUser', '')}
         bases.append(BaseEntry(
             guid=guid,
-            name=keys.get('__name__', ''),
+            name=(our.get('name') or name),
+            descr=(our.get('descr') or sm.get('Description', '')),
+            user=(our.get('user') or sm.get('UserLogin', '')),
+            pwd=str(our.get('pwd') or ''),
             folder=keys.get('Folder', '/'),
             connect=connect,
             path=path, server=srvr, ref=ref,
@@ -84,9 +102,17 @@ def build_state() -> dict:
             order=keys.get('OrderInTree', ''),
             sm={'Description': sm.get('Description', ''),
                 'LaunchDate': sm.get('LaunchDate', ''),
-                'V8AppFile': sm.get('V8AppFile', '')},
+                'V8AppFile': sm.get('V8AppFile', ''),
+                'UserLogin': sm.get('UserLogin', ''),
+                'StorageDir': sm.get('StorageDir', ''),
+                'StorageUser': sm.get('StorageUser', '')},
             exe=exe, exe_src=exe_src,
             family=_family_of_exe(exe, platforms),
+            thin=bool(our.get('thin')),
+            storage=storage,
+            extra_keys=list(our.get('extra_keys') or []),
+            our=our,
+            fav=bool(our.get('fav')),
         ).as_dict())
 
     state = {
@@ -94,6 +120,7 @@ def build_state() -> dict:
         'defaults': {'default_family': overrides.get('default_family', '8.3')},
         'slots': slots,
         'platforms': [p.as_dict() for p in platforms],
+        'folders': folders,
         'bases': bases,
     }
     DATA_DIR.mkdir(parents=True, exist_ok=True)
