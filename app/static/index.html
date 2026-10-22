@@ -17,23 +17,45 @@ header{position:sticky;top:0;z-index:5;display:flex;gap:10px;align-items:center;
   padding:10px 14px;background:var(--panel);border-bottom:1px solid var(--border);flex-wrap:wrap}
 header h1{font-size:15px;margin:0 8px 0 0;font-weight:600}
 header .sub{color:var(--muted);font-size:12px;margin-right:auto}
-#search{flex:0 1 340px;padding:7px 10px;border-radius:7px;border:1px solid var(--border);
+#search{flex:0 1 280px;padding:7px 10px;border-radius:7px;border:1px solid var(--border);
   background:var(--bg);color:var(--fg);outline:none}
 #search:focus{border-color:var(--blue)}
+.mode{display:flex;border:1px solid var(--border);border-radius:7px;overflow:hidden}
+.mode button{padding:6px 12px;border:0;background:transparent;color:var(--muted);
+  cursor:pointer;font-size:12.5px}
+.mode button.on{background:var(--blue);color:#fff}
+.mode button.on.d{background:var(--purple)}
+#adhoc-tgl{padding:6px 12px;border-radius:7px;border:1px solid var(--border);
+  background:transparent;color:var(--muted);cursor:pointer;font-size:12.5px}
+#adhoc-tgl.on{border-color:var(--amber);color:var(--amber)}
 .chip{padding:5px 11px;border-radius:999px;border:1px solid var(--border);cursor:pointer;
   background:transparent;color:var(--muted);font-size:12.5px;user-select:none}
 .chip.on{background:var(--blue);border-color:var(--blue);color:#fff}
 .chip .n{opacity:.65;margin-left:4px}
+#adhoc{display:none;gap:14px;align-items:center;flex-wrap:wrap;
+  padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--border);
+  font-size:12.5px}
+#adhoc.on{display:flex}
+#adhoc label{display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap}
+#adhoc select,#adhoc input{padding:5px 8px;border-radius:6px;border:1px solid var(--border);
+  background:var(--bg);color:var(--fg);font-size:12.5px}
+#adhoc .hint{color:var(--muted);font-size:11px}
 main{max-width:1100px;margin:0 auto;padding:10px 14px 60px}
 table{width:100%;border-collapse:collapse}
-tr.base{cursor:pointer}
+tr.base,tr.folder{cursor:pointer}
 tr.base:hover td{background:var(--row-hi)}
-td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:top}
-td.name{font-weight:600;white-space:nowrap;max-width:340px;overflow:hidden;text-overflow:ellipsis}
-td.name .folder{display:block;font-weight:400;font-size:11.5px;color:var(--muted)}
-td.path{font:12px/1.5 Consolas,monospace;color:var(--muted);max-width:330px;
+tr.folder td{background:var(--panel);font-weight:600;padding-top:8px;padding-bottom:8px}
+tr.folder .arrow{display:inline-block;width:14px;color:var(--muted);font-size:11px}
+tr.folder .cnt{color:var(--muted);font-weight:400;font-size:11.5px;margin-left:6px}
+tr.base.flash td{animation:fl 1.6s}
+@keyframes fl{0%{background:#2d4a2f}100%{background:transparent}}
+td{padding:6px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+td.name{white-space:nowrap;max-width:360px;overflow:hidden;text-overflow:ellipsis}
+td.path{font:12px/1.5 Consolas,monospace;color:var(--muted);max-width:310px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 td.plat{white-space:nowrap;font-size:12.5px}
+.star{cursor:pointer;color:var(--muted);margin-right:5px;font-size:13px}
+.star:hover{color:var(--amber)} .star.on{color:var(--amber)}
 .fam{display:inline-block;padding:2px 8px;border-radius:5px;font-weight:600;font-size:11.5px}
 .f-8\.3{background:#1d3a5f;color:var(--blue)} .f-8\.5{background:#32285f;color:var(--purple)}
 .f-8\.2{background:#1d4a33;color:var(--green)} .f-8\.1{background:#4a3a1d;color:var(--amber)}
@@ -45,6 +67,7 @@ button.ln{padding:5px 10px;margin-left:5px;border-radius:6px;border:1px solid va
 button.ln:hover{border-color:var(--blue)}
 button.ln.designer:hover{border-color:var(--purple)}
 button.ln.cmd:hover{border-color:var(--amber)}
+button.ln.gear:hover{border-color:var(--green)}
 #status{position:fixed;bottom:0;left:0;right:0;padding:8px 16px;font-size:12.5px;
   background:var(--panel);border-top:1px solid var(--border);color:var(--muted);
   display:flex;gap:16px;align-items:center}
@@ -53,86 +76,315 @@ button.ln.cmd:hover{border-color:var(--amber)}
   background:var(--panel);border:1px solid var(--border);box-shadow:0 6px 24px #0009;
   font:12px/1.5 Consolas,monospace;display:none;white-space:pre-wrap;word-break:break-all}
 .empty{padding:30px;text-align:center;color:var(--muted)}
+/* ---- редактор настроек базы (как в SM) ---- */
+#ovl{position:fixed;inset:0;background:#000a;display:none;z-index:10}
+#ovl.on{display:flex;align-items:center;justify-content:center}
+#modal{width:640px;max-width:94vw;max-height:90vh;overflow:auto;background:var(--panel);
+  border:1px solid var(--border);border-radius:12px;padding:18px 20px;box-shadow:0 12px 40px #000c}
+#modal h2{margin:0 0 4px;font-size:16px}
+#modal .eff{font:11.5px/1.5 Consolas,monospace;color:var(--muted);margin-bottom:10px;
+  word-break:break-all}
+#modal label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px}
+#modal input[type=text],#modal input[type=password],#modal select{
+  width:100%;padding:7px 9px;border-radius:6px;border:1px solid var(--border);
+  background:var(--bg);color:var(--fg);font-size:13px}
+#modal input:focus,#modal select:focus{border-color:var(--blue)}
+#modal .row2{display:flex;gap:10px} #modal .row2>div{flex:1}
+#modal .chk{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:var(--fg)}
+.ksec{margin-top:14px;font-size:12px;color:var(--muted);
+  border-top:1px solid var(--border);padding-top:10px;font-weight:600}
+#modal .btns{display:flex;gap:8px;margin-top:18px}
+#modal .btns button{flex:1;padding:9px;border-radius:7px;border:1px solid var(--border);
+  background:var(--row);color:var(--fg);cursor:pointer;font-size:13px}
+#modal .btns .save{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
+#modal .btns .reset{color:var(--red)}
+#modal .hint{font-size:11px;color:var(--muted);margin-top:4px}
 </style>
 </head>
 <body>
 <header>
   <h1>BaseLauncher</h1>
   <span class="sub" id="sub">загрузка…</span>
+  <div class="mode" title="режим запуска при клике по строке базы">
+    <button id="m-ent" class="on" onclick="setMode('enterprise')">Предприятие</button>
+    <button id="m-dsg" class="d" onclick="setMode('designer')">Конфигуратор</button>
+  </div>
+  <button id="adhoc-tgl" onclick="toggleAdhoc()">разовые ключи ▾</button>
   <div id="chips"></div>
   <input id="search" placeholder="поиск: имя, путь, сервер…" autofocus>
 </header>
+<div id="adhoc">
+  <label><input type="checkbox" id="a-Debug"> /Debug</label>
+  <label><input type="checkbox" id="a-DisableStartupMessages"> /DisableStartupMessages</label>
+  <label><input type="checkbox" id="a-DisableStartupDialogs"> /DisableStartupDialogs</label>
+  <label><input type="checkbox" id="a-RunModeOrdinaryApplication"> /RunModeOrdinaryApplication</label>
+  <select id="a-AllowExecuteScheduledJobs">
+    <option value="">регл. задания —</option>
+    <option value="-Off">/AllowExecuteScheduledJobs -Off</option>
+    <option value="-Force">/AllowExecuteScheduledJobs -Force</option>
+  </select>
+  <input id="a-C" placeholder="/C параметры запуска" style="width:180px">
+  <span class="hint">действуют только на следующий запуск, в настройках базы не сохраняются</span>
+</div>
 <main><table><tbody id="rows"></tbody></table>
 <div class="empty" id="empty" style="display:none">ничего не найдено</div></main>
 <div id="status"><span id="st-left"></span><span id="st-msg"></span></div>
 <div id="toast"></div>
+
+<div id="ovl"><div id="modal">
+  <h2 id="md-title">Настройки базы</h2>
+  <div class="eff" id="md-eff"></div>
+
+  <label>Имя</label>
+  <input type="text" id="s-name">
+
+  <label>Описание</label>
+  <input type="text" id="s-descr">
+
+  <div class="row2">
+    <div><label>Пользователь ИБ (/N)</label><input type="text" id="s-user-ib"></div>
+    <div><label>Пароль ИБ (/P)</label><input type="password" id="s-pass-ib"></div>
+  </div>
+  <div class="hint">Пароль хранится локально в data/overrides.json открытым текстом
+    (пароль из SM не переносится — он зашифрован).</div>
+
+  <div class="ksec">Платформа</div>
+  <label>Исполняемый файл (exe)</label>
+  <select id="s-exe"></select>
+  <div class="chk"><input type="checkbox" id="s-thin">
+    <span>Тонкий клиент (1cv8c.exe, если есть у выбранной платформы)</span></div>
+
+  <div class="ksec">Хранилище конфигурации (подключается в конфигураторе)</div>
+  <label>Путь к хранилищу</label>
+  <input type="text" id="s-dir" placeholder="\\server\repo\repo.1ccr или d:\repo\...1ccr">
+  <div class="row2">
+    <div><label>Пользователь хранилища</label><input type="text" id="s-user"></div>
+    <div><label>Пароль хранилища</label><input type="password" id="s-pass"></div>
+  </div>
+  <div class="hint">Ключи конфигуратора: /ConfigurationRepositoryF /N /P.</div>
+
+  <div class="btns">
+    <button class="save" onclick="saveSettings()">Сохранить</button>
+    <button class="reset" onclick="resetSettings()">Сбросить свои настройки</button>
+    <button onclick="closeModal()">Закрыть</button>
+  </div>
+</div></div>
+
 <script>
-let STATE=null, fam='all', q='';
+let STATE=null, fam='all', q='', MODE=localStorage.getItem('bl_mode')||'enterprise';
+let COLLAPSED=new Set(JSON.parse(localStorage.getItem('bl_collapsed')||'[]'));
+let FOLDERS=[], CUR=null;   // CUR = guid базы, открытой в редакторе
 const $=id=>document.getElementById(id);
 
-function famClass(f){return 'fam f-'+(f||'none')}
+function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function saveColl(){localStorage.setItem('bl_collapsed',JSON.stringify([...COLLAPSED]))}
+function setMode(m){MODE=m;localStorage.setItem('bl_mode',m);
+  $('m-ent').className=m==='enterprise'?'on':''; $('m-dsg').className=m==='designer'?'on d':'';
+  stat('режим клика: '+(m==='enterprise'?'предприятие':'конфигуратор'))}
+function toggleAdhoc(){
+  $('adhoc').classList.toggle('on');
+  $('adhoc-tgl').classList.toggle('on')}
+
+/* ---------- разовые ключи запуска (в моменте, не сохраняются) ---------- */
+const A_BOOL=['Debug','DisableStartupMessages','DisableStartupDialogs','RunModeOrdinaryApplication'];
+function adhocKeys(){
+  const out=[];
+  A_BOOL.forEach(k=>{if($('a-'+k).checked)out.push('/'+k)});
+  const aj=$('a-AllowExecuteScheduledJobs').value;
+  if(aj)out.push('/AllowExecuteScheduledJobs '+aj);
+  const c=$('a-C').value.trim();
+  if(c)out.push('/C '+c);
+  return out;
+}
+
+/* ---------- дерево ---------- */
+function num(o){const n=parseFloat(o);return isFinite(n)?n:1e12}
+function buildTree(){
+  const nodes={'/':{path:'/',name:'',folders:[],bases:[]}};
+  const ensure=p=>{ if(!nodes[p]) nodes[p]={path:p,name:p.split('/').pop(),folders:[],bases:[]};
+                    return nodes[p] };
+  (STATE.folders||[]).forEach(f=>{
+    const parent=(f.folder||'/');
+    const path=(parent==='/'?'':parent)+'/'+f.name;
+    const n=ensure(path); n.name=f.name; n.order=f.order;
+    ensure(parent).folders.push(n);
+  });
+  STATE.bases.forEach(b=>{ ensure(b.folder||'/').bases.push(b) });
+  const sortKids=n=>{
+    n.folders.sort((a,b)=>num(a.order)-num(b.order)||a.name.localeCompare(b.name));
+    n.bases.sort((a,b)=>num(a.order)-num(b.order)||a.name.localeCompare(b.name));
+    n.folders.forEach(sortKids);
+  };
+  sortKids(nodes['/']);
+  return nodes;
+}
+function countBases(n){let c=n.bases.length;n.folders.forEach(f=>c+=countBases(f));return c}
+
 function badge(b){
   const v=(b.exe||'').split('\\').filter(s=>/^\d+\.\d+\.\d+/.test(s))[0]||'';
-  return `<span class="${famClass(b.family)}">${b.family||'?'}</span>`+
-    (v?`<span class="ver">${v} · ${b.exe_src==='sm'?'SM':b.exe_src==='our'?'наш':b.exe_src}</span>`:'<span class="ver">нет exe</span>');
+  const src=b.exe_src==='sm'?'SM':b.exe_src==='our'?'наш':b.exe_src;
+  let s=`<span class="fam f-${b.family||'none'}">${b.family||'?'}</span>`;
+  if(b.user) s+=` <span title="пользователь: ${esc(b.user)}" style="color:var(--green)">👤</span>`;
+  if(b.storage&&b.storage.dir) s+=` <span title="${esc(b.storage.dir)}" style="color:var(--amber)">◫</span>`;
+  if(b.thin) s+=` <span title="тонкий клиент" style="color:var(--muted)">thin</span>`;
+  s+= v?`<span class="ver">${v} · ${src}</span>`:`<span class="ver">нет exe</span>`;
+  return s;
 }
-function row(b){
+function baseRow(b,depth){
   const loc=b.path||((b.server?(b.server+(b.ref?'\\'+b.ref:'')):''));
-  const desc=b.sm&&b.sm.Description?` title="${esc(b.sm.Description)}"`:'';
-  return `<tr class="base" data-g="${b.guid}" ${desc}>
-    <td class="name">${esc(b.name)}<span class="folder">${esc(b.folder)}</span></td>
+  const desc=b.descr?` title="${esc(b.descr)}"`:'';
+  return `<tr class="base" id="r-${b.guid}" data-g="${b.guid}" ${desc}>
+    <td class="name" style="padding-left:${depth*18+6}px"><span class="star${b.fav?' on':''}"
+      onclick="event.stopPropagation();toggleFav('${b.guid}')" title="избранное">${b.fav?'★':'☆'}</span>${esc(b.name)}</td>
     <td class="path" title="${esc(loc)}">${esc(loc)}</td>
     <td class="plat">${badge(b)}</td>
     <td class="act">
+      <button class="ln gear" onclick="event.stopPropagation();openSettings('${b.guid}')">⚙</button>
       <button class="ln cmd" onclick="event.stopPropagation();dryrun('${b.guid}')">cmd</button>
       <button class="ln designer" onclick="event.stopPropagation();launch('${b.guid}','designer')">Конф</button>
       <button class="ln" onclick="event.stopPropagation();launch('${b.guid}','enterprise')">1С</button>
     </td></tr>`;
 }
-function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function folderRow(n,depth){
+  const idx=FOLDERS.length; FOLDERS.push(n.path);
+  const open=!COLLAPSED.has(n.path);
+  return `<tr class="folder" onclick="toggleF(${idx})">
+      <td colspan="4" style="padding-left:${depth*18+6}px">
+      <span class="arrow">${open?'▼':'▶'}</span>${esc(n.name)}<span class="cnt">${countBases(n)}</span></td></tr>`
+    +(open?renderNode(n,depth+1):'');
+}
+function renderNode(n,depth){
+  let h='';
+  n.folders.forEach(f=>{h+=folderRow(f,depth)});
+  n.bases.forEach(b=>{h+=baseRow(b,depth)});
+  return h;
+}
+function toggleF(i){const p=FOLDERS[i];
+  COLLAPSED.has(p)?COLLAPSED.delete(p):COLLAPSED.add(p); saveColl();render()}
 
+/* ---------- фильтры/рендер ---------- */
 function render(){
+  FOLDERS=[];
+  const searching=q.length>0;
   const chips={}; STATE.bases.forEach(b=>{if(b.family)chips[b.family]=(chips[b.family]||0)+1});
   $('chips').innerHTML=[`<span class="chip${fam==='all'?' on':''}" onclick="setFam('all')">Все <span class="n">${STATE.bases.length}</span></span>`]
     .concat(Object.keys(chips).sort().map(f=>
       `<span class="chip${fam===f?' on':''}" onclick="setFam('${f}')">${f} <span class="n">${chips[f]}</span></span>`)).join('');
   const ql=q.toLowerCase();
-  const list=STATE.bases.filter(b=>(fam==='all'||b.family===fam)&&
-    (!ql||(b.name+' '+(b.path||'')+' '+(b.server||'')+' '+(b.ref||'')+' '+(b.sm?.Description||'')).toLowerCase().includes(ql)));
-  $('rows').innerHTML=list.map(row).join('');
-  $('empty').style.display=list.length?'none':'block';
-  $('st-left').textContent=`${list.length} из ${STATE.bases.length} баз · платформ: ${STATE.platforms.length}`;
+  let shown=0;
+  if(searching){
+    const list=STATE.bases.filter(b=>
+      (fam==='all'||b.family===fam)&&
+      (b.name+' '+(b.path||'')+' '+(b.server||'')+' '+(b.ref||'')+' '+(b.descr||'')).toLowerCase().includes(ql));
+    $('rows').innerHTML=list.map(b=>baseRow(b,0)).join('');
+    shown=list.length;
+  } else {
+    const tree=buildTree();
+    if(fam!=='all'){
+      const prune=n=>{n.bases=n.bases.filter(b=>b.family===fam);
+        n.folders.forEach(prune); n.folders=n.folders.filter(f=>countBases(f)>0)};
+      prune(tree['/']);
+    }
+    let h='';
+    const favs=STATE.bases.filter(b=>b.fav&&(fam==='all'||b.family===fam));
+    if(favs.length){ h+=folderRow({path:'__fav',name:'★ Избранное',folders:[],bases:favs},0) }
+    h+=renderNode(tree['/'],0);
+    $('rows').innerHTML=h;
+    shown=countBases(tree['/'])+favs.length;
+  }
+  $('empty').style.display=shown?'none':'block';
+  $('st-left').textContent=`${shown} баз · папок: ${(STATE.folders||[]).length} · платформ: ${STATE.platforms.length} · избранное: ${STATE.bases.filter(b=>b.fav).length}`;
 }
-function setFam(f){fam=f;render()}
 
+/* ---------- действия ---------- */
 function toast(msg,ms=6000){const t=$('toast');t.textContent=msg;t.style.display='block';
   clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',ms)}
 function stat(msg,cls){$('st-msg').innerHTML=`<span class="${cls||''}">${esc(msg)}</span>`}
+function setFam(f){fam=f;render()}
 
 async function launch(guid,mode){
   const b=STATE.bases.find(x=>x.guid===guid); if(!b)return;
   if(!b.exe){stat(`у «${b.name}» не определён exe платформы`,'err');return}
-  stat(`запуск «${b.name}» (${mode})…`);
+  stat(`запуск «${b.name}» (${mode==='designer'?'конфигуратор':'предприятие'})…`);
   const r=await fetch('/api/launch',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({guid,mode})});
+    body:JSON.stringify({guid,mode,extra_keys:adhocKeys()})});
   const j=await r.json();
-  if(j.ok){stat(`запущено: ${b.name} → PID ${j.pid}`,'ok');toast(j.cmd)}
+  if(j.ok){stat(`запущено: ${b.name} → PID ${j.pid}`,'ok');toast(j.cmd);
+    const tr=$('r-'+guid); if(tr){tr.classList.remove('flash');void tr.offsetWidth;tr.classList.add('flash')}}
   else{stat('ошибка: '+j.error,'err');toast('ОШИБКА: '+(j.error||''))}
 }
 async function dryrun(guid){
   const r=await fetch('/api/dryrun',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({guid,mode:'enterprise'})});
+    body:JSON.stringify({guid,mode:MODE,extra_keys:adhocKeys()})});
   const j=await r.json();
-  toast(j.cmd||('ОШИБКА: '+(j.error||'')),12000);
+  toast(j.cmd||('ОШИБКА: '+(j.error||'')),14000);
+}
+async function toggleFav(guid){
+  const b=STATE.bases.find(x=>x.guid===guid); if(!b)return;
+  const r=await fetch('/api/base/'+guid,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({fav:!b.fav})});
+  const j=await r.json();
+  if(j.ok){await reload()}else toast('ОШИБКА: '+(j.error||''));
 }
 
-(async()=>{
+/* ---------- редактор настроек базы (как в SM) ---------- */
+async function openSettings(guid){
+  const r=await fetch('/api/base/'+guid); const j=await r.json();
+  if(!j.base){toast('база не найдена');return}
+  CUR=guid; const b=j.base, our=b.our||{};
+  $('md-title').textContent='Настройки: '+(our.name||b.name);
+  $('md-eff').textContent=(b.exe?('эффективно: '+b.exe+' ['+b.exe_src+(b.thin?', thin':'')+']'):'эффективный exe не определён')
+    +(b.storage&&b.storage.dir?(' · хранилище: '+b.storage.dir):'');
+  $('s-name').value=our.name||''; $('s-name').placeholder=b.name;
+  $('s-descr').value=our.descr||''; $('s-descr').placeholder=(b.sm&&b.sm.Description)||'';
+  $('s-user-ib').value=our.user||''; $('s-user-ib').placeholder=(b.sm&&b.sm.UserLogin)||'';
+  $('s-pass-ib').value=our.pwd||'';
+  const sel=$('s-exe');
+  sel.innerHTML=`<option value="">Авто — по умолчанию${b.exe?' (сейчас: '+(b.exe.split('\\').filter(s=>/^\d+\.\d+\.\d+/.test(s))[0]||'…')+')':''}</option>`
+    +j.platforms.map(p=>`<option value="${p.exe}">${esc(p.key)} · ${p.bitness} · ${esc(p.source)}</option>`).join('');
+  sel.value=our.exe||'';
+  $('s-thin').checked=!!our.thin;
+  $('s-dir').value=(our.storage&&our.storage.dir)||'';
+  $('s-dir').placeholder=(b.sm&&b.sm.StorageDir)?('из SM: '+b.sm.StorageDir):'путь к хранилищу (.1ccr)';
+  $('s-user').value=(our.storage&&our.storage.user)||'';
+  $('s-user').placeholder=(b.sm&&b.sm.StorageUser)||'';
+  $('s-pass').value=(our.storage&&our.storage.password)||'';
+  $('ovl').classList.add('on');
+}
+function closeModal(){$('ovl').classList.remove('on');CUR=null}
+async function saveSettings(){
+  if(!CUR)return;
+  const body={name:$('s-name').value.trim(), descr:$('s-descr').value.trim(),
+    user:$('s-user-ib').value.trim(), pwd:$('s-pass-ib').value,
+    exe:$('s-exe').value, thin:$('s-thin').checked,
+    storage:{dir:$('s-dir').value.trim(),user:$('s-user').value.trim(),password:$('s-pass').value}};
+  const r=await fetch('/api/base/'+CUR,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body)});
+  const j=await r.json();
+  if(j.ok){toast('настройки сохранены');closeModal();await reload()}
+  else toast('ОШИБКА: '+(j.error||''));
+}
+async function resetSettings(){
+  if(!CUR)return;
+  const r=await fetch('/api/base/'+CUR,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({clear:true})});
+  const j=await r.json();
+  if(j.ok){toast('свои настройки сброшены (вернулись SM/авто)');closeModal();await reload()}
+}
+$('ovl').addEventListener('click',e=>{if(e.target.id==='ovl')closeModal()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+
+async function reload(){
   const r=await fetch('/api/state'); STATE=await r.json();
   $('sub').textContent=`${STATE.bases.length} баз · ${STATE.platforms.length} платформ · ${STATE.generated_at}`;
   render();
+}
+
+(async()=>{
+  await reload(); setMode(MODE);
   $('search').addEventListener('input',e=>{q=e.target.value;render()});
-  document.querySelector('main table').addEventListener('dblclick',e=>{
-    const tr=e.target.closest('tr.base'); if(tr)launch(tr.dataset.g,'enterprise')});
+  document.querySelector('main table').addEventListener('click',e=>{
+    const tr=e.target.closest('tr.base'); if(tr)launch(tr.dataset.g,MODE)});
 })().catch(e=>{$('sub').textContent='ошибка загрузки: '+e});
 </script>
 </body>
