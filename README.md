@@ -77,6 +77,12 @@ mcp_servers:
   автозапуска удалён; бэкап ветки — `data/autostart-hkcu-run-backup.reg`.
 - `run_server.py` при `pythonw` (когда `sys.stdout is None`) перенаправляет вывод в
   `data/server.log` — иначе uvicorn падает на логировании в несуществующий stdout.
+- **Ярлык в меню «Пуск»**: `deploy/make-shortcut.ps1` создаёт
+  `%APPDATA%\Microsoft\Windows\Start Menu\Programs\BaseLauncher.lnk` → `wscript.exe
+  "<репо>\deploy\BaseLauncher-autostart.vbs"`, иконка — от `1cv8.exe`, окно свёрнутое.
+  Клик по ярлыку: если сервер не поднят — поднимает его без консоли, затем открывает окно.
+  Закрепить плиткой в «Пуск» Windows 11 из скрипта нельзя — только вручную
+  (правый клик по ярлыку → «Закрепить в меню Пуск»).
 
 ## Важно: командная строка 1С — строкой, не списком
 
