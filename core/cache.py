@@ -1,0 +1,186 @@
+"""Очистка кэшей: клиентский кэш 1С у пользователя и служебные файлы самого стартера.
+
+Кэш 1С лежит двумя деревьями, имена подкаталогов — GUID информационной базы:
+  %LOCALAPPDATA%\\1C\\1cv8\\<guid>   — кэш конфигурации (самый большой, десятки ГБ)
+  %APPDATA%\\1C\\1cv8\\<guid>        — пользовательские настройки и кэш интерфейса
+Удалять их можно только при закрытых сеансах 1С, иначе часть файлов занята.
+"""
+from __future__ import annotations
+
+import os
+import shutil
+import time
+from pathlib import Path
+
+HUMAN = ('Б', 'КБ', 'МБ', 'ГБ', 'ТБ')
+
+
+def human(n: float) -> str:
+    n = float(n or 0)
+    for unit in HUMAN:
+        if n < 1024 or unit == HUMAN[-1]:
+            return ('%d %s' % (n, unit)) if unit == 'Б' else ('%.1f %s' % (n, unit))
+        n /= 1024.0
+    return '%.1f ТБ' % n
+
+
+def local_root() -> Path:
+    return Path(os.environ.get('LOCALAPPDATA') or (Path.home() / 'AppData' / 'Local')) / '1C' / '1cv8'
+
+
+def roaming_root() -> Path:
+    return Path(os.environ.get('APPDATA') or (Path.home() / 'AppData' / 'Roaming')) / '1C' / '1cv8'
+
+
+def size_of(path: Path, budget: float = 2.5) -> dict:
+    """Размер дерева с ограничением по времени: на 120 ГБ полный обход слишком долгий."""
+    total = 0
+    files = 0
+    partial = False
+    started = time.time()
+    stack = [str(path)]
+    while stack:
+        if time.time() - started > budget:
+            partial = True
+            break
+        cur = stack.pop()
+        try:
+            with os.scandir(cur) as it:
+                for e in it:
+                    try:
+                        if e.is_dir(follow_symlinks=False):
+                            stack.append(e.path)
+                        else:
+                            total += e.stat(follow_symlinks=False).st_size
+                            files += 1
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return {'bytes': total, 'human': human(total), 'files': files, 'partial': partial}
+
+
+def one_c_dirs(guid: str | None = None) -> list[Path]:
+    """Каталоги кэша 1С: все (guid=None) или только по конкретной базе."""
+    out: list[Path] = []
+    for root in (local_root(), roaming_root()):
+        if not root.is_dir():
+            continue
+        if guid:
+            p = root / guid
+            if p.is_dir():
+                out.append(p)
+            continue
+        try:
+            for e in os.scandir(root):
+                if e.is_dir(follow_symlinks=False):
+                    out.append(Path(e.path))
+        except OSError:
+            continue
+    return out
+
+
+def one_c_info(guid: str | None = None) -> dict:
+    dirs = one_c_dirs(guid)
+    total = 0
+    files = 0
+    partial = False
+    for d in dirs:
+        s = size_of(d, budget=1.2)
+        total += s['bytes']
+        files += s['files']
+        partial = partial or s['partial']
+    return {'dirs': len(dirs), 'bytes': total, 'human': human(total), 'files': files,
+            'partial': partial, 'paths': [str(d) for d in dirs[:50]]}
+
+
+def _rmtree(path: Path) -> dict:
+    """Удалить каталог, не падая на занятых файлах (1С может держать кэш открытым)."""
+    errors = []
+    before = size_of(path, budget=1.0)['bytes']
+
+    def onerror(func, p, exc):          # noqa: ANN001
+        errors.append('%s: %s' % (p, exc))
+
+    try:
+        shutil.rmtree(path, onerror=onerror)
+    except Exception as e:              # noqa: BLE001
+        errors.append(str(e))
+    return {'removed': not path.exists(), 'bytes': before, 'errors': errors[:5],
+            'error_count': len(errors)}
+
+
+def clear_one_c(guid: str | None = None) -> dict:
+    dirs = one_c_dirs(guid)
+    removed = 0
+    freed = 0
+    errors = []
+    for d in dirs:
+        r = _rmtree(d)
+        freed += r['bytes']
+        if r['removed']:
+            removed += 1
+        errors.extend(r['errors'])
+    return {'ok': not errors or removed > 0, 'what': 'one_c', 'guid': guid,
+            'dirs_found': len(dirs), 'dirs_removed': removed,
+            'freed': freed, 'freed_human': human(freed), 'errors': errors[:10]}
+
+
+# ---- служебные файлы стартера -------------------------------------------------
+
+APP_CACHE_FILES = ('bases.json', 'server.log', 'boot.log', 'focus.log', 'launches.log',
+                   'pythonw.log', 'pwtest.txt')
+APP_CACHE_DIRS = ('install',)
+
+
+def app_info(root: Path) -> dict:
+    data = Path(root) / 'data'
+    total = 0
+    items = []
+    for name in APP_CACHE_FILES:
+        p = data / name
+        if p.is_file():
+            n = p.stat().st_size
+            total += n
+            items.append({'name': name, 'bytes': n, 'human': human(n)})
+    for name in APP_CACHE_DIRS:
+        p = data / name
+        if p.is_dir():
+            s = size_of(p, budget=0.8)
+            total += s['bytes']
+            items.append({'name': name + '/', 'bytes': s['bytes'], 'human': s['human']})
+    return {'path': str(data), 'bytes': total, 'human': human(total), 'items': items}
+
+
+def clear_app(root: Path) -> dict:
+    """Убрать производные файлы (кэш состояния, логи). Настройки — config.json, window.json — не трогаем."""
+    data = Path(root) / 'data'
+    freed = 0
+    removed = []
+    errors = []
+    for name in APP_CACHE_FILES:
+        p = data / name
+        if p.is_file():
+            try:
+                n = p.stat().st_size
+                p.unlink()
+                freed += n
+                removed.append(name)
+            except OSError as e:
+                errors.append('%s: %s' % (name, e))
+    for name in APP_CACHE_DIRS:
+        p = data / name
+        if p.is_dir():
+            r = _rmtree(p)
+            freed += r['bytes']
+            if r['removed']:
+                removed.append(name + '/')
+            errors.extend(r['errors'])
+    return {'ok': True, 'what': 'app', 'removed': removed, 'freed': freed,
+            'freed_human': human(freed), 'errors': errors[:10]}
+
+
+def info(root: Path) -> dict:
+    return {'one_c': {'path': str(local_root()), 'roaming': str(roaming_root()),
+                      **one_c_info()},
+            'app': app_info(root)}
