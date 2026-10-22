@@ -61,6 +61,9 @@ td.plat{white-space:nowrap;font-size:12.5px}
 .f-8\.2{background:#1d4a33;color:var(--green)} .f-8\.1{background:#4a3a1d;color:var(--amber)}
 .f-none{background:#4a1d1d;color:var(--red)}
 .ver{color:var(--muted);margin-left:6px;font-size:11.5px}
+.warn{color:var(--red);font-weight:600;font-size:11px;margin-left:6px;white-space:nowrap}
+.chip.warn-chip{border-color:var(--red);color:var(--red)}
+.chip.warn-chip.on{background:var(--red);border-color:var(--red);color:#fff}
 td.act{white-space:nowrap;text-align:right}
 button.ln{padding:5px 10px;margin-left:5px;border-radius:6px;border:1px solid var(--border);
   background:var(--row);color:var(--fg);cursor:pointer;font-size:12.5px}
@@ -224,6 +227,8 @@ function badge(b){
   const v=(b.exe||'').split('\\').filter(s=>/^\d+\.\d+\.\d+/.test(s))[0]||'';
   const src=b.exe_src==='sm'?'SM':b.exe_src==='our'?'наш':b.exe_src;
   let s=`<span class="fam f-${b.family||'none'}">${b.family||'?'}</span>`;
+  if(b.path_ok===false) s+=` <span class="warn" title="${esc(b.path_info||'папки базы нет')}: ${esc(b.path||'')}">✖папка</span>`;
+  if(b.exe_ok===false) s+=` <span class="warn" title="exe платформы не найден на диске">✖exe</span>`;
   if(b.user) s+=` <span title="пользователь: ${esc(b.user)}" style="color:var(--green)">👤</span>`;
   if(b.storage&&b.storage.dir) s+=` <span title="${esc(b.storage.dir)}" style="color:var(--amber)">◫</span>`;
   if(b.thin) s+=` <span title="тонкий клиент" style="color:var(--muted)">thin</span>`;
@@ -267,15 +272,19 @@ function render(){
   FOLDERS=[];
   const searching=q.length>0;
   const chips={}; STATE.bases.forEach(b=>{if(b.family)chips[b.family]=(chips[b.family]||0)+1});
+  const bad=STATE.bases.filter(b=>b.path_ok===false||b.exe_ok===false).length;
   $('chips').innerHTML=[`<span class="chip${fam==='all'?' on':''}" onclick="setFam('all')">Все <span class="n">${STATE.bases.length}</span></span>`]
+    .concat(bad?[`<span class="chip warn-chip${fam==='__bad'?' on':''}" onclick="setFam('__bad')">⚠ проблемы <span class="n">${bad}</span></span>`]:[])
     .concat(Object.keys(chips).sort().map(f=>
       `<span class="chip${fam===f?' on':''}" onclick="setFam('${f}')">${f} <span class="n">${chips[f]}</span></span>`)).join('');
   const ql=q.toLowerCase();
   let shown=0;
-  if(searching){
-    const list=STATE.bases.filter(b=>
-      (fam==='all'||b.family===fam)&&
-      (b.name+' '+(b.path||'')+' '+(b.server||'')+' '+(b.ref||'')+' '+(b.descr||'')).toLowerCase().includes(ql));
+  if(searching||fam==='__bad'){
+    const list=STATE.bases.filter(b=>{
+      if(fam==='__bad'&&!(b.path_ok===false||b.exe_ok===false)) return false;
+      if(fam!=='__bad'&&fam!=='all'&&b.family!==fam) return false;
+      return (b.name+' '+(b.path||'')+' '+(b.server||'')+' '+(b.ref||'')+' '+(b.descr||'')).toLowerCase().includes(ql);
+    });
     $('rows').innerHTML=list.map(b=>baseRow(b,0)).join('');
     shown=list.length;
   } else {
@@ -293,7 +302,7 @@ function render(){
     shown=countBases(tree['/'])+favs.length;
   }
   $('empty').style.display=shown?'none':'block';
-  $('st-left').textContent=`${shown} баз · папок: ${(STATE.folders||[]).length} · платформ: ${STATE.platforms.length} · избранное: ${STATE.bases.filter(b=>b.fav).length}`;
+  $('st-left').textContent=`${shown} баз · папок: ${(STATE.folders||[]).length} · платформ: ${STATE.platforms.length} · избранное: ${STATE.bases.filter(b=>b.fav).length} · ⚠ нет папки: ${STATE.bases.filter(b=>b.path_ok===false).length} · нет exe: ${STATE.bases.filter(b=>b.exe_ok===false).length}`;
 }
 
 /* ---------- действия ---------- */
