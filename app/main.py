@@ -5,11 +5,11 @@ import threading
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from core import config, hotkey, importer, launcher, platforms_share, procs, tray, v8i_writer
 
-app = FastAPI(title='BaseLauncher', version='0.15.4')
+app = FastAPI(title='BaseLauncher', version='0.15.5')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -38,8 +38,9 @@ def _startup():
 def index():
     # no-store: иначе Edge держит старую копию UI в кеше, и после обновления приложения
     # в окне продолжает работать прежний JS (лечится только F5, о котором никто не знает)
-    return FileResponse(INDEX, headers={'Cache-Control': 'no-store, must-revalidate',
-                                        'Pragma': 'no-cache', 'Expires': '0'})
+    html = INDEX.read_text(encoding='utf-8').replace('__BL_VER__', app.version)
+    return HTMLResponse(html, headers={'Cache-Control': 'no-store, must-revalidate',
+                                       'Pragma': 'no-cache', 'Expires': '0'})
 
 
 @app.get('/favicon.ico')
@@ -88,7 +89,8 @@ def sessions():
     """Лёгкий ответ для частого опроса UI (3 с): какие базы открыты и в каком режиме."""
     if not importer._BASES_CACHE:
         importer.build_state()
-    return importer.sessions_light()
+    # version — чтобы окно, загруженное старой версией, само перечиталось после обновления
+    return {**importer.sessions_light(), 'version': app.version}
 
 
 def _base_or_404(guid: str):

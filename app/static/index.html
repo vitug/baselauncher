@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <title>BaseLauncher</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<script>window.BL_PAGE_VER='__BL_VER__';</script>
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/favicon.ico">
 <style>
@@ -1327,6 +1328,8 @@ async function pollSessions(){
   SESS_BUSY=true;
   try{
     const r=await fetch('/api/sessions'); const j=await r.json();
+    /* приложение обновили/перезапустили — перечитываем страницу, даже если открыт диалог */
+    if(j.version&&window.BL_PAGE_VER&&j.version!==window.BL_PAGE_VER){location.reload();return}
     const map=j.running||{};
     if(j.sessions) STATE.sessions=j.sessions;   // список сеансов для выбора «куда переключиться»
     let changed=false;
