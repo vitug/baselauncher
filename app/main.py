@@ -7,9 +7,9 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from core import cache, config, hotkey, importer, launcher, platforms_share, procs, tray, v8i_writer, watch
+from core import cache, config, hotkey, importer, launcher, netcheck, platforms_share, procs, tray, v8i_writer, watch
 
-app = FastAPI(title='BaseLauncher', version='0.18.0')
+app = FastAPI(title='BaseLauncher', version='0.19.0')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -248,17 +248,20 @@ async def launch(req: Request):
                  'mode': mode,
                  'message': ('база уже открыта в этом режиме (PID %d)' % running)},
                 status_code=409)
+    # проверяем соединение ДО запуска: так «Сервер 1С:Предприятия не обнаружен» и битый путь
+    # видны сразу и понятным текстом (окна 1С текст не отдают)
+    conn = ('Srvr="%s";Ref="%s";' % (base['server'], base.get('ref') or '')) if base.get('server') \
+        else (base['ws'] if base.get('ws') else 'File="%s";' % (base.get('path') or ''))
+    chk = netcheck.check(conn)
+    if not chk['ok'] and not body.get('skip_check'):
+        return JSONResponse({'error': 'conn_check', 'check': chk,
+                             'message': chk.get('error') or 'нет связи с базой',
+                             'hint': chk.get('hint') or ''}, status_code=409)
     pid = launcher.launch(cmd)
     launcher.log_launch(base['name'], mode, pid, cmd, base['guid'])
     # сторож: если 1С не дойдёт до окна базы (например «Несоответствие версий клиента и сервера»),
     # пришлём событие с подсказкой и снимком окна 1С
     try:
-        if base.get('server'):
-            conn = 'Srvr="%s";Ref="%s";' % (base['server'], base.get('ref') or '')
-        elif base.get('ws'):
-            conn = base['ws']
-        else:
-            conn = 'File="%s";' % (base.get('path') or '')
         fam = [p.get('key', '') for p in importer.build_state().get('platforms', [])]
         watch.start(pid, base['guid'], base['name'], exe, conn, fam)
     except Exception:                       # noqa: BLE001
@@ -367,6 +370,17 @@ def base_delete(guid: str):
         return JSONResponse({'error': str(e)}, status_code=400)
     st = importer.build_state()
     return {'ok': True, 'deleted': name, 'bases': len(st['bases'])}
+
+
+@app.get('/api/precheck/{guid}')
+def precheck(guid: str):
+    """Проверка соединения с базой без запуска 1С (сервер/веб/папка)."""
+    _, base = _base_or_404(guid)
+    if not base:
+        return JSONResponse({'error': 'база не найдена'}, status_code=404)
+    conn = ('Srvr="%s";Ref="%s";' % (base['server'], base.get('ref') or '')) if base.get('server') \
+        else (base['ws'] if base.get('ws') else 'File="%s";' % (base.get('path') or ''))
+    return {'ok': True, 'conn': conn, 'check': netcheck.check(conn)}
 
 
 @app.get('/api/launch/events')

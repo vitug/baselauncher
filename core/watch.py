@@ -68,8 +68,8 @@ def _alive(pid: int) -> bool:
         return False
 
 
-def _visible_titles(pid: int) -> list[str]:
-    """Заголовки видимых окон процесса."""
+def _windows_of(pid: int) -> list[tuple[int, str, str]]:
+    """(hwnd, класс, заголовок) для видимых окон процесса."""
     out = []
 
     def cb(hwnd, _):
@@ -77,25 +77,33 @@ def _visible_titles(pid: int) -> list[str]:
         u32.GetWindowThreadProcessId(hwnd, ctypes.byref(p))
         if p.value == pid and u32.IsWindowVisible(hwnd):
             n = u32.GetWindowTextLengthW(hwnd)
-            if n:
-                buf = ctypes.create_unicode_buffer(n + 1)
-                u32.GetWindowTextW(hwnd, buf, n + 1)
-                out.append(buf.value)
+            buf = ctypes.create_unicode_buffer(n + 1)
+            u32.GetWindowTextW(hwnd, buf, n + 1)
+            cb2 = ctypes.create_unicode_buffer(256)
+            u32.GetClassNameW(hwnd, cb2, 256)
+            out.append((hwnd, cb2.value, buf.value))
         return True
     u32.EnumWindows(ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)(cb), 0)
     return out
 
 
-def _ready(pid: int) -> str:
-    """Есть ли у процесса нормальное окно базы: возвращает его заголовок или ''."""
-    for t in _visible_titles(pid):
-        tt = t.strip()
-        if not tt:
+def _ready(pid: int) -> tuple[str, int]:
+    """(заголовок готового окна базы | '', hwnd диалога-сообщения 1С | 0).
+
+    Готовность определяем по классу главного окна 1С (V8TopLevelFrame…), а не по любому
+    заголовку: сообщения 1С — отдельные окна, и раньше они могли сойти за «окно базы».
+    """
+    ready = ''
+    dialog = 0
+    for hwnd, cls, title in _windows_of(pid):
+        tt = (title or '').strip()
+        if cls.startswith('V8TopLevelFrame'):
+            if tt and not any(tt.startswith(s) for s in SPLASH):
+                ready = tt
             continue
-        if any(tt.startswith(s) for s in SPLASH):
-            continue
-        return tt
-    return ''
+        if cls.startswith('V8ConfirmationWindow') or cls.startswith('V8MessageBox'):
+            dialog = dialog or hwnd
+    return ready, dialog
 
 
 class _BITMAPINFOHEADER(ctypes.Structure):
@@ -109,40 +117,20 @@ class _BITMAPINFO(ctypes.Structure):
     _fields_ = [('bmiHeader', _BITMAPINFOHEADER), ('bmiColors', wt.DWORD * 3)]
 
 
-def capture(pid: int, name: str) -> str:
-    """Снимок области окна 1С — снимаем ЭКРАН, а не содержимое окна.
-    Сообщения 1С — отдельные окна, нарисованные поверх заставки, поэтому BitBlt с DC окна
-    даёт только заставку без текста ошибки. Снимок с экрана показывает то, что видит человек.
-    """
-    hwnd = 0
-    best = 0
-
-    def cb(h, _):
-        nonlocal hwnd, best
-        p = wt.DWORD()
-        u32.GetWindowThreadProcessId(h, ctypes.byref(p))
-        if p.value == pid and u32.IsWindowVisible(h) and u32.GetWindowTextLengthW(h):
-            r = wt.RECT()
-            u32.GetWindowRect(h, ctypes.byref(r))
-            area = (r.right - r.left) * (r.bottom - r.top)
-            if area > best:
-                best, hwnd = area, h
-        return True
-    u32.EnumWindows(ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)(cb), 0)
-    if not hwnd:
-        return ''
+def _shot(hwnd: int, pid: int) -> str:
+    """BMP содержимого одного окна (через DC окна — работает и на отключённом RDP-экране)."""
     rect = wt.RECT()
     u32.GetWindowRect(hwnd, ctypes.byref(rect))
     w, h = rect.right - rect.left, rect.bottom - rect.top
-    if w < 50 or h < 30:
+    if w < 80 or h < 50:
         return ''
-    src = u32.GetDC(0)                    # весь экран: захватим и диалог поверх окна
+    src = u32.GetWindowDC(hwnd)
     if not src:
         return ''
     mdc = g32.CreateCompatibleDC(src)
     bmp = g32.CreateCompatibleBitmap(src, w, h)
     g32.SelectObject(mdc, bmp)
-    ok = g32.BitBlt(mdc, 0, 0, w, h, src, rect.left, rect.top, 0x00CC0020 | 0x40000000)
+    ok = g32.BitBlt(mdc, 0, 0, w, h, src, 0, 0, 0x00CC0020 | 0x40000000)
     info = _BITMAPINFO()
     info.bmiHeader.biSize = ctypes.sizeof(_BITMAPINFOHEADER)
     info.bmiHeader.biWidth = w
@@ -155,10 +143,10 @@ def capture(pid: int, name: str) -> str:
     g32.GetDIBits(mdc, bmp, 0, h, buf, ctypes.byref(info), 0)
     g32.DeleteObject(bmp)
     g32.DeleteDC(mdc)
-    u32.ReleaseDC(0, src)
+    u32.ReleaseDC(hwnd, src)
     if not ok:
         return ''
-    fname = '%s_%s.bmp' % (datetime.datetime.now().strftime('%Y%m%d-%H%M%S'), pid)
+    fname = '%s_%s_%d.bmp' % (datetime.datetime.now().strftime('%Y%m%d-%H%M%S'), pid, hwnd)
     path = _dir() / fname
     hdr = (b'BM' + (14 + 40 + len(buf.raw)).to_bytes(4, 'little') + b'\0\0\0\0'
            + (14 + 40).to_bytes(4, 'little') + (40).to_bytes(4, 'little')
@@ -171,6 +159,31 @@ def capture(pid: int, name: str) -> str:
     except OSError:
         return ''
     return str(path)
+
+
+def capture(pid: int, name: str) -> list[str]:
+    """Снимки видимых окон процесса (сначала самые мелкие — это и есть сообщения 1С)."""
+    items = []
+
+    def cb(h, _):
+        p = wt.DWORD()
+        u32.GetWindowThreadProcessId(h, ctypes.byref(p))
+        if p.value != pid or not u32.IsWindowVisible(h):
+            return True
+        r = wt.RECT()
+        u32.GetWindowRect(h, ctypes.byref(r))
+        w, hh = r.right - r.left, r.bottom - r.top
+        if w >= 80 and hh >= 50:
+            items.append((w * hh, h))
+        return True
+    u32.EnumWindows(ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)(cb), 0)
+    items.sort()                       # мелкие окна — первыми: диалог ошибки меньше главного
+    out = []
+    for _area, hwnd in items[:3]:
+        p = _shot(hwnd, pid)
+        if p:
+            out.append(p)
+    return out
 
 
 def _ver(exe: str) -> str:
@@ -187,7 +200,9 @@ def re_split_path(p: str) -> list[str]:
 def hint(kind: str, exe: str, conn: str, family_versions: list[str]) -> str:
     ver = _ver(exe)
     parts = []
-    if kind == 'stuck':
+    if kind == 'dialog':
+        parts.append('1С показала сообщение при подключении — смотри снимок окна ниже.')
+    elif kind == 'stuck':
         parts.append('1С осталась на «Загрузка конфигурационной информации…» — подключиться не удалось.')
     else:
         parts.append('Процесс 1С завершился, не открыв окно базы.')
@@ -211,24 +226,28 @@ def watch(pid: int, guid: str, name: str, exe: str, conn: str,
     """Фоновый сторож одного запуска (вызывать в отдельном потоке)."""
     started = time.time()
     ready = ''
+    dialog = 0
     while time.time() - started < splash_timeout:
         time.sleep(1.0)
         if not _alive(pid):
             break
-        ready = _ready(pid)
+        ready, dialog = _ready(pid)
         if ready:
             return                      # нормальный запуск: окно базы появилось
+        if dialog:
+            break                       # 1С показала сообщение — сразу снимаем его
     if ready:
         return
     if _alive(pid):
-        kind = 'stuck'
-        shot = capture(pid, name)
+        kind = 'dialog' if dialog else 'stuck'
+        shots = ([_shot(dialog, pid)] if dialog else []) or capture(pid, name)
     else:
         kind = 'exited'
-        shot = ''
+        shots = []
+    shot = shots[0] if shots else ''
     ev = {'id': '%d-%d' % (int(time.time() * 1000), pid), 'ts': datetime.datetime.now().isoformat(timespec='seconds'),
           'kind': kind, 'pid': pid, 'guid': guid, 'name': name, 'exe': exe,
-          'client_version': _ver(exe), 'conn': conn, 'shot': shot,
+          'client_version': _ver(exe), 'conn': conn, 'shot': shot, 'shots': shots,
           'title': ready, 'hint': hint(kind, exe, conn, family_versions or [])}
     _add(ev)
     try:
