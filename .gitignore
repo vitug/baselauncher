@@ -7,3 +7,5 @@ data/overrides.migrated.json
 data/config.json
 data/install/
 data/launches.log
+data/server.log
+data/pythonw.log
