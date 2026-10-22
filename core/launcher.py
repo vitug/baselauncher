@@ -9,6 +9,7 @@ LocalFileAccessError «Неправильный путь к файлу '1Cv8.cdn
 Схема не зарегистрирована». Поэтому: build_cmd() -> строка -> Popen(строка).
 """
 import json
+import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -52,6 +53,14 @@ def build_cmd(exe: str, mode: str, connect: str,
             parts += ['/ConfigurationRepositoryN', _q(storage['user'])]
         if storage.get('password'):
             parts += ['/ConfigurationRepositoryP', _q(storage['password'])]
+    # Веб-база (ws="https://…"): 1С хочет URL ПОЗИЦИОННЫМ аргументом.
+    # Проверено матрицей (bl_usp_final.py): /IBConnectionString с удвоенными
+    # кавычками для ws= ломает парсер URL (хост sd.1c.ru обрезается до d.1c.ru,
+    # DNS 11001) либо открывает стартер; позиционный URL грузит базу.
+    m_ws = re.match(r'(?i)^ws="([^"]+)"$', conn)
+    if m_ws:
+        parts.append(m_ws.group(1))       # URL без пробелов — как в проверенной форме
+        return ' '.join(parts)
     # Значение /IBConnectionString — в кавычках, внутренние кавычки удваиваются:
     #   /IBConnectionString "File=""D:\база с пробелом"";"
     # Иначе 1С обрывает значение на первом пробеле, не понимает строку подключения
