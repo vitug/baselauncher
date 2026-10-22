@@ -138,17 +138,18 @@ tr.base.running td.name{box-shadow:inset 3px 0 0 var(--green)}
 #n-folder-btn #n-folder-label{flex:1 1 auto;min-width:0;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
 #n-folder-btn .pick-caret{color:var(--muted);flex:0 0 auto}
-#n-folder-tree{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:30;
-  max-height:260px;overflow:auto;padding:4px;border-radius:8px;
+#n-folder-tree{position:fixed;z-index:80;box-sizing:border-box;
+  max-height:320px;overflow:auto;padding:4px;border-radius:8px;
   border:1px solid var(--border);background:var(--panel);box-shadow:0 10px 26px #0008}
-.pt-row{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:6px;
+.pt-row{display:flex;align-items:center;gap:6px;padding:0 6px;border-radius:6px;
+  height:24px;line-height:24px;white-space:nowrap;overflow:hidden;
   cursor:pointer;font-size:12.5px;color:var(--fg)}
 .pt-row:hover{background:var(--row-hi)}
 .pt-row.sel{background:var(--row-hi);outline:1px solid var(--blue)}
 .pt-row .pt-arrow{flex:0 0 14px;color:var(--muted);text-align:center;cursor:pointer;
   user-select:none}
 .pt-row .pt-arrow.empty{visibility:hidden}
-.pt-row .pt-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pt-row .pt-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .pt-row .pt-cnt{color:var(--muted);font-size:11px;margin-left:auto}
 #nmodal .btns button{flex:1;padding:9px;border-radius:7px;border:1px solid var(--border);
   background:var(--row);color:var(--fg);cursor:pointer;font-size:13px}
@@ -1094,12 +1095,33 @@ function setParent(p){
   expandAncestors(p||'/');
   if($('n-folder-tree').style.display!=='none') renderFolderTree();
 }
+/* дерево позиционируем сами (position:fixed): у модалки overflow:auto, и absolute-список
+   обрезался её рамкой, «разрастаясь» внутри формы вместо того, чтобы висеть поверх */
+function positionFolderTree(){
+  const btn=$('n-folder-btn'), box=$('n-folder-tree');
+  const b=btn.getBoundingClientRect();
+  const below=window.innerHeight-b.bottom-12;
+  box.style.left=b.left+'px';
+  box.style.width=Math.max(b.width,260)+'px';
+  if(below<180){                                  // мало места снизу — раскрываем вверх
+    const up=Math.min(320,b.top-12);
+    box.style.maxHeight=Math.max(160,up)+'px';
+    box.style.top=Math.max(8,b.top-4-up)+'px';
+  }else{
+    box.style.top=(b.bottom+4)+'px';
+    box.style.maxHeight=Math.min(320,below)+'px';
+  }
+}
 function toggleFolderTree(e){
   if(e)e.stopPropagation();
   const box=$('n-folder-tree');
   const show=box.style.display==='none';
-  if(show){expandAncestors($('n-folder').value||'/'); renderFolderTree(); box.style.display='';}
-  else box.style.display='none';
+  if(show){
+    expandAncestors($('n-folder').value||'/');
+    renderFolderTree();
+    box.style.display='';
+    positionFolderTree();
+  } else box.style.display='none';
 }
 function renderFolderTree(){
   const map=folderTreeMap(), cur=$('n-folder').value||'/';
@@ -1113,7 +1135,7 @@ function renderFolderTree(){
     const has=(map[p]||[]).length>0;
     const open=PT_OPEN.has(p);
     let h=`<div class="pt-row${p===cur?' sel':''}" data-p="${esc(p)}"
-        style="padding-left:${depth*14+4}px" onclick="setParent('${esc(p)}');$('n-folder-tree').style.display='none'">
+        style="padding-left:${depth*10+4}px" onclick="setParent('${esc(p)}');$('n-folder-tree').style.display='none'">
         <span class="pt-arrow${has?'':' empty'}"
           onclick="event.stopPropagation();ptToggle('${esc(p)}')">${has?(open?'▼':'▶'):'•'}</span>
         <span class="pt-name">${p==='/'?'(корень дерева)':esc(p.split('/').pop())}</span>
@@ -1124,6 +1146,8 @@ function renderFolderTree(){
   };
   $('n-folder-tree').innerHTML=rows('/',0);
 }
+window.addEventListener('resize',()=>{const t=document.getElementById('n-folder-tree');
+  if(t&&t.style.display!=='none') t.style.display='none';});
 /* клик мимо дерева — закрыть его */
 document.addEventListener('click', e=>{
   const pick=document.getElementById('n-folder-pick');
