@@ -18,6 +18,7 @@ body{margin:0;background:var(--bg);color:var(--fg);
 header{position:sticky;top:0;z-index:5;display:flex;gap:10px;align-items:center;
   padding:10px 14px;background:var(--panel);border-bottom:1px solid var(--border);flex-wrap:wrap}
 header h1{font-size:15px;margin:0 8px 0 0;font-weight:600}
+header h1 #h-ver{color:var(--muted);font-weight:400;font-size:12px}
 header .sub{color:var(--muted);font-size:12px;margin-right:auto}
 #search{flex:0 1 280px;padding:7px 10px;border-radius:7px;border:1px solid var(--border);
   background:var(--bg);color:var(--fg);outline:none}
@@ -136,11 +137,30 @@ button.ln:disabled{opacity:.4;cursor:not-allowed;border-color:var(--border)}
 button.ln.designer:hover{border-color:var(--purple)}
 button.ln.cmd:hover{border-color:var(--amber)}
 button.ln.gear:hover{border-color:var(--green)}
-#status{position:fixed;bottom:0;left:0;right:0;padding:8px 16px;font-size:12.5px;
-  background:var(--panel);border-top:1px solid var(--border);color:var(--muted);
-  display:flex;gap:16px;align-items:center}
+#status{position:fixed;bottom:0;left:0;right:0;z-index:50;box-sizing:border-box;
+  height:40px;padding:0 14px;font-size:12.5px;
+  background:var(--panel);border-top:2px solid var(--border);color:var(--muted);
+  box-shadow:0 -8px 16px rgba(0,0,0,.35);
+  display:flex;gap:10px;align-items:center;flex-wrap:nowrap}
+#status #st-sub{flex:0 0 auto;color:var(--muted);white-space:nowrap}
+#status #st-left{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;color:var(--fg)}
+#status #st-msg{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;color:var(--muted)}
+#status #foot-ver{display:none}
+#status button{flex:0 0 auto;font:inherit;font-weight:600;line-height:1.1;
+  padding:6px 13px;margin:0;border-radius:7px;border:1px solid var(--border);
+  background:var(--row);color:var(--fg);cursor:pointer;white-space:nowrap;
+  transition:background .12s,border-color .12s,color .12s}
+#status button:hover{background:var(--row-hi);border-color:var(--blue);color:var(--blue)}
+#status #b-restart:hover{border-color:var(--green);color:var(--green)}
+#status #b-quit-foot:hover{border-color:var(--red);color:var(--red)}
+body{padding-bottom:46px}
+@media (max-width:1050px){#status #st-sub{display:none}}
+@media (max-width:760px){#status #st-msg{display:none}}
+@media (max-width:620px){#status #foot-ver{display:none}}
 #status .ok{color:var(--green)} #status .err{color:var(--red)}
-#toast{position:fixed;right:16px;bottom:44px;max-width:640px;padding:10px 14px;border-radius:8px;
+#toast{position:fixed;right:16px;bottom:52px;max-width:640px;padding:10px 14px;border-radius:8px;
   background:var(--panel);border:1px solid var(--border);box-shadow:0 6px 24px #0009;
   font:12px/1.5 Consolas,monospace;display:none;white-space:pre-wrap;word-break:break-all}
 .empty{padding:30px;text-align:center;color:var(--muted)}
@@ -202,11 +222,11 @@ button.ln.gear:hover{border-color:var(--green)}
   tr.folder .grp{display:inline-block}   /* на узком/тач-экране hover нет — кнопки видны всегда */
 }
 </style>
+
 </head>
 <body>
 <header>
-  <h1>BaseLauncher</h1>
-  <span class="sub" id="sub">загрузка…</span>
+  <h1>BaseLauncher <span id="h-ver" title="версия сервера"></span></h1>
   <div class="mode" title="режим запуска при клике по строке базы">
     <button id="m-ent" class="on" onclick="setMode('enterprise')">Предприятие</button>
     <button id="m-dsg" class="d" onclick="setMode('designer')">Конфигуратор</button>
@@ -245,7 +265,11 @@ button.ln.gear:hover{border-color:var(--green)}
 </div>
 <main><table><tbody id="rows"></tbody></table>
 <div class="empty" id="empty" style="display:none">ничего не найдено</div></main>
-<div id="status"><span id="st-left"></span><span id="st-msg"></span></div>
+
+<div id="status"><span id="st-sub"></span><span id="st-left"></span><span id="st-msg"></span>
+  <button id="b-restart" onclick="restartApp()" title="перезапустить сервер и окно заново">⟳ перезапустить</button>
+  <button id="b-quit-foot" onclick="quitApp()" title="закрыть приложение совсем: окно, иконку в трее и сервер">✕ закрыть</button>
+</div>
 <div id="toast"></div>
 
 <div id="novl"><div id="nmodal">
@@ -1062,6 +1086,35 @@ async function trayToggle(){
   else if(j.foreground===false)toast('окно стартера найдено, но фокус не отдан');
   else window.focus();
 }
+async function quitApp(){
+  askBox('Закрыть BaseLauncher?','Сервер остановится, окно и иконка в трее закроются.',
+    [{t:'Закрыть',f:async()=>{
+       try{await fetch('/api/quit',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})}catch(e){}
+       document.body.innerHTML='<div class="empty" style="display:block;padding:30px">'+
+         'BaseLauncher закрыт. Запустить снова — ярлык в меню «Пуск» или start_bl.bat.</div>';
+     }},{t:'Отмена'}]);
+}
+async function restartApp(){
+  askBox('Перезапустить BaseLauncher?','Сервер остановится и поднимется заново, окно откроется само.',
+    [{t:'Перезапустить',primary:true,f:async()=>{
+       try{await fetch('/api/restart',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})}catch(e){}
+       setTimeout(()=>{
+         document.body.innerHTML='<div class="empty" style="display:block;padding:30px">'+
+           'Перезапуск… окно откроется через несколько секунд.</div>';
+       },300);
+     }},{t:'Отмена'}]);
+}
+async function footInfo(){
+  try{const j=await (await fetch('/api/state')).json();
+    const v=j.version||'', port=location.port||'8797';
+    const el=$('h-ver');
+    if(el){
+      el.textContent=[v?'v'+v:'', 'UI/MCP :'+port].filter(Boolean).join(' · ');
+      el.title='версия · порт: UI, REST и MCP-сервер (http://127.0.0.1:'+port+'/mcp) — один и тот же';
+    }
+    document.title='BaseLauncher '+(v?'v'+v+' ':'')+'· UI/MCP :'+port;
+  }catch(e){}
+}
 async function toTray(){
   const r=await fetch('/api/starter/hide',{method:'POST',headers:{'Content-Type':'application/json'},
     body:'{}'});
@@ -1079,8 +1132,9 @@ async function hotkeyInfo(){
 
 async function reload(){
   const r=await fetch('/api/state'); STATE=await r.json();
-  $('sub').textContent=`${STATE.bases.length} баз · ${STATE.platforms.length} платформ · ${STATE.generated_at}`;
+  $('st-sub').textContent=`${STATE.bases.length} баз · ${STATE.platforms.length} платформ`;
   render();
+  footInfo();
 }
 
 /* тихое обновление состояния: «Недавние» и «Открытые» не должны отставать
@@ -1142,7 +1196,7 @@ async function syncState(){
     const r=await fetch('/api/state'); const st=await r.json();
     if(syncSignature(st)!==syncSignature(STATE)){
       STATE=st;
-      $('sub').textContent=`${STATE.bases.length} баз · ${STATE.platforms.length} платформ · ${STATE.generated_at}`;
+      $('st-sub').textContent=`${STATE.bases.length} баз · ${STATE.platforms.length} платформ`;
       renderKeepingFocus();
     }
   }catch(e){ /* сервер перезапускается — просто ждём следующего тика */ }
