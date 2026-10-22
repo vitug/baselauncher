@@ -11,7 +11,7 @@ import datetime
 import json
 from pathlib import Path
 
-from . import parsers, scanner
+from . import launcher, parsers, scanner
 from .model import BaseEntry
 
 DATA_DIR = Path(__file__).resolve().parent.parent / 'data'
@@ -128,6 +128,54 @@ def build_state() -> dict:
             exe_ok=exe_ok,
         ).as_dict())
 
+    # история запусков (data/launches.log): последний запуск, счётчик, «сегодня/вчера»
+    hist = launcher.history()
+    by_guid = {b['guid']: b for b in bases}
+    today = datetime.date.today()
+    for b in bases:
+        b['last_launch'] = None
+        b['launches'] = 0
+        b['launch_day'] = ''
+    # старые записи лога без guid приходят отдельной группой (по имени) — сводим к одной базе
+    merged: dict[str, dict] = {}
+    for h in hist:
+        b = by_guid.get((h.get('guid') or '').lower())
+        if not b:  # старые записи без guid — только при однозначном совпадении имени
+            same = [x for x in bases if x['name'] == h.get('name')]
+            b = same[0] if len(same) == 1 else None
+        if not b:
+            continue
+        m = merged.get(b['guid'])
+        if m is None:
+            merged[b['guid']] = {'base': b, 'last_ts': h.get('last_ts') or '',
+                                 'count': int(h.get('count') or 0),
+                                 'mode': h.get('mode') or 'enterprise'}
+        else:
+            m['count'] += int(h.get('count') or 0)
+            if (h.get('last_ts') or '') > m['last_ts']:
+                m['last_ts'] = h.get('last_ts') or ''
+                m['mode'] = h.get('mode') or m['mode']
+    recent = []
+    for g, m in merged.items():
+        b = m['base']
+        day = 'older'
+        try:
+            d = datetime.date.fromisoformat((m['last_ts'] or '')[:10])
+        except ValueError:
+            d = None
+        if d == today:
+            day = 'today'
+        elif d == today - datetime.timedelta(days=1):
+            day = 'yesterday'
+        b['last_launch'] = m['last_ts'] or None
+        b['launches'] = m['count']
+        b['launch_day'] = day
+        loc = b['path'] or ((b['server'] + ('\\' + b['ref'] if b['ref'] else '')) if b['server'] else '')
+        recent.append({'guid': b['guid'], 'name': b['name'], 'path': loc,
+                       'mode': m['mode'], 'last_ts': m['last_ts'],
+                       'count': m['count'], 'day': day})
+    recent.sort(key=lambda r: r['last_ts'] or '', reverse=True)
+
     state = {
         'generated_at': datetime.datetime.now().isoformat(timespec='seconds'),
         'defaults': {'default_family': overrides.get('default_family', '8.3')},
@@ -135,6 +183,7 @@ def build_state() -> dict:
         'platforms': [p.as_dict() for p in platforms],
         'folders': folders,
         'bases': bases,
+        'recent': recent[:20],
     }
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding='utf-8')

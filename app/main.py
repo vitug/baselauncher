@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from core import importer, launcher, v8i_writer
 
-app = FastAPI(title='BaseLauncher', version='0.5.0')
+app = FastAPI(title='BaseLauncher', version='0.6.0')
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
 
@@ -138,7 +138,7 @@ async def launch(req: Request):
         return JSONResponse(
             {'error': f'папки базы нет на диске: {bpath}'}, status_code=400)
     pid = launcher.launch(cmd)
-    launcher.log_launch(base['name'], mode, pid, cmd)
+    launcher.log_launch(base['name'], mode, pid, cmd, base['guid'])
     return {'ok': True, 'pid': pid, 'cmd': cmd}
 
 
