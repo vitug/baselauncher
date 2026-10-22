@@ -27,8 +27,16 @@ def index():
 
 @app.get('/api/state')
 def state():
-    """Полное состояние: базы (слитые с настройками SM), папки, платформы, слоты."""
+    """Полное состояние: базы (со своим конфигом), папки, платформы, семейства."""
     return importer.build_state()
+
+
+@app.get('/api/sessions')
+def sessions():
+    """Лёгкий ответ для частого опроса UI (3 с): какие базы открыты и в каком режиме."""
+    if not importer._BASES_CACHE:
+        importer.build_state()
+    return importer.sessions_light()
 
 
 def _base_or_404(guid: str):
