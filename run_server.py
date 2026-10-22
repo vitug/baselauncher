@@ -12,6 +12,15 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
+# Автозапуск идёт через pythonw.exe (без окна консоли): там sys.stdout/sys.stderr == None,
+# и uvicorn с дефолтным логгером падает на попытке писать в них. Подменяем на файл.
+if sys.stdout is None or sys.stderr is None:
+    _logdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+    os.makedirs(_logdir, exist_ok=True)
+    _f = open(os.path.join(_logdir, 'server.log'), 'a', encoding='utf-8', buffering=1)
+    sys.stdout = sys.stdout or _f
+    sys.stderr = sys.stderr or _f
+
 import uvicorn
 
 if __name__ == '__main__':
