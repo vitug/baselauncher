@@ -53,14 +53,11 @@ def build_cmd(exe: str, mode: str, connect: str,
             parts += ['/ConfigurationRepositoryN', _q(storage['user'])]
         if storage.get('password'):
             parts += ['/ConfigurationRepositoryP', _q(storage['password'])]
-    # Веб-база (ws="https://…"): 1С хочет URL ПОЗИЦИОННЫМ аргументом.
-    # Проверено матрицей (bl_usp_final.py): /IBConnectionString с удвоенными
-    # кавычками для ws= ломает парсер URL (хост sd.1c.ru обрезается до d.1c.ru,
-    # DNS 11001) либо открывает стартер; позиционный URL грузит базу.
-    m_ws = re.match(r'(?i)^ws="([^"]+)"$', conn)
-    if m_ws:
-        parts.append(m_ws.group(1))       # URL без пробелов — как в проверенной форме
-        return ' '.join(parts)
+    # Веб-база (ws="https://…"). Проверено матрицей (bl_ws_matrix.py, bl_ws_ibstring2.py):
+    # ПОЗИЦИОННЫЙ URL у 1С 8.3.27 обрезается — клиент ищет хост «d.1c.ru» вместо «sd.1c.ru»
+    # (DNS 11001, «Этот хост неизвестен») и показывает «Не удается установить соединение».
+    # Через /IBConnectionString "ws=""URL""" тот же клиент доходит до окна входа в базу,
+    # поэтому ws идёт общим путём ниже (с удвоением кавычек), без особого случая.
     # Значение /IBConnectionString — в кавычках, внутренние кавычки удваиваются:
     #   /IBConnectionString "File=""D:\база с пробелом"";"
     # Иначе 1С обрывает значение на первом пробеле, не понимает строку подключения
