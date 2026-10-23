@@ -31,6 +31,28 @@ header .sub{color:var(--muted);font-size:12px;margin-right:auto}
   display:none;align-items:center;justify-content:center;padding:0}
 #search-clear:hover{background:var(--panel);color:var(--fg)}
 .searchwrap.has-q #search-clear{display:flex}
+/* история поиска: выпадашка под полем */
+#hist{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:70;
+  background:var(--panel);border:1px solid var(--border);border-radius:8px;
+  box-shadow:0 10px 26px rgba(0,0,0,.4);padding:4px;display:none;
+  max-height:290px;overflow:auto}
+.searchwrap.open-hist #hist{display:block}
+#hist .hi{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;
+  cursor:pointer;font-size:12.5px}
+#hist .hi:hover,#hist .hi.sel{background:var(--bg)}
+#hist .hi .qt{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#hist .hi .wh{color:var(--muted);font-size:11px;flex:0 0 auto}
+#hist .hh{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:5px 8px 4px;color:var(--muted);font-size:11px;border-bottom:1px solid var(--border);
+  margin-bottom:3px}
+#hist .hh button{border:0;background:transparent;color:var(--muted);cursor:pointer;
+  font-size:11px;font-family:inherit;padding:2px 4px;border-radius:5px}
+#hist .hh button:hover{color:var(--fg);background:var(--bg)}
+#hist .he{padding:7px 8px;color:var(--muted);font-size:12px}
+#hist .hi .hx{flex:0 0 auto;color:var(--muted);font-size:13px;line-height:1;padding:0 3px;
+  border-radius:4px;visibility:hidden}
+#hist .hi:hover .hx{visibility:visible}
+#hist .hi .hx:hover{color:var(--fg);background:var(--border)}
 .mode{display:flex;border:1px solid var(--border);border-radius:7px;overflow:hidden}
 .mode button{padding:6px 12px;border:0;background:transparent;color:var(--muted);
   cursor:pointer;font-size:12.5px}
@@ -347,6 +369,7 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <span class="searchwrap" id="searchwrap">
     <input id="search" placeholder="поиск: имя, путь, сервер… (Ctrl+F)" autofocus>
     <button id="search-clear" title="очистить поиск (Esc)" aria-label="очистить поиск">×</button>
+    <div id="hist"></div>
   </span>
 </div>
 <main ondragover="rootDragOver(event)" ondrop="rootDrop(event)"><table><tbody id="rows"></tbody></table>
@@ -1130,6 +1153,97 @@ async function detectPlatform(guid){
         +(ver?('\nзакреплена платформа '+ver):'\nподходящая платформа не установлена'),9000);
   await reload();
 }
+/* ── история поиска: localStorage, 20 записей, выпадашка под полем ── */
+const HIST_KEY='bl_search_hist', HIST_MAX=20;
+let HIST=[], histSel=-1;
+try{ HIST=JSON.parse(localStorage.getItem(HIST_KEY)||'[]'); }catch(e){ HIST=[]; }
+if(!Array.isArray(HIST)) HIST=[];
+HIST=HIST.filter(x=>x&&typeof x.q==='string'&&x.q).slice(0,HIST_MAX);
+
+function histSave(){ try{ localStorage.setItem(HIST_KEY,JSON.stringify(HIST)); }catch(e){} }
+function histAdd(text){
+  const t=(text||'').trim();
+  if(t.length<2) return;
+  HIST=HIST.filter(x=>x.q.toLowerCase()!==t.toLowerCase());
+  HIST.unshift({q:t,at:Date.now()});
+  HIST=HIST.slice(0,HIST_MAX);
+  histSave();
+}
+function histWhen(ts){
+  const d=new Date(ts||0), now=new Date();
+  const hm=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+  const day=x=>new Date(x.getFullYear(),x.getMonth(),x.getDate()).getTime();
+  const diff=Math.round((day(now)-day(d))/86400000);
+  if(diff===0) return 'сегодня '+hm;
+  if(diff===1) return 'вчера '+hm;
+  return String(d.getDate()).padStart(2,'0')+'.'+String(d.getMonth()+1).padStart(2,'0')+' '+hm;
+}
+function histFiltered(){
+  const t=q.trim().toLowerCase();
+  const list=HIST.map((x,i)=>({...x,i}));
+  if(!t) return list;
+  const hit=list.filter(x=>x.q.toLowerCase().includes(t));
+  return hit;
+}
+function histRender(){
+  const list=histFiltered();
+  if(!HIST.length){
+    $('hist').innerHTML='<div class="he">история поиска пуста — запросы сохраняются при Enter '
+      +'и при запуске базы из результатов</div>';
+    return;
+  }
+  if(!list.length){
+    $('hist').innerHTML='<div class="he">в истории нет запросов с «'+esc(q.trim())+'»</div>';
+    return;
+  }
+  $('hist').innerHTML='<div class="hh"><span>история поиска · '+HIST.length
+    +' (↑↓ выбрать, Enter подставить)</span>'
+    +'<button onclick="histClearAll()" title="удалить всю историю поиска">очистить</button></div>'
+    +list.map(x=>`<div class="hi${x.i===histSel?' sel':''}" data-i="${x.i}"
+        onclick="histPick(${x.i})">
+        <span class="qt">${esc(x.q)}</span>
+        <span class="wh">${histWhen(x.at)}</span>
+        <span class="hx" title="убрать из истории" onclick="event.stopPropagation();histDrop(${x.i})">×</span>
+      </div>`).join('');
+}
+function histOpen(){
+  if(!HIST.length){ histClose(); return; }   // пустая история — выпадашку не показываем
+  histSel=-1; histRender(); $('searchwrap').classList.add('open-hist');
+}
+function histClose(){ $('searchwrap').classList.remove('open-hist'); histSel=-1; }
+function histMove(step){
+  const list=histFiltered();
+  if(!list.length) return;
+  const pos=list.findIndex(x=>x.i===histSel);
+  let next=pos+step;
+  if(pos<0) next=step>0?0:list.length-1;
+  if(next<0) next=list.length-1;
+  if(next>=list.length) next=0;
+  histSel=list[next].i;
+  histRender();
+  const el=$('hist').querySelector('.hi.sel');
+  if(el) el.scrollIntoView({block:'nearest'});
+}
+function histPick(i){
+  const item=HIST[i];
+  if(!item) return;
+  const el=$('search');
+  el.value=item.q; q=item.q;
+  $('searchwrap').classList.toggle('has-q',!!q.trim());
+  histAdd(item.q);                       // подняли наверх — «последний использованный»
+  histClose();
+  render();
+  el.focus();
+}
+function histDrop(i){
+  HIST.splice(i,1); histSave(); histSel=-1; histRender();
+  if(!HIST.length) histRender();
+}
+function histClearAll(){
+  HIST=[]; histSave(); histSel=-1; histRender();
+  toast('история поиска очищена',4000);
+}
+
 function clearSearch(){                       // крестик в поле поиска / Esc
   const el=$('search');
   if(el.value){ el.value=''; q=''; }
@@ -1320,6 +1434,7 @@ function clearFilter(){
 }
 
 async function launch(guid,mode,force,skipCheck){
+  if(q.trim()) histAdd(q);              // запрос, по которому нашли базу, — в историю поиска
   const b=STATE.bases.find(x=>x.guid===guid); if(!b)return;
   if(mode==='designer'&&b.has_designer===false){
     const m='у «'+b.name+'» конфигуратора нет ('+(b.ws?'веб-база (сайт)':'только тонкий клиент')+')';
@@ -2067,10 +2182,29 @@ let PAGE_VER=null;   // версия, с которой загружена эт�
     q=e.target.value;
     $('searchwrap').classList.toggle('has-q',!!q.trim());
     render();
+    histSel=-1;
+    if($('searchwrap').classList.contains('open-hist')) histRender();
   });
-  $('search-clear').addEventListener('click',()=>clearSearch());
+  $('search-clear').addEventListener('click',()=>{clearSearch();histRender();});
+  /* focusin+click: поле с autofocus уже в фокусе при загрузке, событие focus тогда не придёт */
+  $('search').addEventListener('focusin',()=>histOpen());
+  $('search').addEventListener('click',()=>histOpen());
   $('search').addEventListener('keydown',e=>{
-    if(e.key==='Escape'&&$('search').value){e.stopPropagation();clearSearch();}
+    const open=$('searchwrap').classList.contains('open-hist');
+    if(e.key==='ArrowDown'&&open){e.preventDefault();histMove(1);return;}
+    if(e.key==='ArrowUp'&&open){e.preventDefault();histMove(-1);return;}
+    if(e.key==='Enter'){
+      if(open&&histSel>=0){e.preventDefault();histPick(histSel);}
+      else if(q.trim()){histAdd(q);histSel=-1;histRender();}
+      return;
+    }
+    if(e.key==='Escape'){
+      if(open){e.stopPropagation();histClose();return;}
+      if($('search').value){e.stopPropagation();clearSearch();}
+    }
+  });
+  document.addEventListener('mousedown',e=>{
+    if(!e.target.closest('.searchwrap')) histClose();
   });
   document.querySelector('main table').addEventListener('click',e=>{
     const tr=e.target.closest('tr.base'); if(tr)clickBase(tr.dataset.g)});
