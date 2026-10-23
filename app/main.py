@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """REST-слой BaseLauncher (FastAPI). Только 127.0.0.1."""
 import json
+import re
+import subprocess
+import time
 import threading
 from pathlib import Path
 
@@ -9,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from core import cache, config, hotkey, importer, launcher, netcheck, platforms_share, procs, tray, v8i_writer, watch
 
-app = FastAPI(title='BaseLauncher', version='0.19.7')
+app = FastAPI(title='BaseLauncher', version='0.20.2')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -91,7 +94,39 @@ def sessions():
     if not importer._BASES_CACHE:
         importer.build_state()
     # version — чтобы окно, загруженное старой версией, само перечиталось после обновления
-    return {**importer.sessions_light(), 'version': app.version}
+    data = importer.sessions_light()
+    _learn_from_sessions(data)
+    return {**data, 'version': app.version}
+
+
+def _learn_from_sessions(data: dict) -> None:
+    """Запомнить платформу, которой базу реально открыли (её и просит сервер).
+
+    Версию сервера 1С заранее не сообщает (текст сообщений не читается, API нет), зато
+    живой сеанс — готовый ответ: если базу открыли 8.5.x, значит сервер такой и требует.
+    Учимся только когда пользователь платформу не выбирал (нет bases[guid].exe).
+    """
+    try:
+        cfg = config.load()
+    except Exception:                       # noqa: BLE001
+        return
+    changed = False
+    for guid, run in (data.get('running') or {}).items():
+        our = config.get_base(cfg, guid)
+        if our.get('exe'):
+            continue                        # выбран вручную — не трогаем
+        pid = next((p for p in (run.get('pids') or {}).values() if p), 0)
+        exe = _exe_of(pid) if pid else ''
+        if not exe or not re.search(r'[\\/]1cv8[cs]?\.exe$', exe, re.I):
+            continue
+        if (our.get('learnt') or '').lower() != exe.lower():
+            try:
+                config.set_base(guid, {'learnt': exe})
+                changed = True
+            except Exception:               # noqa: BLE001
+                pass
+    if changed:
+        importer.build_state()
 
 
 def _base_or_404(guid: str):
@@ -121,6 +156,10 @@ async def base_save(guid: str, req: Request):
     if not base:
         return JSONResponse({'error': 'база не найдена'}, status_code=404)
     body = await req.json()
+    # выбрали «авто» по платформе → снимаем и закреплённое семейство (8.3/8.5)
+    if 'exe' in body and not (body.get('exe') or '').strip():
+        body['family'] = ''
+        body['learnt'] = ''                 # и «выученную» платформу: пусть определится заново
     config.set_base(guid, body)
 
     st = importer.build_state()
@@ -300,7 +339,133 @@ async def launch(req: Request):
     threading.Thread(target=procs.wait_and_focus,
                      args=(lambda s: _session_matches(s, base), mode),
                      kwargs={'timeout': 120, 'settle': 3}, daemon=True).start()
+    # версия сервера может не совпасть с выбранной платформой (8.3 против 8.5) — тогда 1С
+    # покажет «Различаются версии клиента и сервера». Пробуем другое семейство и запоминаем.
+    if not body.get('exe') and not base.get('ws'):
+        threading.Thread(target=_auto_family_retry, args=(pid, base, mode),
+                         daemon=True).start()
     return {'ok': True, 'pid': pid, 'cmd': cmd, 'focus': 'queued'}
+
+
+def _wait_event(pid: int, seconds: int = 45):
+    """Ждать событие сторожа по процессу. None — 1С не пожаловалась (значит открылась/грузится)."""
+    for _ in range(seconds):
+        time.sleep(1)
+        ev = next((e for e in watch.events() if e.get('pid') == pid), None)
+        if ev:
+            return ev
+    return None
+
+
+def _exe_of(pid: int) -> str:
+    """Путь к exe по командной строке процесса (первый аргумент в кавычках)."""
+    line = procs.cmdline(pid) or ''
+    m = re.match(r'\s*"([^"]+)"', line) or re.match(r'\s*(\S+)', line)
+    return m.group(1) if m else ''
+
+
+def _switched_client(base: dict, pid: int) -> tuple[int, str]:
+    """Клиент, в которого 1С перезапустилась сама (/AppAutoCheckVersion). (pid, exe) или (0, '')."""
+    guid = base.get('guid') or ''
+    try:
+        run = (importer.sessions_light().get('running') or {}).get(guid) or {}
+        for m, p in (run.get('pids') or {}).items():
+            if p and p != pid:
+                return p, _exe_of(p)
+    except Exception:                       # noqa: BLE001
+        pass
+    # сеанса ещё нет (клиент грузится) — ищем процесс 1С, который держит эту же базу
+    ref = (base.get('ref') or '').lower()
+    name = (base.get('name') or '').lower()
+    for p, line in procs._processes():
+        low = line.lower()
+        if '1cv8' not in low or p == pid:
+            continue
+        if (ref and 'ref="%s"' % ref in low) or (name and 'ibname"%s"' % name in low):
+            return p, _exe_of(p)
+    return 0, ''
+
+
+def _pin_exe(guid: str, exe: str) -> None:
+    """Запомнить платформу за базой (bases[guid].exe), чтобы дальше запускать сразу ею."""
+    try:
+        config.set_base(guid, {'exe': exe})
+        importer.build_state()
+    except Exception:                       # noqa: BLE001
+        pass
+
+
+def _other_family(base: dict, mode: str = 'enterprise') -> list[dict]:
+    """Самые новые платформы ДРУГОГО семейства (8.3 ↔ 8.5) — кандидаты на повторный запуск."""
+    cur = (base.get('family') or '8.3')
+    alt = '8.5' if cur.startswith('8.3') else '8.3'
+    designer = (mode or '').lower().startswith('config')
+    out = []
+    for p in importer.build_state().get('platforms', []):
+        if p.get('family') != alt:
+            continue
+        exe = p.get('exe') or ('' if designer else p.get('exe_thin')) or ''
+        if exe:
+            out.append({'exe': exe, 'version': p.get('key') or '', 'family': alt})
+    return out
+
+
+def _auto_family_retry(pid: int, base: dict, mode: str) -> None:
+    """1С не открылась → пробуем платформу другого семейства (8.3 ↔ 8.5) и запоминаем рабочую.
+
+    Версия клиента должна совпадать с сервером (8.5.x против 8.3.x и наоборот), а узнать её
+    заранее неоткуда: нечитаемый текст сообщения 1С и никакого API. Поэтому после неудачи
+    сами пробуем 2–3 самые новые платформы другого семейства; та, что открыла базу,
+    закрепляется за базой в config.json — дальше запуск идёт сразу ею, без «пристрелки».
+    """
+    guid = base.get('guid') or ''
+    ev = _wait_event(pid)
+    if not ev or ev.get('kind') not in ('dialog', 'exited'):
+        return
+    # 1) 1С могла сама перезапуститься нужной версией (/AppAutoCheckVersion)
+    for _ in range(5):
+        npid, exe2 = _switched_client(base, pid)
+        if npid and exe2:
+            _pin_exe(guid, exe2)
+            ev['switched'] = {'pid': npid, 'exe': exe2}
+            watch._drop(ev.get('id') or '')
+            return
+        time.sleep(1.5)
+    # 2) не перезапустилась — пробуем другое семейство платформ
+    cands = _other_family(base, mode)[:3]
+    if cands:
+        ev['retrying'] = {'family': cands[0]['family'],
+                          'versions': [c['version'] for c in cands]}
+    for cand in cands:
+        try:
+            if any(p == pid for p, _ in procs._processes()):
+                try:
+                    subprocess.run(['taskkill', '/PID', str(pid), '/F'],
+                                   capture_output=True, timeout=20)
+                except Exception:           # noqa: BLE001
+                    pass
+                time.sleep(1)
+            cmd2 = launcher.build_cmd(cand['exe'], mode, base.get('connect') or '', [],
+                                      base.get('storage') or {},
+                                      base.get('user') or '', base.get('pwd') or '')
+            pid2 = launcher.launch(cmd2)
+            launcher.log_launch(base.get('name') or guid, mode, pid2, cmd2, guid)
+            watch.start(pid2, guid, base.get('name') or '', cand['exe'],
+                        base.get('connect') or '', [])
+            if _wait_event(pid2, 45) is None:       # открылась — закрепляем
+                _pin_exe(guid, cand['exe'])
+                ev['switched'] = {'pid': pid2, 'exe': cand['exe'],
+                                  'version': cand['version'], 'family': cand['family']}
+                watch._drop(ev.get('id') or '')
+                return
+            try:
+                subprocess.run(['taskkill', '/PID', str(pid2), '/F'],
+                               capture_output=True, timeout=20)
+            except Exception:           # noqa: BLE001
+                pass
+        except Exception as e:          # noqa: BLE001
+            ev['retry_error'] = str(e)
+            return
 
 
 @app.post('/api/openweb')
