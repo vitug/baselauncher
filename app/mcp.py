@@ -556,6 +556,7 @@ def t_base_users(a: dict) -> dict:
     return _text({'ok': bool(res.get('ok')), 'base': b['name'], 'users': [n for n in names if n],
                   'users_count': res.get('users_count'), 'platform': res.get('com_platform') or '',
                   'users_table': res.get('users_table') or '',
+                  'users_source': res.get('users_source') or '',
                   'error': res.get('error') or '', 'hint': res.get('hint') or '',
                   'users_error': res.get('users_error') or ''})
 

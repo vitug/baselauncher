@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from core import (cache, com, config, hotkey, importer, launcher, netcheck, platforms_share,
                   procs, tray, v8i_writer, watch)
 
-app = FastAPI(title='BaseLauncher', version='0.28.0')
+app = FastAPI(title='BaseLauncher', version='0.29.0')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -698,6 +698,7 @@ async def base_users(guid: str, req: Request):
     return {'ok': bool(res.get('ok')), 'users': [n for n in names if n],
             'users_count': res.get('users_count'), 'platform': res.get('com_platform') or '',
             'users_table': res.get('users_table') or '', 'users_tried': res.get('users_tried') or [],
+            'users_source': res.get('users_source') or '', 'users_ib_error': res.get('users_ib_error') or '',
             'error': res.get('error') or '', 'hint': res.get('hint') or '',
             'users_error': res.get('users_error') or ''}
 

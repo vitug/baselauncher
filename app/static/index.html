@@ -49,8 +49,9 @@ header .sub{color:var(--muted);font-size:12px;margin-right:auto}
 #stick{position:sticky;top:var(--stick-top,0px);z-index:4;display:flex;align-items:center;gap:10px;
   padding:10px 14px 9px;background:var(--bg);border-bottom:1px solid var(--border)}
 #tabs{display:flex;gap:8px;align-items:center;overflow-x:auto;white-space:nowrap;
-  scrollbar-width:thin;flex:1 1 auto;min-width:0}
-#search{flex:0 0 270px;margin-left:auto}
+  scrollbar-width:thin;flex:0 1 auto;min-width:0}
+/* поиск вплотную к закладкам (без прижима к правому краю) */
+#search{flex:0 1 270px}
 #tabs .tb{padding:6px 14px;border-radius:999px;border:1px solid var(--border);
   background:var(--panel);color:var(--muted);cursor:pointer;font-size:12.5px;
   font-family:inherit;display:inline-flex;align-items:center;gap:6px;
@@ -1624,11 +1625,17 @@ async function usersViaCom(btn){                  // список пользов
       toast('COM не подключился: '+(r.error||r.users_error||'неизвестная ошибка')
             +(r.hint?'\n'+r.hint:''),12000);return}
     const us=r.users||[];
-    if(!us.length){toast('подключился, но список пользователей пуст'+(r.users_error?'\n'+r.users_error:''),9000);return}
+    /* ПользователиИнформационнойБазы — штатный список ИБ (не зависит от конфигурации) */
+    const src=r.users_source==='ПользователиИнформационнойБазы'
+      ?'список пользователей ИБ (ПользователиИнформационнойБазы)' :'справочник пользователей конфигурации';
+    if(!us.length){
+      toast('подключился, пользователей нет: '+src
+        +(r.users_ib_error?'\n'+r.users_ib_error:'')
+        +(r.users_error?'\n'+r.users_error:''),12000);return}
     $('s-users-sel').innerHTML='<option value="">— выберите пользователя ('+us.length+') —</option>'
       +us.map(u=>`<option value="${esc(u)}">${esc(u)}</option>`).join('');
     $('s-users-box').style.display='';
-    toast('из базы получено пользователей: '+us.length+' · подставится в поле '
+    toast('получено пользователей: '+us.length+' ('+src+') · подставится в поле '
           +(LAST_U==='cfg'?'Конфигуратора':'Предприятия'),7000);
   }catch(e){toast('ошибка запроса: '+e,9000)}
   finally{if(btn){btn.disabled=false;btn.textContent='COM'}}
