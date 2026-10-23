@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """REST-слой BaseLauncher (FastAPI). Только 127.0.0.1."""
+import datetime
 import json
 import re
 import subprocess
@@ -13,7 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from core import (cache, com, config, hotkey, importer, launcher, netcheck, platforms_share,
                   procs, tray, v8i_writer, watch)
 
-app = FastAPI(title='BaseLauncher', version='0.30.3')
+app = FastAPI(title='BaseLauncher', version='0.30.5')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -147,6 +148,14 @@ def detect_platform(base: dict, pin: bool = True) -> dict:
     if not ver:
         out['hint'] = ('если база требует логин — задайте пользователя/пароль базы '
                        '(set_credentials) и повторите')
+        return out
+    if not (base.get('server') or base.get('ws')):
+        # файловая база: «версия сервера» — это версия самого COM-коннектора, то есть того
+        # клиента, которым мы подключились. Закреплять её за базой нельзя: получится петля
+        # «старый клиент → COM сообщает его же версию → снова закрепляем старый клиент».
+        out['note'] = ('файловая база: версию по COM не определить — платформа выбирается '
+                       'по самой базе (новая открывает старые)')
+        out['pin_skipped'] = True
         return out
     plats = importer.build_state().get('platforms', [])
     exact = [p for p in plats if (p.get('key') or '') == ver]
@@ -397,6 +406,16 @@ async def launch(req: Request):
     return {'ok': True, 'pid': pid, 'cmd': cmd, 'focus': 'queued'}
 
 
+def _dbg(msg: str) -> None:
+    """Журнал автоповтора платформы (data/retry.log): почему не переключилось."""
+    try:
+        with (Path(__file__).resolve().parent.parent / 'data' / 'retry.log').open(
+                'a', encoding='utf-8') as f:
+            f.write('%s %s\n' % (datetime.datetime.now().strftime('%H:%M:%S'), msg))
+    except Exception:                       # noqa: BLE001
+        pass
+
+
 def _wait_event(pid: int, seconds: int = 45):
     """Ждать событие сторожа по процессу. None — 1С не пожаловалась (значит открылась/грузится)."""
     for _ in range(seconds):
@@ -445,6 +464,41 @@ def _pin_exe(guid: str, exe: str) -> None:
         pass
 
 
+def _ver_key(s: str):
+    """'8.3.27.2325' -> (8,3,27,2325) для сравнения версий."""
+    return tuple(int(x) if x.isdigit() else 0 for x in re.split(r'[.\-]', s or ''))
+
+
+def _newest_same_family(base: dict, mode: str = 'enterprise') -> dict | None:
+    """Самая новая установленная платформа ТОГО ЖЕ семейства.
+
+    Новая платформа открывает базы, созданные старыми, а обратное неверно: файловая база,
+    сделанная в 8.3.27, на 8.3.25 просто закрывается без окна («нужна версия не меньше…»).
+    Поэтому при непонятной ошибке логичнее поднимать клиента, а не искать «ровно ту» версию.
+    """
+    fam = (base.get('family') or '8.3')
+    designer = (mode or '').lower().startswith('config')
+    best = None
+    for p in importer.build_state().get('platforms', []):
+        if p.get('family') != fam:
+            continue
+        thick = p.get('exe') or ''
+        thin = p.get('exe_thin') or ''
+        if designer:
+            exe = thick if Path(thick).is_file() else ''
+        else:
+            exe = thick if Path(thick).is_file() else (thin if Path(thin).is_file() else '')
+        if not exe:
+            continue
+        key = p.get('key') or ''
+        rank = (1 if Path(thick).is_file() else 0, _ver_key(key))
+        if best is None or rank > best['rank']:
+            best = {'exe': exe, 'version': key, 'family': fam, 'rank': rank}
+    if best:
+        best.pop('rank', None)
+    return best
+
+
 def _other_family(base: dict, mode: str = 'enterprise') -> list[dict]:
     """Самые новые платформы ДРУГОГО семейства (8.3 ↔ 8.5) — кандидаты на повторный запуск."""
     cur = (base.get('family') or '8.3')
@@ -469,30 +523,44 @@ def _auto_family_retry(pid: int, base: dict, mode: str) -> None:
     закрепляется за базой в config.json — дальше запуск идёт сразу ею, без «пристрелки».
     """
     guid = base.get('guid') or ''
+    _dbg('старт автоповтора для pid %s (%s)' % (pid, base.get('name')))
     ev = _wait_event(pid)
     if not ev or ev.get('kind') not in ('dialog', 'exited'):
+        _dbg('  события от сторожа не было — выходим (pid %s)' % pid)
         return
+    _dbg('  событие: %s' % ev.get('kind'))
     # 1) 1С могла сама перезапуститься нужной версией (/AppAutoCheckVersion)
     for _ in range(5):
         npid, exe2 = _switched_client(base, pid)
         if npid and exe2:
+            _dbg('  1С сама перезапустилась: pid %s, %s — закрепляю' % (npid, exe2))
             _pin_exe(guid, exe2)
             ev['switched'] = {'pid': npid, 'exe': exe2}
             watch._drop(ev.get('id') or '')
             return
         time.sleep(1.5)
-    # 2) спрашиваем версию сервера через COM (без окон) и берём ровно её платформу
+    # 2) версию сервера через COM спрашиваем только у серверных баз: у файловой COM вернёт
+    #    версию собственного коннектора (то есть того же старого клиента) и может висеть до 90 с
     cands: list[dict] = []
-    det = detect_platform(base, pin=False)
-    alt_exe = det.get('exe') or ''
-    if alt_exe and alt_exe.lower() != (base.get('exe') or '').lower():
-        cands.append({'exe': alt_exe, 'version': det.get('version') or '',
-                      'family': (det.get('version') or '')[:3]})
+    if base.get('server') or base.get('ws'):
+        det = detect_platform(base, pin=False)
+        alt_exe = det.get('exe') or ''
+        if alt_exe and alt_exe.lower() != (base.get('exe') or '').lower():
+            cands.append({'exe': alt_exe, 'version': det.get('version') or '',
+                          'family': (det.get('version') or '')[:3]})
+    else:
+        _dbg('  файловая база: COM-детект версии пропускаю')
+    # файловая база: пробуем самую новую платформу того же семейства (она откроет и старую базу)
+    same = _newest_same_family(base, mode)
+    if same and same['exe'].lower() != (base.get('exe') or '').lower() \
+            and not any(o['exe'].lower() == same['exe'].lower() for o in cands):
+        cands.insert(0, same)
     # 3) сервер не ответил — перебираем другое семейство
     for c in _other_family(base, mode)[:3]:
         if not any(o['exe'].lower() == c['exe'].lower() for o in cands):
             cands.append(c)
     cands = cands[:3]
+    _dbg('  кандидаты: %s' % ', '.join('%s (%s)' % (c.get('version'), c.get('exe')) for c in cands))
     if cands:
         ev['retrying'] = {'family': cands[0]['family'],
                           'versions': [c['version'] for c in cands]}
@@ -512,7 +580,9 @@ def _auto_family_retry(pid: int, base: dict, mode: str) -> None:
             launcher.log_launch(base.get('name') or guid, mode, pid2, cmd2, guid)
             watch.start(pid2, guid, base.get('name') or '', cand['exe'],
                         base.get('connect') or '', [])
+            _dbg('  пробую %s → pid %s' % (cand.get('version'), pid2))
             if _wait_event(pid2, 45) is None:       # открылась — закрепляем
+                _dbg('  открылась на %s — закрепляю' % cand.get('version'))
                 _pin_exe(guid, cand['exe'])
                 ev['switched'] = {'pid': pid2, 'exe': cand['exe'],
                                   'version': cand['version'], 'family': cand['family']}
