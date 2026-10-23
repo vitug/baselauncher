@@ -11,10 +11,10 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from core import (cache, com, config, hotkey, importer, launcher, netcheck, platforms_share,
+from core import (cache, com, config, dbtools, hotkey, importer, launcher, netcheck, platforms_share,
                   procs, tray, v8i_writer, watch)
 
-app = FastAPI(title='BaseLauncher', version='0.31.1')
+app = FastAPI(title='BaseLauncher', version='0.32.1')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -927,6 +927,44 @@ async def cache_clear(req: Request):
     running = len(procs.running_sessions())
     res['sessions_running'] = running
     return res
+
+
+@app.post('/api/base/{guid}/restore-dt')
+async def base_restore_dt(guid: str, req: Request):
+    """Загрузить файловую базу из выгрузки .dt (полная перезапись, старый каталог — в .restore-bak-*)."""
+    st, base = _base_or_404(guid)
+    if not base:
+        return JSONResponse({'error': 'база не найдена'}, status_code=404)
+    try:
+        body = await req.json()
+    except Exception:                                # noqa: BLE001
+        body = {}
+    dt = str(body.get('path') or '').strip()
+    if not dt:
+        return JSONResponse({'error': 'не указан файл .dt'}, status_code=400)
+    res = dbtools.start_restore(guid, base, dt, backup=bool(body.get('backup', True)))
+    return JSONResponse(res, status_code=200 if res.get('ok') else 409)
+
+
+@app.get('/api/base/{guid}/restore-state')
+def base_restore_state(guid: str):
+    return {'ok': True, 'state': dbtools.state_of(guid)}
+
+
+@app.post('/api/base/{guid}/check-db')
+def base_check_db(guid: str):
+    """Проверка базы данных файловой версии (chdbfl.exe) — открывает окно утилиты 1С."""
+    st, base = _base_or_404(guid)
+    if not base:
+        return JSONResponse({'error': 'база не найдена'}, status_code=404)
+    res = dbtools.start_check(guid, base)
+    return JSONResponse(res, status_code=200 if res.get('ok') else 409)
+
+
+@app.get('/api/fs/list')
+def fs_list(dir: str = ''):
+    """Каталоги и файлы .dt для выбора выгрузки в окне «Загрузить базу из .dt…». """
+    return dbtools.list_dir(dir)
 
 
 @app.get('/api/base/{guid}/cache')
