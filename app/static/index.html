@@ -894,10 +894,11 @@ function render(){
   const searching=q.length>0;
   const chips={}; STATE.bases.forEach(b=>{if(b.family)chips[b.family]=(chips[b.family]||0)+1});
   const bad=STATE.bases.filter(b=>b.path_ok===false||b.exe_ok===false).length;
-  $('chips').innerHTML=[`<span class="chip${fam==='all'?' on':''}" onclick="setFam('all')">Все <span class="n">${STATE.bases.length}</span></span>`]
-    .concat(bad?[`<span class="chip warn-chip${fam==='__bad'?' on':''}" onclick="setFam('__bad')">⚠ проблемы <span class="n">${bad}</span></span>`]:[])
+  /* «Все» живёт только в полоске закладок над таблицей; здесь — фильтры по платформе и проблемы.
+     Сброс к «Все» — чип с текущей платформы повторно, кнопка «✕ фильтр» или Esc. */
+  $('chips').innerHTML=(bad?[`<span class="chip warn-chip${fam==='__bad'?' on':''}" onclick="setFam(fam==='__bad'?'all':'__bad')" title="показать базы с проблемами (папки/exe); повторный клик снимает фильтр">⚠ проблемы <span class="n">${bad}</span></span>`]:[])
     .concat(Object.keys(chips).sort().map(f=>
-      `<span class="chip${fam===f?' on':''}" onclick="setFam('${f}')">${f} <span class="n">${chips[f]}</span></span>`)).join('');
+      `<span class="chip${fam===f?' on':''}" onclick="setFam(fam==='${f}'?'all':'${f}')" title="${fam===f?'снять фильтр по платформе':'только базы платформы ${f}'}">${f} <span class="n">${chips[f]}</span></span>`)).join('');
   const ql=q.toLowerCase();
   let shown=0;
   $('tabs').innerHTML=tabsHtml();
