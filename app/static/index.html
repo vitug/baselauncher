@@ -58,6 +58,14 @@ header .sub{color:var(--muted);font-size:12px;margin-right:auto}
 #tabs .tb.open-tab.on{background:var(--green);border-color:var(--green);color:#0f1115}
 #tabs .tb.fav-tab.on{background:var(--amber);border-color:var(--amber);color:#0f1115}
 main{padding-top:6px}
+/* перетаскивание баз в папки */
+tr.base[draggable]{-webkit-user-drag:element}
+tr.base.drag-src td{opacity:.45}
+tr.folder.drop-hi td{background:var(--row-hi);box-shadow:inset 0 0 0 2px var(--blue)}
+tr.folder.drop-hi .fld-name::after{content:' отпустите, чтобы перенести';color:var(--blue);
+  font-weight:400;font-size:11.5px;margin-left:6px}
+body.bl-dragging tr.folder .arrow{color:var(--blue)}
+
 
 main{max-width:1240px;margin:0;padding:10px 14px 60px}
 table{width:100%;border-collapse:collapse}
@@ -320,12 +328,11 @@ body{padding-bottom:46px}
   <span class="hint">действуют только на следующий запуск, в настройках базы не сохраняются</span>
 </div>
 <div id="tabs"></div>
-<main><table><tbody id="rows"></tbody></table>
+<main ondragover="rootDragOver(event)" ondrop="rootDrop(event)"><table><tbody id="rows"></tbody></table>
 <div class="empty" id="empty" style="display:none">ничего не найдено</div></main>
 
 <div id="status"><span id="st-sub"></span><span id="st-left"></span><span id="st-msg"></span>
   <button id="b-restart" onclick="restartApp()" title="перезапустить сервер и окно заново">⟳ перезапустить</button>
-  <button id="b-cache" onclick="event.stopPropagation();openCacheMenu(this)" title="очистка кэша: отдельно кэш пользователя 1С, отдельно кэш программы">⌫ кэш</button>
   <button id="b-quit-foot" onclick="quitApp()" title="закрыть приложение совсем: окно, иконку в трее и сервер">✕ закрыть</button>
 </div>
 <div id="toast"></div>
@@ -392,6 +399,16 @@ body{padding-bottom:46px}
   <div class="hint">Хранится в своём конфиге data/config.json не открытым текстом
     (обфускация «от дурака»). Пароль показывается расшифрованным — поменяйте поле и сохраните.
     Пустое поле = входить без пароля.</div>
+
+  <div class="ksec">Расположение в дереве</div>
+  <label>Папка (родитель) — при сохранении база переносится в ibases.v8i</label>
+  <div id="s-folder-pick">
+    <button type="button" id="s-folder-btn" class="pick-btn" onclick="toggleFolderTree(event,'s')">
+      <span id="s-folder-label">(корень дерева)</span><span class="pick-caret">▾</span>
+    </button>
+    <div id="s-folder-tree" class="pick-tree" style="display:none"></div>
+    <input type="hidden" id="s-folder" value="/">
+  </div>
 
   <div class="ksec">Платформа</div>
   <label>Исполняемый файл (exe)</label>
@@ -588,7 +605,7 @@ function baseRow(b,depth){
   const dcl=b.launch_day==='today'?' today':(b.launch_day==='yesterday'?' yesterday':'');
   const run=b.running
     ? `<span class="run" title="открыта: ${(b.running_modes||[]).map(m=>m==='designer'?'конфигуратор':'предприятие').join(', ')} (клик по строке — переключиться)">● открыта</span>`:'';
-  return `<tr class="base${dcl}${b.running?' running':''}" id="r-${b.guid}" data-g="${b.guid}" ${desc}>
+  return `<tr class="base${dcl}${b.running?' running':''}" id="r-${b.guid}" data-g="${b.guid}" data-folder="${esc(b.folder||'/')}" draggable="true" ondragstart="dragStart(event,'${b.guid}')" ondragend="dragEnd(event)" ${desc}>
     <td class="name" style="padding-left:${depth*18+6}px"><span class="star${b.fav?' on':''}"
       onclick="event.stopPropagation();toggleFav('${b.guid}')" title="избранное">${b.fav?'★':'☆'}</span>${launchDot(b)}${esc(b.name)}${modeTag(b)}${run}${launchTag(b)}</td>
     <td class="path" title="${esc(loc)}">${esc(loc)}</td>
@@ -671,12 +688,93 @@ function tabView(){
   return {html:TAB==='open'?openRows(bs):bs.map(b=>baseRow(b,0)).join(''), n:bs.length,
           empty:TAB==='open'?'нет открытых баз':'в избранном пусто — отметьте базу звёздочкой'};
 }
+/* ---------- перетаскивание баз в папки (HTML5 drag & drop) ---------- */
+let DRAG_G=null;
+function dragStart(e,guid){
+  DRAG_G=guid;
+  try{
+    e.dataTransfer.setData('text/plain',guid);
+    e.dataTransfer.effectAllowed='move';
+  }catch(_){}
+  const tr=document.getElementById('r-'+guid);
+  if(tr)tr.classList.add('drag-src');
+  document.body.classList.add('bl-dragging');
+}
+function dragEnd(e){
+  DRAG_G=null;
+  document.body.classList.remove('bl-dragging');
+  document.querySelectorAll('tr.drag-src').forEach(t=>t.classList.remove('drag-src'));
+  document.querySelectorAll('tr.folder.drop-hi').forEach(t=>t.classList.remove('drop-hi'));
+}
+function dragOverFolder(e,tr){
+  if(!DRAG_G)return;
+  e.preventDefault(); e.stopPropagation();
+  try{e.dataTransfer.dropEffect='move'}catch(_){}
+  document.querySelectorAll('tr.folder.drop-hi').forEach(t=>{if(t!==tr)t.classList.remove('drop-hi')});
+  tr.classList.add('drop-hi');
+}
+function dragLeaveFolder(e,tr){
+  const to=e.relatedTarget;
+  if(to&&tr.contains(to))return;                     // перешли на дочерний элемент — не гасим
+  tr.classList.remove('drop-hi');
+}
+function dropOnFolder(e,tr){
+  e.preventDefault(); e.stopPropagation();
+  const path=tr.dataset.path||'/';
+  const guid=DRAG_G||(e.dataTransfer?e.dataTransfer.getData('text/plain'):'');
+  tr.classList.remove('drop-hi');
+  if(!guid)return;
+  moveBase(guid,path);
+}
+/* перенос базы: пишем Folder= в ibases.v8i и перерисовываем дерево */
+async function moveBase(guid,folder){
+  const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
+  const cur=(b.folder||'/');
+  folder=folder||'/';
+  if(cur===folder){ stat('«'+(b.name||guid)+'» уже в этой папке','info'); dragEnd(); return }
+  const dest=(folder==='/'?'«Без папки»':folder);
+  stat('переношу «'+(b.name||guid)+'» → '+dest+'…','info');
+  let r={};
+  try{ r=await postJSON('/api/base/'+guid+'/move',{folder}); }
+  catch(err){ stat('перенос не удался: '+err,'err'); dragEnd(); return }
+  if(!r.ok||r.error){
+    const msg=(r.error||'неизвестная ошибка');
+    stat('перенос не удался: '+msg,'err');
+    toast('Не удалось перенести «'+(b.name||guid)+'»:\n'+msg,9000);
+    dragEnd(); return;
+  }
+  // цель раскрываем, чтобы база была видна на новом месте
+  if(folder!=='/'){
+    let pref=''; folder.split('/').filter(Boolean).forEach(seg=>{pref+='/'+seg; OPEN.add(pref)});
+    OPEN.add(folder); saveColl();
+  }
+  dragEnd();
+  await reload();
+  const tr=document.getElementById('r-'+guid);
+  if(tr){ tr.scrollIntoView({block:'nearest'}); tr.classList.add('flash');
+          setTimeout(()=>tr.classList.remove('flash'),1200) }
+  stat('«'+(b.name||guid)+'» → '+dest,'ok');
+  toast('«'+(b.name||guid)+'» перенесена в '+dest,5000);
+}
+/* корень дерева: бросить вне папок = убрать из папки («Без папки») */
+function rootDragOver(e){
+  if(!DRAG_G)return;
+  e.preventDefault();
+  try{e.dataTransfer.dropEffect='move'}catch(_){}
+}
+function rootDrop(e){
+  if(!DRAG_G)return;
+  e.preventDefault();
+  moveBase(DRAG_G,'/');
+}
+
 function folderRow(n,depth){
   const idx=FOLDERS.length; FOLDERS.push(n.path);
   // по умолчанию папка СВЕРНУТА: развёрнута только если пользователь раскрыл её сам
   // (служебные блоки __fav/__open/__recent живут в COLLAPSED, обычные папки — в OPEN)
   const open=isPathOpen(n.path);
-  return `<tr class="folder" data-g="${n.guid||''}" onclick="toggleF(${idx})">
+  const dropPath=(n.path==='__nofolder')?'/':(n.path||'/');
+  return `<tr class="folder" data-g="${n.guid||''}" data-path="${esc(dropPath)}" onclick="toggleF(${idx})" ondragover="dragOverFolder(event,this)" ondragleave="dragLeaveFolder(event,this)" ondrop="dropOnFolder(event,this)">
       <td colspan="4" style="padding-left:${depth*18+6}px">
       <div class="fld">
         <span class="arrow">${open?'▼':'▶'}</span>
@@ -897,18 +995,52 @@ async function deleteBaseNow(guid){
   else toast('не удалось удалить: '+(j.error||('HTTP '+r.status)));
   await reload();
 }
-/* ---------- кэши: клиентский кэш 1С и служебные файлы стартера ---------- */
-async function clearCacheNow(what,guid){
-  stat('чищу кэш…');
-  const r=await fetch('/api/cache/clear',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({what,guid})});
-  const j=await r.json();
-  if(j.error){toast('не удалось очистить: '+j.error);return}
+/* ---------- кэш базы 1С: у пользователя Windows и общий (для всех пользователей ПК) ----------
+   Данные ИБ не затрагиваются; кэш самой программы-стартера не чистится (это не нужно). */
+const CACHE_TITLES={user:'кэш пользователя',program:'общий кэш (для всех пользователей ПК)'};
+const CACHE_PATHS={user:'%LOCALAPPDATA%\\1C\\1cv8\\<guid> и %APPDATA%\\1C\\1cv8\\<guid>',
+                   program:'%PROGRAMDATA%\\1C\\1cv8\\<guid>'};
+async function askBaseCache(guid,what){
+  const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
+  let info=null;
+  stat('считаю размер кэша…');
+  try{ const r=await fetch('/api/base/'+guid+'/cache'); const j=await r.json(); info=j.ok?j:null; }
+  catch(e){ info=null }
+  const part=info?info[what]:null;
+  const size=part?(part.dirs?part.human:'0 Б (каталога нет)'):'…';
+  const where=part&&part.paths.length?part.paths.join('\n'):CACHE_PATHS[what];
+  const lines=[
+    '«'+(b.name||guid)+'» — '+CACHE_TITLES[what]+(part?(': '+size):'')+'.',
+    '',
+    'Будет удалено:',
+    where,
+    '',
+    'Данные базы (файл базы или сервер 1С), настройки базы в стартере и ibases.v8i не затрагиваются. '
+    +'Первый запуск после очистки будет дольше — 1С заново загружает конфигурацию.',
+  ];
+  if(!part||!part.dirs) lines.push('', 'Каталога кэша для этой базы сейчас нет — чистить нечего.');
+  if(b.running) lines.push('', 'Сеансы этой базы открыты: занятые файлы останутся. Закройте 1С и повторите.');
+  const btns=[];
+  if(part&&part.dirs) btns.push({t:'Очистить',cls:'del',f:()=>clearBaseCacheNow(guid,what)});
+  btns.push({t:'Понятно',primary:!(part&&part.dirs)});
+  askBox('Очистить '+CACHE_TITLES[what]+' базы?', lines.join('\n'), btns);
+}
+async function clearBaseCacheNow(guid,what){
+  const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
+  stat('чищу '+CACHE_TITLES[what]+'…');
+  let j={};
+  try{ j=await postJSON('/api/base/'+guid+'/cache/clear',{what}); }
+  catch(e){ stat('не удалось очистить: '+e,'err'); return }
+  if(j.error){ stat('не удалось очистить: '+j.error,'err'); toast('Не удалось очистить кэш: '+j.error,8000); return }
   const freed=j.freed_human||'0 Б';
-  const n=j.dirs_removed!=null?`каталогов: ${j.dirs_removed}/${j.dirs_found}`:`файлов: ${(j.removed||[]).length}`;
-  stat(`кэш очищен: ${freed} (${n})`,'ok');
-  toast(`кэш очищен: ${freed} · ${n}`+(j.sessions_running?`\n\nВнимание: открыто сеансов 1С — ${j.sessions_running}. Часть занятых файлов кэша могла остаться; закрой 1С и повтори.`:''));
-  if(what==='app') await reload();
+  const n='каталогов: '+(j.dirs_removed||0)+'/'+(j.dirs_found||0);
+  stat('«'+(b.name||guid)+'»: '+CACHE_TITLES[what]+' очищен — '+freed+' ('+n+')','ok');
+  let msg='Кэш очищен: '+freed+' · '+n;
+  if(j.errors&&j.errors.length) msg+='\n\nЧасть файлов занята:\n'+j.errors.slice(0,3).join('\n');
+  // предупреждаем только про сеансы этой базы: чужие 1С кэшу не мешают
+  if(j.running||(j.errors&&j.errors.length))
+    msg+='\n\nСеансы этой базы открыты — закройте 1С и повторите, чтобы очистить полностью.';
+  toast(msg, 10000);
 }
 /* ---------- серверные операции через COM (как в обновляторе) ---------- */
 async function postJSON(url,body){
@@ -1061,11 +1193,18 @@ function ctxShow(x,y,guid){
   });
   /* удаление базы из ibases.v8i — отдельным блоком внизу */
   const sep=document.createElement('div'); sep.className='sep'; box.appendChild(sep);
-  const cl=document.createElement('div');
-  cl.className='ci';
-  cl.textContent='Очистить кэш этой базы…';
-  cl.onclick=()=>{ctxClose();askClearBaseCache(guid)};
-  box.appendChild(cl);
+  const cU=document.createElement('div');
+  cU.className='ci';
+  cU.textContent='Очистить кэш этой базы — пользователя (1С)…';
+  cU.title='удаляется %LOCALAPPDATA%\\1C\\1cv8\\<guid> и %APPDATA%\\1C\\1cv8\\<guid>: кэш конфигурации текущего пользователя Windows';
+  cU.onclick=()=>{ctxClose();askBaseCache(guid,'user')};
+  box.appendChild(cU);
+  const cP=document.createElement('div');
+  cP.className='ci';
+  cP.textContent='Очистить кэш этой базы — общий, для всех пользователей ПК…';
+  cP.title='удаляется %PROGRAMDATA%\\1C\\1cv8\\<guid>: общий кэш базы на этом компьютере';
+  cP.onclick=()=>{ctxClose();askBaseCache(guid,'program')};
+  box.appendChild(cP);
   /* серверные операции через COM (как в обновляторе) */
   const det=document.createElement('div');
   det.className='ci';
@@ -1357,6 +1496,9 @@ async function openSettings(guid){
     :(b.server?('сервер: '+b.server+(b.ref?' \\ '+b.ref:'')):''));
   $('s-name').value=our.name||''; $('s-name').placeholder=b.name;
   $('s-descr').value=our.descr||''; $('s-descr').placeholder='';
+  $('ovl').dataset.folder=b.folder||'/';          // исходная папка: сравниваем при сохранении
+  setParent(b.folder||'/','s');
+  $('s-folder-tree').style.display='none';
   $('s-user-ib').value=our.user||''; $('s-user-ib').placeholder='';
   $('s-pass-ib').value=b.pwd||b.pwd_cfg||'';
   $('s-pass-ib').placeholder=b.pwd_note==='broken'
@@ -1404,11 +1546,21 @@ async function saveSettings(){
     user:$('s-user-ib').value.trim(), pwd:$('s-pass-ib').value,
     exe:$('s-exe').value, thin:$('s-thin').checked, mode:$('s-mode').value,
     storage:{dir:$('s-dir').value.trim(),user:$('s-user').value.trim(),password:$('s-pass').value}};
-  const r=await fetch('/api/base/'+CUR,{method:'PUT',headers:{'Content-Type':'application/json'},
+  const guid=CUR, was=$('ovl').dataset.folder||'/', now=$('s-folder').value||'/';
+  const r=await fetch('/api/base/'+guid,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify(body)});
   const j=await r.json();
-  if(j.ok){toast('настройки сохранены');closeModal();await reload()}
-  else toast('ОШИБКА: '+(j.error||''));
+  if(!j.ok){toast('ОШИБКА: '+(j.error||''));return}
+  closeModal();
+  let moved=null;
+  if(now!==was){                                  // сменили родителя — переносим в ibases.v8i
+    moved=await postJSON('/api/base/'+guid+'/move',{folder:now});
+    if(!moved.ok||moved.error)
+      toast('настройки сохранены, но перенос не удался:\n'+(moved.error||''),9000);
+  }
+  await reload();
+  toast(moved&&moved.ok?('настройки сохранены · база перенесена в '
+        +(now==='/'?'«Без папки»':now)):'настройки сохранены');
 }
 async function resetSettings(){
   if(!CUR)return;
@@ -1447,16 +1599,20 @@ function expandAncestors(p){
   while(cur&&cur!=='/'){PT_OPEN.add(parentOf(cur)); cur=parentOf(cur);}
   PT_OPEN.add(p);
 }
-function setParent(p){
-  $('n-folder').value=p||'/';
-  $('n-folder-label').textContent=(p==='/'||!p)?'(корень дерева)':p;
+function setParent(p,ctx){
+  ctx=ctx||'n';
+  const hid=$(ctx+'-folder'), lab=$(ctx+'-folder-label'), tree=$(ctx+'-folder-tree');
+  if(hid) hid.value=p||'/';
+  if(lab) lab.textContent=(p==='/'||!p)?'(корень дерева)':p;
   expandAncestors(p||'/');
-  if($('n-folder-tree').style.display!=='none') renderFolderTree();
+  if(tree&&tree.style.display!=='none') renderFolderTree(ctx);
 }
 /* дерево позиционируем сами (position:fixed): у модалки overflow:auto, и absolute-список
    обрезался её рамкой, «разрастаясь» внутри формы вместо того, чтобы висеть поверх */
-function positionFolderTree(){
-  const btn=$('n-folder-btn'), box=$('n-folder-tree');
+function positionFolderTree(ctx){
+  ctx=ctx||'n';
+  const btn=$(ctx+'-folder-btn'), box=$(ctx+'-folder-tree');
+  if(!btn||!box)return;
   const b=btn.getBoundingClientRect();
   const below=window.innerHeight-b.bottom-12;
   box.style.left=b.left+'px';
@@ -1470,19 +1626,27 @@ function positionFolderTree(){
     box.style.maxHeight=Math.min(320,below)+'px';
   }
 }
-function toggleFolderTree(e){
+function toggleFolderTree(e,ctx){
   if(e)e.stopPropagation();
-  const box=$('n-folder-tree');
+  ctx=ctx||'n';
+  const box=$(ctx+'-folder-tree');
+  if(!box)return;
+  ['n','s'].forEach(c=>{ const t=$(c+'-folder-tree'); if(c!==ctx&&t)t.style.display='none' });
   const show=box.style.display==='none';
   if(show){
-    expandAncestors($('n-folder').value||'/');
-    renderFolderTree();
+    const hid=$(ctx+'-folder');
+    expandAncestors((hid&&hid.value)||'/');
+    renderFolderTree(ctx);
     box.style.display='';
-    positionFolderTree();
+    positionFolderTree(ctx);
   } else box.style.display='none';
 }
-function renderFolderTree(){
-  const map=folderTreeMap(), cur=$('n-folder').value||'/';
+function renderFolderTree(ctx){
+  ctx=ctx||'n';
+  const map=folderTreeMap();
+  const hid=$(ctx+'-folder'), box=$(ctx+'-folder-tree');
+  const cur=(hid&&hid.value)||'/';
+  if(!box)return;
   const count=p=>{
     const n=(map[p]||[]).length;
     const sub=(STATE.bases||[]).filter(b=>b.folder===p).length;
@@ -1496,35 +1660,37 @@ function renderFolderTree(){
        иначе строка «висит» с отступом, но без стрелки раскрытия */
     const ind=(has?depth:Math.max(0,depth-1))*10+4;
     let h=`<div class="pt-row${p===cur?' sel':''}" data-p="${esc(p)}"
-        style="padding-left:${ind}px" onclick="setParent('${esc(p)}');$('n-folder-tree').style.display='none'">
+        style="padding-left:${ind}px" onclick="setParent('${esc(p)}','CTX');$('CTX-folder-tree').style.display='none'">
         <span class="pt-arrow${has?'':' noarrow'}"
-          onclick="event.stopPropagation();ptToggle('${esc(p)}')">${has?(open?'▼':'▶'):''}</span>
+          onclick="event.stopPropagation();ptToggle('${esc(p)}','CTX')">${has?(open?'▼':'▶'):''}</span>
         <span class="pt-name">${p==='/'?'(корень дерева)':esc(p.split('/').pop())}</span>
         <span class="pt-cnt">${sub?sub+' б.':''}${sub&&n?' · ':''}${n?'папок '+n:''}</span>
       </div>`;
     if(open) (map[p]||[]).forEach(c=>{h+=rows(c.path,depth+1)});
     return h;
   };
-  $('n-folder-tree').innerHTML=rows('/',0);
+  box.innerHTML=rows('/',0).split('CTX').join(ctx);
 }
-window.addEventListener('resize',()=>{const t=document.getElementById('n-folder-tree');
-  if(t&&t.style.display!=='none') t.style.display='none';});
+window.addEventListener('resize',()=>{['n','s'].forEach(c=>{const t=document.getElementById(c+'-folder-tree');
+  if(t&&t.style.display!=='none') t.style.display='none'});});
 /* клик мимо дерева — закрыть его */
 document.addEventListener('click', e=>{
-  const pick=document.getElementById('n-folder-pick');
-  const tree=document.getElementById('n-folder-tree');
-  if(pick&&tree&&tree.style.display!=='none'&&!pick.contains(e.target)) tree.style.display='none';
+  ['n','s'].forEach(c=>{
+    const pick=document.getElementById(c+'-folder-pick');
+    const tree=document.getElementById(c+'-folder-tree');
+    if(pick&&tree&&tree.style.display!=='none'&&!pick.contains(e.target)) tree.style.display='none';
+  });
 });
-function ptToggle(p){
+function ptToggle(p,ctx){
   PT_OPEN.has(p)?PT_OPEN.delete(p):PT_OPEN.add(p);
-  renderFolderTree();
+  renderFolderTree(ctx);
 }
 function openNew(kind, parent){
   $('novl').dataset.kind=kind;
   $('n-title').textContent=kind==='base'?'Новая база (в ibases.v8i)':'Новая папка (в дереве)';
   $('n-name').value=''; $('n-path').value=''; $('n-server').value=''; $('n-ref').value='';
   $('n-base-wrap').style.display=kind==='base'?'':'none';
-  setParent(parent||'/');
+  setParent(parent||'/','n');
   $('n-folder-tree').style.display='none';
   $('novl').classList.add('on'); $('n-name').focus();
 }

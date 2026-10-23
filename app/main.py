@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from core import (cache, com, config, hotkey, importer, launcher, netcheck, platforms_share,
                   procs, tray, v8i_writer, watch)
 
-app = FastAPI(title='BaseLauncher', version='0.22.1')
+app = FastAPI(title='BaseLauncher', version='0.24.1')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -602,6 +602,29 @@ async def folder_new(req: Request):
     return {'ok': True, 'guid': guid, 'folders': len(st['folders'])}
 
 
+@app.post('/api/base/{guid}/move')
+async def base_move(guid: str, req: Request):
+    """Перенести базу в другую папку дерева (пишется в ibases.v8i, Folder=).
+
+    body: {"folder": "/Разработка"} — '/', чтобы убрать из папок («Без папки»).
+    """
+    body = {}
+    try:
+        body = await req.json()
+    except Exception:
+        pass
+    folder = str(body.get('folder') or '/').strip() or '/'
+    try:
+        r = v8i_writer.move(guid, folder)
+    except ValueError as e:
+        return JSONResponse({'error': str(e)}, status_code=400)
+    except Exception as e:                       # файл занят/нет прав
+        return JSONResponse({'error': 'не удалось записать ibases.v8i: %s' % e}, status_code=500)
+    importer._BASES_CACHE.clear()
+    st = importer.build_state()
+    return {'ok': True, 'moved': r, 'bases': len(st['bases'])}
+
+
 @app.delete('/api/base/{guid}')
 def base_delete(guid: str):
     """Удалить базу/пустую папку из ibases.v8i."""
@@ -740,6 +763,46 @@ async def cache_clear(req: Request):
         return JSONResponse({'error': str(e)}, status_code=500)
     running = len(procs.running_sessions())
     res['sessions_running'] = running
+    return res
+
+
+@app.get('/api/base/{guid}/cache')
+def base_cache(guid: str):
+    """Размеры кэша базы: user (текущий пользователь Windows) и program (все пользователи ПК)."""
+    st = importer.build_state()
+    if not importer.find_base(st, guid):
+        return JSONResponse({'error': 'база не найдена'}, status_code=404)
+    try:
+        return {'ok': True, 'guid': guid, **cache.base_info(guid)}
+    except Exception as e:                       # noqa: BLE001
+        return JSONResponse({'error': str(e)}, status_code=500)
+
+
+@app.post('/api/base/{guid}/cache/clear')
+async def base_cache_clear(guid: str, req: Request):
+    """Очистить кэш базы: what=user | program | both.
+
+    Кэш самой программы-стартера здесь не чистится — только клиентский кэш 1С этой базы.
+    """
+    body = {}
+    try:
+        body = await req.json()
+    except Exception:
+        pass
+    what = str(body.get('what') or 'user').strip().lower()
+    st = importer.build_state()
+    base = importer.find_base(st, guid)
+    if not base:
+        return JSONResponse({'error': 'база не найдена'}, status_code=404)
+    try:
+        res = cache.clear_base(guid, what)
+    except ValueError as e:
+        return JSONResponse({'error': str(e)}, status_code=400)
+    except Exception as e:                       # noqa: BLE001
+        return JSONResponse({'error': str(e)}, status_code=500)
+    res['base'] = base.get('name')
+    res['running'] = bool(base.get('running'))
+    res['sessions_running'] = len(procs.running_sessions())
     return res
 
 

@@ -132,6 +132,48 @@ def add_folder(name: str, parent: str = '/') -> str:
     return guid
 
 
+def move(guid: str, folder: str = '/') -> dict:
+    """Перенести базу (секцию с Connect=) в другую папку: правится только Folder= и OrderInTree.
+
+    Остальные байты секции не трогаются — 1С читает файл целиком, переписывать его не нужно.
+    Возвращает {'name', 'from', 'to'}.
+    """
+    guid = guid.strip().lower()
+    folder = (folder or '/').strip() or '/'
+    _, text = _read()
+    secs = _sections(text)
+    if folder != '/':
+        # папка должна существовать: ищем секцию-папку с таким полным путём
+        found = False
+        for s in secs:
+            if 'Connect=' in s['body']:
+                continue
+            m = re.search(r'(?m)^Folder=([^\r\n]*)', s['body'])
+            parent = m.group(1).strip() if m else '/'
+            own = ('' if parent == '/' else parent) + '/' + s['name'].strip()
+            if own == folder:
+                found = True
+                break
+        if not found:
+            raise ValueError(f'папка «{folder}» не найдена в ibases.v8i')
+    for s in secs:
+        m = re.search(r'(?m)^ID=([^\r\n]*)', s['body'])
+        if not m or m.group(1).strip().lower() != guid:
+            continue
+        if 'Connect=' not in s['body']:
+            raise ValueError('это папка, а не база')
+        fm = re.search(r'(?m)^Folder=([^\r\n]*)', s['body'])
+        old = fm.group(1).strip() if fm else '/'
+        if old == folder:
+            return {'name': s['name'], 'from': old, 'to': folder}
+        body = _set(s['body'], 'Folder', folder)
+        body = _set(body, 'OrderInTree',
+                    str(int(_max_order(secs, 'OrderInTree', folder)) + 1024))
+        _write(text[:s['body_start']] + body + text[s['end']:])
+        return {'name': s['name'], 'from': old, 'to': folder}
+    raise ValueError('секция с таким ID не найдена')
+
+
 def delete(guid: str) -> str:
     """Вырезать секцию по ID (база или пустая папка). Возвращает имя секции."""
     guid = guid.strip().lower()
