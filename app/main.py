@@ -10,9 +10,10 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from core import cache, config, hotkey, importer, launcher, netcheck, platforms_share, procs, tray, v8i_writer, watch
+from core import (cache, com, config, hotkey, importer, launcher, netcheck, platforms_share,
+                  procs, tray, v8i_writer, watch)
 
-app = FastAPI(title='BaseLauncher', version='0.20.2')
+app = FastAPI(title='BaseLauncher', version='0.21.0')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -127,6 +128,43 @@ def _learn_from_sessions(data: dict) -> None:
                 pass
     if changed:
         importer.build_state()
+
+
+def detect_platform(base: dict, pin: bool = True) -> dict:
+    """Узнать версию сервера 1С через COM и (по умолчанию) закрепить её платформу за базой.
+
+    Работает без окна: даже неудачное COM-подключение отдаёт «Различаются версии клиента и
+    сервера (клиент - сервер)», откуда берём версию сервера. Для файловых баз версия сервера =
+    версия коннектора, поэтому там просто проверяем подключение.
+    """
+    guid = base.get('guid') or ''
+    r = com.detect_server_version(base.get('connect') or '', base.get('user') or '',
+                                  base.get('pwd') or '', base.get('exe') or '', 90)
+    ver = (r.get('server_version') or '').strip()
+    out = {'ok': bool(r.get('ok')), 'server_version': ver,
+           'client_version': r.get('client_version') or '', 'exe': '', 'pinned': False,
+           'error': r.get('error') or '', 'base': base.get('name') or ''}
+    if not ver:
+        out['hint'] = ('если база требует логин — задайте пользователя/пароль базы '
+                       '(set_credentials) и повторите')
+        return out
+    plats = importer.build_state().get('platforms', [])
+    exact = [p for p in plats if (p.get('key') or '') == ver]
+    if not exact:                       # такой сборки нет — берём ближайшую того же семейства
+        fam = ver[:3]
+        same = [p for p in plats if (p.get('key') or '').startswith(fam) and (p.get('exe') or p.get('exe_thin'))]
+        exact = same[:1]
+        out['note'] = 'точная сборка %s не установлена — взята ближайшая' % ver if same else \
+            'ни одной платформы %s не установлено' % fam
+    if exact:
+        exe = exact[0].get('exe') or exact[0].get('exe_thin') or ''
+        out['exe'] = exe
+        out['version'] = exact[0].get('key')
+        if pin and exe and not base.get('ws'):
+            config.set_base(guid, {'exe': exe, 'family': '', 'learnt': ''})
+            importer.build_state()
+            out['pinned'] = True
+    return out
 
 
 def _base_or_404(guid: str):
@@ -431,8 +469,18 @@ def _auto_family_retry(pid: int, base: dict, mode: str) -> None:
             watch._drop(ev.get('id') or '')
             return
         time.sleep(1.5)
-    # 2) не перезапустилась — пробуем другое семейство платформ
-    cands = _other_family(base, mode)[:3]
+    # 2) спрашиваем версию сервера через COM (без окон) и берём ровно её платформу
+    cands: list[dict] = []
+    det = detect_platform(base, pin=False)
+    alt_exe = det.get('exe') or ''
+    if alt_exe and alt_exe.lower() != (base.get('exe') or '').lower():
+        cands.append({'exe': alt_exe, 'version': det.get('version') or '',
+                      'family': (det.get('version') or '')[:3]})
+    # 3) сервер не ответил — перебираем другое семейство
+    for c in _other_family(base, mode)[:3]:
+        if not any(o['exe'].lower() == c['exe'].lower() for o in cands):
+            cands.append(c)
+    cands = cands[:3]
     if cands:
         ev['retrying'] = {'family': cands[0]['family'],
                           'versions': [c['version'] for c in cands]}
@@ -574,6 +622,54 @@ def folder_delete(guid: str):
         return JSONResponse({'error': str(e)}, status_code=400)
     st = importer.build_state()
     return {'ok': True, 'deleted': name, 'folders': len(st['folders'])}
+
+
+@app.post('/api/base/{guid}/detect')
+async def base_detect(guid: str, req: Request):
+    """Версия сервера базы через COM (без окна 1С); по умолчанию сразу закрепляет платформу."""
+    _, base = _base_or_404(guid)
+    if not base:
+        return JSONResponse({'error': 'база не найдена'}, status_code=404)
+    body = {}
+    try:
+        body = await req.json()
+    except Exception:                       # noqa: BLE001
+        pass
+    res = detect_platform(base, pin=bool(body.get('pin', True)))
+    return {**res, 'base': importer.find_base(importer.build_state(), base['guid']) or base}
+
+
+@app.post('/api/base/{guid}/cominfo')
+async def base_cominfo(guid: str, req: Request):
+    """Сведения из базы через COM-подключение: конфигурация, пользователи (как обновлятор)."""
+    _, base = _base_or_404(guid)
+    if not base:
+        return JSONResponse({'error': 'база не найдена'}, status_code=404)
+    body = {}
+    try:
+        body = await req.json()
+    except Exception:                       # noqa: BLE001
+        pass
+    user = (body.get('user') or base.get('user') or '').strip()
+    pwd = body.get('pwd')
+    if pwd is None:
+        pwd = base.get('pwd') or ''
+    res = com.probe_async(base.get('connect') or '', user, pwd, base.get('exe') or '', 90)
+    if body.get('save') and (body.get('user') is not None or body.get('pwd') is not None):
+        patch = {}
+        if body.get('user') is not None:
+            patch['user'] = user
+        if body.get('pwd') is not None:
+            patch['pwd'] = pwd
+        try:
+            config.set_base(base['guid'], patch)
+            importer.build_state()
+            res['saved'] = True
+        except Exception as e:              # noqa: BLE001
+            res['saved'] = False
+            res['save_error'] = str(e)
+    res['base'] = base.get('name')
+    return res
 
 
 @app.get('/api/precheck/{guid}')
