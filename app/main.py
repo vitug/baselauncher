@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from core import (cache, com, config, dbtools, hotkey, importer, launcher, netcheck, platforms_share,
                   procs, tray, v8i_writer, watch)
 
-app = FastAPI(title='BaseLauncher', version='0.32.5')
+app = FastAPI(title='BaseLauncher', version='0.32.6')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -86,8 +86,13 @@ def mcp_info():
 
 @app.get('/api/state')
 def state():
-    """Полное состояние: базы (со своим конфигом), папки, платформы, семейства."""
-    return {**importer.build_state(), 'version': app.version}
+    """Полное состояние: базы (со своим конфигом), папки, платформы, семейства.
+
+    Пароли наружу не отдаются (_no_pwd): UI их не показывает, плейнтекст нужен
+    только внутри launch/COM. Иначе любой локальный GET вынимал бы все пароли."""
+    st = importer.build_state()
+    st['bases'] = [_no_pwd(b) for b in st['bases']]
+    return {**st, 'version': app.version}
 
 
 @app.get('/api/sessions')
@@ -182,12 +187,31 @@ def _base_or_404(guid: str):
     return (st, base) if base else (None, None)
 
 
+def _no_pwd(b: dict) -> dict:
+    """Копия базы без паролей — для отдачи наружу (UI/MCP не должны видеть плейнтекст).
+
+    Запуску и COM пароли нужны внутри сервера; наружу достаточно pwd_note/флагов.
+    UI-редактор настроек показывает «сохранён» и отправляет pwd только при смене.
+    """
+    if not b or not isinstance(b, dict):
+        return b
+    d = dict(b)
+    for k in ('pwd', 'pwd_cfg'):
+        if d.get(k):
+            d[k] = ''
+            d['%s_set' % k] = True
+    storage = d.get('storage')
+    if isinstance(storage, dict) and storage.get('password'):
+        d['storage'] = {**storage, 'password': '', 'pwd_set': True}
+    return d
+
+
 @app.get('/api/base/{guid}')
 def base_detail(guid: str):
     st, base = _base_or_404(guid)
     if not base:
         return JSONResponse({'error': 'база не найдена'}, status_code=404)
-    return {'base': base, 'platforms': st['platforms']}
+    return {'base': _no_pwd(base), 'platforms': st['platforms']}
 
 
 @app.put('/api/base/{guid}')
@@ -217,7 +241,7 @@ async def base_save(guid: str, req: Request):
     config.set_base(guid, body)
 
     st = importer.build_state()
-    return {'ok': True, 'base': importer.find_base(st, guid)}
+    return {'ok': True, 'base': _no_pwd(importer.find_base(st, guid))}
 
 
 def _build_cmd_from_body(body: dict, base: dict):
@@ -715,7 +739,7 @@ async def base_new(req: Request):
     except ValueError as e:
         return JSONResponse({'error': str(e)}, status_code=400)
     st = importer.build_state()
-    return {'ok': True, 'guid': guid, 'base': importer.find_base(st, guid)}
+    return {'ok': True, 'guid': guid, 'base': _no_pwd(importer.find_base(st, guid))}
 
 
 @app.post('/api/folder/new')
@@ -791,7 +815,7 @@ async def base_detect(guid: str, req: Request):
     except Exception:                       # noqa: BLE001
         pass
     res = detect_platform(base, pin=bool(body.get('pin', True)))
-    return {**res, 'base': importer.find_base(importer.build_state(), base['guid']) or base}
+    return {**res, 'base': _no_pwd(importer.find_base(importer.build_state(), base['guid']) or base)}
 
 
 @app.post('/api/base/{guid}/users')
