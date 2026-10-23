@@ -176,6 +176,23 @@ tr.folder.open-h td{color:var(--green)}
 tr.base.open td.name{box-shadow:inset 3px 0 0 var(--green)}
 .run{color:var(--green);font-weight:600;font-size:11px;margin-left:6px;white-space:nowrap}
 tr.base.running td.name{box-shadow:inset 3px 0 0 var(--green)}
+#dtovl{position:fixed;inset:0;background:#000a;display:none;z-index:13}
+#dtovl.on{display:flex;align-items:center;justify-content:center}
+#dtmodal{width:620px;max-width:94vw;max-height:90vh;overflow:auto;background:var(--panel);
+  border:1px solid var(--border);border-radius:12px;padding:18px 20px;box-shadow:0 12px 40px #000c}
+#dtmodal h2{margin:0 0 10px;font-size:15px}
+#dtmodal .dt-cur{font-size:12px;color:var(--muted-foreground);margin-bottom:10px;line-height:1.4}
+#dtmodal .dt-row{display:flex;gap:8px;margin-bottom:8px}
+#dtmodal .dt-row input{flex:1;min-width:0}
+#dtlist{max-height:34vh;overflow:auto;border:1px solid var(--border);border-radius:8px;
+  font-size:12px;margin-bottom:10px}
+#dtlist .e{padding:5px 8px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#dtlist .e:hover{background:var(--row-hi)}
+#dtlist .e.dir{color:var(--accent)}
+#dtlist .sz{color:var(--muted-foreground);float:right;margin-left:8px}
+#dtlog{font-family:ui-monospace,Consolas,monospace;font-size:11px;white-space:pre-wrap;
+  max-height:22vh;overflow:auto;background:var(--card);border:1px solid var(--border);
+  border-radius:8px;padding:8px;margin-top:8px}
 #askovl{position:fixed;inset:0;background:#000a;display:none;z-index:12}
 #askovl.on{display:flex;align-items:center;justify-content:center}
 #amodal{width:480px;max-width:92vw;background:var(--panel);border:1px solid var(--border);
@@ -426,6 +443,29 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <div class="btns">
     <button class="save" onclick="submitNew()">Создать</button>
     <button onclick="closeNew()">Отмена</button>
+  </div>
+</div></div>
+
+<div id="dtovl"><div id="dtmodal">
+  <h2 id="dt-title">Загрузить базу из .dt</h2>
+  <div class="dt-cur" id="dt-cur"></div>
+  <div class="dt-row">
+    <input type="text" id="dt-path" placeholder="путь к файлу выгрузки, например Z:\Transfer\Верещагин\1Cv8.dt">
+    <button id="dt-go" class="save">Загрузить</button>
+  </div>
+  <div class="dt-row">
+    <button id="dt-up" title="каталог выше">↑ выше</button>
+    <input type="text" id="dt-dir" placeholder="каталог для просмотра">
+    <button id="dt-browse">Показать</button>
+  </div>
+  <div id="dtlist"></div>
+  <label style="display:flex;gap:8px;align-items:center;font-size:12px">
+    <input type="checkbox" id="dt-backup" checked style="width:auto">
+    <span>сохранить текущую базу в каталог <code>*.restore-bak-*</code> (рекомендуется)</span>
+  </label>
+  <div id="dtlog" style="display:none"></div>
+  <div class="btns" style="display:flex;gap:8px;margin-top:12px">
+    <button id="dt-cancel">Закрыть</button>
   </div>
 </div></div>
 
@@ -1445,6 +1485,22 @@ function ctxShow(x,y,guid){
   del.textContent=b.running?'Удалить базу из списка… (открыта!)':'Удалить базу из списка…';
   del.onclick=()=>{ctxClose();askDeleteBase(guid)};
   box.appendChild(del);
+  /* файловые операции: загрузка выгрузки .dt и проверка базы данных (chdbfl) */
+  if(b.path&&!b.ws){
+    const sepF=document.createElement('div'); sepF.className='sep'; box.appendChild(sepF);
+    const rdt=document.createElement('div');
+    rdt.className='ci';
+    rdt.textContent='Загрузить базу из .dt…';
+    rdt.title='полная перезапись базы выгрузкой .dt: конфигурация и данные; старый каталог сохраняется рядом как *.restore-bak-*';
+    rdt.onclick=()=>{ctxClose();openRestoreDt(guid)};
+    box.appendChild(rdt);
+    const chk=document.createElement('div');
+    chk.className='ci';
+    chk.textContent='Проверить базу данных (chdbfl)…';
+    chk.title='утилита 1С «Проверка и исправление базы данных» для файловой базы: откроется её окно';
+    chk.onclick=()=>{ctxClose();checkDb(guid)};
+    box.appendChild(chk);
+  }
   /* настройки базы — в самом низу, горячая клавиша Alt+Enter */
   const sep2=document.createElement('div'); sep2.className='sep'; box.appendChild(sep2);
   const setg=document.createElement('div');
@@ -1612,6 +1668,87 @@ function askBox(title,text,buttons){
   $('askovl').classList.add('on');
 }
 function closeAsk(){ASK=null;$('askovl').classList.remove('on')}
+
+/* ---------- файловые операции: .dt и проверка базы ---------- */
+let DTG=null, DTT=null;
+function openRestoreDt(guid){
+  const b=(STATE.bases||[]).find(x=>x.guid===guid); if(!b)return;
+  DTG=guid;
+  $('dt-title').textContent='Загрузить базу из .dt';
+  $('dt-cur').innerHTML='База: <b>'+esc(b.name)+'</b><br>Каталог: '+esc(b.path||'')
+    +'<br>Вся база (конфигурация и данные) будет заменена содержимым выгрузки.';
+  $('dt-path').value='';
+  $('dtlog').style.display='none'; $('dtlog').textContent='';
+  $('dt-dir').value=(localStorage.getItem('bl_dt_dir')||'Z:\\Transfer\\Верещагин');
+  $('dtovl').classList.add('on');
+  dtBrowse($('dt-dir').value);
+  /* если загрузка этой базы уже идёт — показываем её ход; результат прошлой загрузки
+     окно не трогает (иначе оно закрывалось тостом ещё до выбора файла) */
+  fetch('/api/base/'+guid+'/restore-state').then(x=>x.json()).then(r=>{
+    const st=(r&&r.state)||{};
+    if(st.state==='running') dtPoll(guid, st.started);
+  }).catch(()=>{});
+}
+function closeDt(){$('dtovl').classList.remove('on');DTG=null;
+  if(DTT){clearInterval(DTT);DTT=null}}
+async function dtBrowse(dir){
+  const r=await fetch('/api/fs/list?dir='+encodeURIComponent(dir||'')).then(x=>x.json()).catch(()=>({error:'нет ответа'}));
+  const box=$('dtlist'); box.innerHTML='';
+  if(r.error){box.innerHTML='<div class="e">'+esc(r.error)+'</div>';return}
+  $('dt-dir').value=r.dir;
+  if(r.parent){const d=document.createElement('div');d.className='e dir';d.textContent='↑ '+r.parent;
+    d.onclick=()=>dtBrowse(r.parent);box.appendChild(d)}
+  r.dirs.forEach(x=>{const d=document.createElement('div');d.className='e dir';
+    d.textContent='📁 '+x.name; d.onclick=()=>dtBrowse(x.path); box.appendChild(d)});
+  r.files.forEach(x=>{const d=document.createElement('div');d.className='e';
+    d.innerHTML='📄 '+esc(x.name)+'<span class="sz">'+dtSize(x.size)+' · '+esc(x.mtime||'')+'</span>';
+    d.onclick=()=>{$('dt-path').value=x.path;box.querySelectorAll('.e.sel').forEach(e=>e.classList.remove('sel'));
+      d.classList.add('sel')};
+    d.ondblclick=()=>{$('dt-path').value=x.path;dtGo()};
+    box.appendChild(d)});
+  if(!r.dirs.length&&!r.files.length)box.innerHTML='<div class="e">в каталоге нет папок и файлов .dt</div>';
+}
+function dtSize(n){return n>1048576?(n/1048576).toFixed(1)+' МБ':(n/1024).toFixed(0)+' КБ'}
+async function dtGo(){
+  const path=$('dt-path').value.trim();
+  if(!path){toast('укажите файл .dt');return}
+  if(!confirm('Загрузить выгрузку в базу?\n\n'+path+'\n\nТекущие данные базы будут заменены.'))return;
+  localStorage.setItem('bl_dt_dir', $('dt-dir').value||'');
+  $('dt-go').disabled=true; $('dtlog').style.display='block'; $('dtlog').textContent='запускаю загрузку…';
+  const r=await postJSON('/api/base/'+DTG+'/restore-dt',
+    {path, backup:$('dt-backup').checked}).catch(e=>({error:String(e)}));
+  if(!r.ok){$('dt-go').disabled=false;$('dtlog').textContent='ОШИБКА: '+(r.error||'');return}
+  $('dtlog').textContent='ibcmd: '+r.ibcmd+'\nфайл: '+r.dt+'\nидёт загрузка, не закрывайте окно…';
+  dtPoll(DTG, r.started);
+}
+function dtPoll(guid, started){
+  if(DTT){clearInterval(DTT);DTT=null}
+  const tick=async()=>{
+    const r=await fetch('/api/base/'+guid+'/restore-state').then(x=>x.json()).catch(()=>null);
+    const st=(r&&r.state)||{};
+    if(!st.state)return;
+    if(started&&st.started!==started)return;      // чужая (прошлая) загрузка — не наша
+    $('dtlog').style.display='block';
+    $('dtlog').textContent=(st.log||'')+(st.error?'\n\nОШИБКА: '+st.error:'')
+      +(st.state==='running'?'\n…идёт загрузка':'');
+    if(st.state!=='running'){
+      $('dt-go').disabled=false;
+      if(DTT){clearInterval(DTT);DTT=null}
+      if(st.state==='ok'){
+        toast('база загружена из .dt'+(st.backup?'; бэкап: '+st.backup:''),9000);
+        setTimeout(()=>{closeDt();reload()},1200);
+      } else toast('загрузка не удалась: '+(st.error||'').slice(0,300),12000);
+    }
+  };
+  DTT=setInterval(tick,2000); tick();
+}
+async function checkDb(guid){
+  const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
+  if(!confirm('Проверить базу данных «'+b.name+'»?\n\nОткроется утилита 1С chdbfl с файлом 1Cv8.1CD.\nБаза должна быть закрыта.'))return;
+  const r=await postJSON('/api/base/'+guid+'/check-db',{}).catch(e=>({error:String(e)}));
+  if(r.ok) toast('chdbfl открыт (PID '+r.pid+'): '+(r.note||''),10000);
+  else askBox('Проверка базы не запустилась', r.error||'нет ответа',[{t:'Понятно',primary:true}]);
+}
 function modeName(m){return m==='designer'?'Конфигуратор':'Предприятие'}
 function pidOf(b,m){return ((b&&b.running_pids)||{})[m]||0}
 function winOf(b,m){return !((b&&b.running_win)||{})[m]===false}
@@ -2052,7 +2189,9 @@ $('n-kind').addEventListener('change',newKindToggle);
 $('novl').addEventListener('click',e=>{if(e.target.id==='novl')closeNew()});
 $('ovl').addEventListener('click',e=>{if(e.target.id==='ovl')closeModal()});
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape'){closeModal();closeNew();closeAsk();return}
+  if(e.key==='Escape'){
+    if($('dtovl')&&$('dtovl').classList.contains('on')){closeDt();return}
+    closeModal();closeNew();closeAsk();return}
   // Ctrl+Shift+S — показать/убрать окно. Если глобальная клавиша зарегистрирована, Edge
   // её вообще не получает (RegisterHotKey перехватывает) — тогда здесь ничего не делаем,
   // иначе получится двойное переключение. Это только резерв, когда клавишу занял кто-то ещё.
@@ -2294,6 +2433,16 @@ let PAGE_VER=null;   // версия, с которой загружена эт�
       if($('search').value){e.stopPropagation();clearSearch();}
     }
   });
+  $('dt-go').addEventListener('click', dtGo);
+  $('dt-cancel').addEventListener('click', closeDt);
+  $('dt-browse').addEventListener('click', ()=>dtBrowse($('dt-dir').value));
+  $('dt-up').addEventListener('click', async ()=>{
+    const r=await fetch('/api/fs/list?dir='+encodeURIComponent($('dt-dir').value)).then(x=>x.json()).catch(()=>null);
+    if(r&&r.parent)dtBrowse(r.parent);
+  });
+  $('dt-dir').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();dtBrowse($('dt-dir').value)}});
+  $('dt-path').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();dtGo()}});
+  $('dtovl').addEventListener('click',e=>{if(e.target.id==='dtovl')closeDt()});
   document.addEventListener('mousedown',e=>{
     if(!e.target.closest('.searchwrap')) histClose();
   });
