@@ -678,11 +678,14 @@ function toggleBlock(key){                      // блоки «Открытые
   saveColl(); render();
 }
 function isPathOpen(p){
-  return String(p||'').startsWith('__') ? !COLLAPSED.has(p) : OPEN.has(p);
+  p=String(p||'');
+  // «Без папки» — виртуальная группа, но ведёт себя как обычная папка: свёрнута, пока не раскрыли
+  if(p==='__nofolder') return OPEN.has(p);
+  return p.startsWith('__') ? !COLLAPSED.has(p) : OPEN.has(p);
 }
 function toggleF(i){
   const p=FOLDERS[i]; if(p===undefined) return;
-  if(String(p).startsWith('__')) toggleBlock(p);
+  if(String(p).startsWith('__') && p!=='__nofolder') toggleBlock(p);
   else { OPEN.has(p)?OPEN.delete(p):OPEN.add(p); saveColl(); render() }
 }
 /* все пути папок из STATE.folders ('/Работа/Проект') */
@@ -692,14 +695,14 @@ function allFolderPaths(){
 /* развернуть/свернуть ВСЁ внутри одной группы (вложенные папки на всех уровнях) */
 function expandGroup(i){
   const p=FOLDERS[i]; if(p===undefined) return;
-  if(String(p).startsWith('__')) COLLAPSED.delete(p);
+  if(String(p).startsWith('__') && p!=='__nofolder') COLLAPSED.delete(p);
   else OPEN.add(p);
   allFolderPaths().forEach(x=>{ if(x===p||x.startsWith(p+'/')) OPEN.add(x) });
   saveColl(); render();
 }
 function collapseGroup(i){
   const p=FOLDERS[i]; if(p===undefined) return;
-  if(String(p).startsWith('__')){ COLLAPSED.add(p); }      // служебный блок — просто свернуть
+  if(String(p).startsWith('__') && p!=='__nofolder'){ COLLAPSED.add(p); }  // служебный блок — просто свернуть
   else {
     const drop=[...OPEN].filter(x=>x===p||x.startsWith(p+'/'));
     drop.forEach(x=>OPEN.delete(x));
@@ -768,9 +771,17 @@ function render(){
     h+=recentBlock();
     const favs=STATE.bases.filter(b=>b.fav&&(fam==='all'||b.family===fam));
     if(favs.length){ h+=folderRow({path:'__fav',name:'Избранное',folders:[],bases:favs},0) }
+    /* базы без папки (folder '/') — отдельной группой в самом низу дерева */
+    let noFolder=tree['/'].bases;
+    tree['/'].bases=[];
+    if(fam!=='all') noFolder=noFolder.filter(b=>b.family===fam);
     h+=renderNode(tree['/'],0);
+    if(noFolder.length){
+      h+=folderRow({path:'__nofolder',name:'Без папки',folders:[],bases:noFolder,
+                    virtual:true,count:noFolder.length},0);
+    }
     $('rows').innerHTML=h;
-    shown=countBases(tree['/'])+favs.length;
+    shown=countBases(tree['/'])+favs.length+noFolder.length;
   }
   $('empty').style.display=shown?'none':'block';
   const cntToday=STATE.bases.filter(b=>b.launch_day==='today').length;
