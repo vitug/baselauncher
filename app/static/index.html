@@ -1001,7 +1001,20 @@ function render(){
     $('rows').innerHTML=h;
     shown=countBases(tree['/'])+noFolder.length;
   }
-  $('empty').textContent=(TAB!=='all'&&!searching&&fam!=='__bad')?(T.empty||'пусто'):'ничего не найдено';
+  /* пусто на экране, но базы есть: частая причина — активный фильтр/поиск.
+     Пишем это прямо в пустом состоянии, иначе выглядит как «избранное пропало». */
+  const favAll=STATE.bases.filter(b=>b.fav).length;
+  let emptyTxt=(TAB!=='all'&&!searching&&fam!=='__bad')?(T.empty||'пусто'):'ничего не найдено';
+  let emptyHtml=null;
+  if(!shown){
+    if(TAB==='fav'&&favAll&&(searching||fam!=='all')){
+      emptyHtml='в избранном '+favAll+' баз, но их скрывает '+(searching?'поиск «'+esc(q.trim())+'»':'фильтр')
+        +' · <a href="#" onclick="clearFilter();return false">сбросить</a>';
+    } else if(TAB==='fav'&&!favAll){
+      emptyTxt='в избранном пусто — звёздочка ☆ слева от имени базы добавляет её сюда';
+    }
+  }
+  if(emptyHtml){ $('empty').innerHTML=emptyHtml; } else { $('empty').textContent=emptyTxt; }
   $('empty').style.display=shown?'none':'block';
   const cntToday=STATE.bases.filter(b=>b.launch_day==='today').length;
   const cntYest=STATE.bases.filter(b=>b.launch_day==='yesterday').length;
