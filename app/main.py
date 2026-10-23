@@ -699,6 +699,8 @@ async def base_users(guid: str, req: Request):
             'users_count': res.get('users_count'), 'platform': res.get('com_platform') or '',
             'users_table': res.get('users_table') or '', 'users_tried': res.get('users_tried') or [],
             'users_source': res.get('users_source') or '', 'users_ib_error': res.get('users_ib_error') or '',
+            'note': ('' if (res.get('users') or []) else
+                     'в базе нет зарегистрированных пользователей ИБ (это не ошибка подключения)'),
             'error': res.get('error') or '', 'hint': res.get('hint') or '',
             'users_error': res.get('users_error') or ''}
 
