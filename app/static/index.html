@@ -662,7 +662,7 @@ function hasDesigner(g){                       // есть ли конфигур
   return !b||b.has_designer!==false;
 }
 /* что уже открыто у базы: {on, pid} для режима; кнопку уже открытого режима гасим,
-   оставляем доступной только ту, которой нет (переключение — «Перекл» / клик по строке) */
+   оставляем доступной только ту, которой нет (переключение — «Перекл» / двойной клик по строке) */
 function runState(g,m){
   const b=(STATE.bases||[]).find(x=>x.guid===g)||{};
   const pid=((b.running_pids||{})[m])||0;
@@ -678,7 +678,7 @@ function modeTitle(g,m,text){
   return 'уже открыто в '+what+(r.pid?' (PID '+r.pid+')':'')
     +(runState(g,m==='designer'?'enterprise':'designer').on
         ? ' — оба режима открыты'
-        : ' — доступен только '+(m==='designer'?'«Предпр»':'«Конф»')+'; переключение: «Перекл» или клик по строке');
+        : ' — доступен только '+(m==='designer'?'«Предпр»':'«Конф»')+'; переключение: «Перекл» или двойной клик по строке');
 }
 function modeTag(b){
   let m=b.default_mode||'';
@@ -704,8 +704,8 @@ async function cycleMode(guid){
   const j=await r.json();
   if(!j.ok){toast('ОШИБКА: '+(j.error||''));return}
   b.default_mode=next;
-  toast(next===''?'клик по строке: как в шапке':next==='enterprise'
-    ?'клик по строке: Предприятие':'клик по строке: Конфигуратор');
+  toast(next===''?'двойной клик по строке: как в шапке':next==='enterprise'
+    ?'двойной клик по строке: Предприятие':'двойной клик по строке: Конфигуратор');
   render();
 }
 function launchDot(b){
@@ -718,7 +718,7 @@ function baseRow(b,depth){
   const desc=b.descr?` title="${esc(b.descr)}"`:'';
   const dcl=b.launch_day==='today'?' today':(b.launch_day==='yesterday'?' yesterday':'');
   const run=b.running
-    ? `<span class="run" title="открыта: ${(b.running_modes||[]).map(m=>m==='designer'?'конфигуратор':'предприятие').join(', ')} (клик по строке — переключиться)">● открыта</span>`:'';
+    ? `<span class="run" title="открыта: ${(b.running_modes||[]).map(m=>m==='designer'?'конфигуратор':'предприятие').join(', ')} (двойной клик по строке — переключиться)">● открыта</span>`:'';
   return `<tr class="base${dcl}${b.running?' running':''}${b.guid===SEL?' sel':''}" id="r-${b.guid}" data-g="${b.guid}" data-folder="${esc(b.folder||'/')}" draggable="true" ondragstart="dragStart(event,'${b.guid}')" ondragend="dragEnd(event)" ${desc}>
     <td class="name" style="padding-left:${depth*18+6}px"><span class="star${b.fav?' on':''}"
       onclick="event.stopPropagation();toggleFav('${b.guid}')" title="избранное">${b.fav?'★':'☆'}</span>${launchDot(b)}${esc(b.name)}${modeTag(b)}${run}${launchTag(b)}</td>
@@ -1644,7 +1644,7 @@ async function activateSession(guid,s){
   const r=await activate(s.pid);
   if(r&&r.ok===false&&r.no_window)noWindow(b,s.mode,s.pid);
 }
-/* «Перекл» и клик по строке: один сеанс — идём в него, несколько — спрашиваем, в какой */
+/* «Перекл» и двойной клик по строке: один сеанс — идём в него, несколько — спрашиваем, в какой */
 function pickSession(guid){
   const b=(STATE.bases||[]).find(x=>x.guid===guid); if(!b)return;
   const list=sessionsOf(guid);
@@ -1664,7 +1664,7 @@ function selectBase(guid,scroll){
   if(tr){ tr.classList.add('sel');
     if(scroll!==false) tr.scrollIntoView({block:'nearest'}); }
   const b=(STATE.bases||[]).find(x=>x.guid===guid);
-  if(b) stat('выбрана: '+b.name+(q.trim()?' — Enter или двойной клик откроет':' — двойной клик откроет'),'info');
+  if(b) stat('выбрана: '+b.name+' — двойной клик или Enter откроет','info');
 }
 /* показать выбранную базу в общем списке: если её скрывает поиск/фильтр/закладка —
    снять их (jumpToRow), иначе просто прокрутить и мигнуть */
@@ -2494,18 +2494,14 @@ let PAGE_VER=null;   // версия, с которой загружена эт�
   document.querySelector('main table').addEventListener('click',e=>{
     const tr=e.target.closest('tr.base'); if(!tr) return;
     const g=tr.dataset.g;
-    selectBase(g,false);
-    if(q.trim()){                    // во время поиска клик только выделяет строку
-      histAdd(q);                    // запрос в историю — база найдена, значит он рабочий
-      return;
-    }
-    if(Date.now()-(LAUNCH_TS[g]||0)<700) return;   // второй клик двойного — не запускаем дважды
-    clickBase(g);
+    selectBase(g,false);             // один клик — только выбрать строку, база не открывается
+    if(q.trim()) histAdd(q);         // запрос в историю — база найдена, значит он рабочий
   });
   document.querySelector('main table').addEventListener('dblclick',e=>{
     const tr=e.target.closest('tr.base'); if(!tr) return;
+    if(e.target.closest('button,.star')) return;      // клики по кнопкам строки не считаем
     const g=tr.dataset.g; selectBase(g,false);
-    if(Date.now()-(LAUNCH_TS[g]||0)<700) return;
+    if(Date.now()-(LAUNCH_TS[g]||0)<900) return;      // защита от повторного срабатывания
     LAUNCH_TS[g]=Date.now(); clickBase(g);
   });
   setInterval(pollSessions, 3000);
