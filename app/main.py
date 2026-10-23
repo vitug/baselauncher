@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from core import (cache, com, config, hotkey, importer, launcher, netcheck, platforms_share,
                   procs, tray, v8i_writer, watch)
 
-app = FastAPI(title='BaseLauncher', version='0.30.6')
+app = FastAPI(title='BaseLauncher', version='0.30.7')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -256,12 +256,12 @@ def _build_cmd_from_body(body: dict, base: dict):
     # (тонкий — например, 1С сама на него переключилась), команда DESIGNER молча
     # откроет Предприятие: тонкий клиент ключ DESIGNER игнорирует.
     if mode == 'designer' and exe and exe.lower().endswith('1cv8c.exe') and not body.get('exe'):
-        thick = Path(exe).with_name('1cv8.exe')
-        if thick.is_file():
-            exe = str(thick)
+        thick = _thick_client(exe)
+        if thick:
+            exe = thick
         else:
-            return JSONResponse({'error': 'у этой сборки только тонкий клиент (1cv8c.exe) — '
-                                          'конфигуратора нет; выберите полную платформу в настройках базы'},
+            return JSONResponse({'error': 'толстого клиента (1cv8.exe) этого семейства не установлено — '
+                                          'конфигуратора нет; поставьте полную платформу'},
                                 status_code=400), mode
     # веб-база (ws=): Предприятие — тонкий клиент (1cv8c.exe),
     # Конфигуратор — только толстый (у тонкого конфигуратора нет)
@@ -298,6 +298,45 @@ def _build_cmd_from_body(body: dict, base: dict):
                                   user, pwd), mode
     except ValueError as e:
         return JSONResponse({'error': str(e)}, status_code=400), mode
+
+
+def _thick_client(thin_exe: str) -> str:
+    """Толстый клиент (1cv8.exe) для запуска Конфигуратора вместо тонкого 1cv8c.exe.
+
+    Порядок: рядом с тем же 1cv8c.exe → толстый той же версии → ближайший по версии
+    в том же семействе (8.3/8.5). Тонкий клиент ключ DESIGNER игнорирует и открывает
+    Предприятие, поэтому конфигуратор без толстого клиента невозможен.
+    """
+    if not thin_exe:
+        return ''
+    sib = Path(thin_exe).with_name('1cv8.exe')
+    if sib.is_file():
+        return str(sib)
+    plats = importer.build_state().get('platforms', [])
+    fam = (thin_exe.split('\\bin\\')[0].split('\\')[-1] or '')[:3]
+    target = (Path(thin_exe).parent.parent.name or '')
+    if not fam:
+        fam = target[:3]
+    cands = []
+    for p in plats:
+        exe = p.get('exe') or ''
+        if not exe or not Path(exe).is_file() or (p.get('family') or '') != fam:
+            continue
+        cands.append((p.get('key') or '', exe))
+    if not cands:
+        return ''
+    exact = [c for c in cands if c[0] == target]
+    if exact:
+        return exact[0][1]
+    def dist(key: str) -> int:
+        try:
+            a = [int(x) for x in key.split('.')]
+            b = [int(x) for x in target.split('.')]
+        except ValueError:
+            return 10 ** 6
+        a += [0] * (4 - len(a)); b += [0] * (4 - len(b))
+        return sum(abs(x - y) * 10 ** (3 * (3 - i)) for i, (x, y) in enumerate(zip(a, b)))
+    return sorted(cands, key=lambda c: dist(c[0]))[0][1]
 
 
 def _check_execute(extra: list | None) -> str | None:
