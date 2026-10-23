@@ -21,9 +21,16 @@ header{position:sticky;top:0;z-index:5;display:flex;gap:10px;align-items:center;
 header h1{font-size:15px;margin:0 8px 0 0;font-weight:600}
 header h1 #h-ver{color:var(--muted);font-weight:400;font-size:12px}
 header .sub{color:var(--muted);font-size:12px;margin-right:auto}
-#search{padding:7px 10px;border-radius:7px;border:1px solid var(--border);
-  background:var(--bg);color:var(--fg);outline:none}
+#search{padding:7px 26px 7px 10px;border-radius:7px;border:1px solid var(--border);
+  background:var(--bg);color:var(--fg);outline:none;width:100%;box-sizing:border-box}
 #search:focus{border-color:var(--blue)}
+.searchwrap{position:relative;display:flex;align-items:center}
+#search-clear{position:absolute;right:4px;top:50%;transform:translateY(-50%);
+  width:20px;height:20px;line-height:1;border:0;border-radius:50%;cursor:pointer;
+  background:transparent;color:var(--muted);font-size:15px;font-family:inherit;
+  display:none;align-items:center;justify-content:center;padding:0}
+#search-clear:hover{background:var(--panel);color:var(--fg)}
+.searchwrap.has-q #search-clear{display:flex}
 .mode{display:flex;border:1px solid var(--border);border-radius:7px;overflow:hidden}
 .mode button{padding:6px 12px;border:0;background:transparent;color:var(--muted);
   cursor:pointer;font-size:12.5px}
@@ -51,7 +58,7 @@ header .sub{color:var(--muted);font-size:12px;margin-right:auto}
 #tabs{display:flex;gap:8px;align-items:center;overflow-x:auto;white-space:nowrap;
   scrollbar-width:thin;flex:0 1 auto;min-width:0}
 /* поиск вплотную к закладкам (без прижима к правому краю) */
-#search{flex:0 1 270px}
+.searchwrap{flex:0 1 270px;min-width:0}
 #tabs .tb{padding:6px 14px;border-radius:999px;border:1px solid var(--border);
   background:var(--panel);color:var(--muted);cursor:pointer;font-size:12.5px;
   font-family:inherit;display:inline-flex;align-items:center;gap:6px;
@@ -287,7 +294,7 @@ body{padding-bottom:46px}
   td.act{white-space:normal;text-align:right}
   .mode button{padding:5px 8px;font-size:12px}
   #stick{flex-wrap:wrap}                /* на узком окне поиск уезжает под закладки */
-  #search{flex:1 1 100%;order:9}
+  .searchwrap{flex:1 1 100%;order:9}
 }
 @media (max-width:520px){
   button.ln{padding:3px 6px;margin-left:3px;font-size:11.5px}
@@ -337,7 +344,10 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
 </div>
 <div id="stick">
   <div id="tabs"></div>
-  <input id="search" placeholder="поиск: имя, путь, сервер… (Ctrl+F)" autofocus>
+  <span class="searchwrap" id="searchwrap">
+    <input id="search" placeholder="поиск: имя, путь, сервер… (Ctrl+F)" autofocus>
+    <button id="search-clear" title="очистить поиск (Esc)" aria-label="очистить поиск">×</button>
+  </span>
 </div>
 <main ondragover="rootDragOver(event)" ondrop="rootDrop(event)"><table><tbody id="rows"></tbody></table>
 <div class="empty" id="empty" style="display:none">ничего не найдено</div></main>
@@ -1119,6 +1129,13 @@ async function detectPlatform(guid){
   toast('«'+(b.name||guid)+'»\nверсия сервера: '+r.server_version
         +(ver?('\nзакреплена платформа '+ver):'\nподходящая платформа не установлена'),9000);
   await reload();
+}
+function clearSearch(){                       // крестик в поле поиска / Esc
+  const el=$('search');
+  if(el.value){ el.value=''; q=''; }
+  $('searchwrap').classList.remove('has-q');
+  render();
+  el.focus();
 }
 async function comInfo(guid){
   const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
@@ -2046,7 +2063,15 @@ let PAGE_VER=null;   // версия, с которой загружена эт�
 (async()=>{
   await reload(); setMode(MODE); hotkeyInfo();
   PAGE_VER=STATE.version||null;
-  $('search').addEventListener('input',e=>{q=e.target.value;render()});
+  $('search').addEventListener('input',e=>{
+    q=e.target.value;
+    $('searchwrap').classList.toggle('has-q',!!q.trim());
+    render();
+  });
+  $('search-clear').addEventListener('click',()=>clearSearch());
+  $('search').addEventListener('keydown',e=>{
+    if(e.key==='Escape'&&$('search').value){e.stopPropagation();clearSearch();}
+  });
   document.querySelector('main table').addEventListener('click',e=>{
     const tr=e.target.closest('tr.base'); if(tr)clickBase(tr.dataset.g)});
   setInterval(pollSessions, 3000);
