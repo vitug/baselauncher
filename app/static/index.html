@@ -624,8 +624,9 @@ function baseRow(b,depth){
     </td></tr>`;
 }
 /* «Открытые» / «Недавние» / «Избранное» — вкладки-закладки вверху, а не блоки в дереве */
-const TABS=[['all','Все'],['open','● Открытые','open-tab'],['recent','⟲ Недавние'],
-            ['fav','★ Избранное','fav-tab']];
+/* порядок = порядок горячих клавиш: Ctrl+1 Все, Ctrl+2 Избранное, Ctrl+3 Открытые, Ctrl+4 Недавние */
+const TABS=[['all','Все'],['fav','★ Избранное','fav-tab'],
+            ['open','● Открытые','open-tab'],['recent','⟲ Недавние']];
 /* положение прокрутки запоминается для каждой закладки отдельно */
 let TAB_SCROLL={};
 /* вкладки прилипают под шапкой: считаем её фактическую высоту (шапка переносится по ширине окна) */
@@ -656,10 +657,10 @@ function tabsHtml(){
   const bs=STATE.bases||[], rec=STATE.recent||[];
   const cnt={all:bs.length, open:bs.filter(b=>b.running).length,
              recent:rec.length, fav:bs.filter(b=>b.fav).length};
-  const tip={all:'дерево баз (папки)',
-             open:'базы, у которых сейчас открыт сеанс — переключение вместо нового запуска',
-             recent:'быстрый запуск того, что запускали последним',
-             fav:'избранные базы'};
+  const tip={all:'дерево баз (папки) — Ctrl+1',
+             fav:'избранные базы — Ctrl+2',
+             open:'базы, у которых сейчас открыт сеанс — переключение вместо нового запуска — Ctrl+3',
+             recent:'быстрый запуск того, что запускали последним — Ctrl+4'};
   return TABS.map(([k,label,cls])=>
     `<button class="tb ${cls||''}${TAB===k?' on':''}" data-tab="${k}" onclick="setTab('${k}')" title="${tip[k]}">`
     +`${label}<span class="n">${cnt[k]}</span></button>`).join('');
@@ -1769,6 +1770,12 @@ document.addEventListener('keydown',e=>{
   if(e.ctrlKey&&e.shiftKey&&(e.code==='KeyS'||String(e.key).toLowerCase()==='s'
      ||String(e.key).toLowerCase()==='ы')){
     e.preventDefault(); if(!HK_OK) trayToggle(); return}
+  // Ctrl+1…4 — закладки: Все / Избранное / Открытые / Недавние (в порядке полоски)
+  if(e.ctrlKey&&!e.shiftKey&&!e.altKey){
+    const d=(String(e.code||'').match(/^Digit([1-9])$/)||[])[1]||(String(e.key||'').match(/^([1-9])$/)?String(e.key):'');
+    const t=d?TABS[Number(d)-1]:null;
+    if(t){ e.preventDefault(); setTab(t[0]); return }
+  }
 });
 let HK_OK=false;
 async function trayToggle(){
