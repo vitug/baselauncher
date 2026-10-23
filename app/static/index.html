@@ -288,6 +288,7 @@ body{padding-bottom:46px}
   button.ln{padding:3px 6px;margin-left:3px;font-size:11.5px}
   tr.folder .grp{display:inline-block}   /* на узком/тач-экране hover нет — кнопки видны всегда */
 }
+label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
 </style>
 
 </head>
@@ -389,10 +390,10 @@ body{padding-bottom:46px}
   <div class="eff" id="md-eff"></div>
   <div class="eff" id="md-conn"></div>
 
-  <label>Имя</label>
+  <label>Имя <span class="hint">имя базы в списке 1С (ibases.v8i)</span></label>
   <input type="text" id="s-name">
 
-  <label>Описание</label>
+  <label>Описание <span class="hint">свободный текст для себя</span></label>
   <input type="text" id="s-descr">
 
   <div class="row2">
@@ -1521,8 +1522,14 @@ async function openSettings(guid){
   $('md-conn').textContent=b.ws?('веб-база (ws): '+b.ws)
     :(b.path?('папка: '+b.path)
     :(b.server?('сервер: '+b.server+(b.ref?' \\ '+b.ref:'')):''));
-  $('s-name').value=our.name||''; $('s-name').placeholder=b.name;
-  $('s-descr').value=our.descr||''; $('s-descr').placeholder='';
+  /* Имя: показываем фактическое имя базы, а не пустое поле с подсказкой. Если имя не переименовывали,
+     в поле стоит имя из ibases.v8i — тогда при сохранении оно не пишется в config.json. */
+  const ibName=b.ibname||b.name||'';
+  $('s-name').value=our.name||ibName; $('s-name').placeholder=ibName;
+  /* Описание: у части баз из SM в описание было скопировано имя базы — такое не показываем */
+  const d=String(our.descr||'');
+  $('s-descr').value=(d.trim()&&d.trim()!==ibName.trim())?d:'';
+  $('s-descr').placeholder='свободный текст: что за база, чем отличается';
   $('ovl').dataset.folder=b.folder||'/';          // исходная папка: сравниваем при сохранении
   setParent(b.folder||'/','s');
   $('s-folder-tree').style.display='none';
@@ -1569,7 +1576,12 @@ async function openSettings(guid){
 function closeModal(){$('ovl').classList.remove('on');CUR=null}
 async function saveSettings(){
   if(!CUR)return;
-  const body={name:$('s-name').value.trim(), descr:$('s-descr').value.trim(),
+  const b=(STATE.bases||[]).find(x=>x.guid===CUR)||{};
+  const ibName=String(b.ibname||b.name||'').trim();
+  let nm=$('s-name').value.trim(), ds=$('s-descr').value.trim();
+  if(nm===ibName)nm='';                 // имя не меняли — не засоряем конфиг
+  if(ds===ibName)ds='';                 // описание-дубль имени — тоже
+  const body={name:nm, descr:ds,
     user:$('s-user-ib').value.trim(), pwd:$('s-pass-ib').value,
     exe:$('s-exe').value, thin:$('s-thin').checked, mode:$('s-mode').value,
     storage:{dir:$('s-dir').value.trim(),user:$('s-user').value.trim(),password:$('s-pass').value}};

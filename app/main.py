@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from core import (cache, com, config, hotkey, importer, launcher, netcheck, platforms_share,
                   procs, tray, v8i_writer, watch)
 
-app = FastAPI(title='BaseLauncher', version='0.26.0')
+app = FastAPI(title='BaseLauncher', version='0.26.1')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -194,6 +194,13 @@ async def base_save(guid: str, req: Request):
     if not base:
         return JSONResponse({'error': 'база не найдена'}, status_code=404)
     body = await req.json()
+    # имя/описание, совпадающие с именем базы в ibases.v8i, — не переопределение: пишем пусто,
+    # иначе в конфиге копятся дубли имени и поле «Описание» показывает имя базы
+    ibname = (base.get('ibname') or '').strip()
+    if ibname:
+        for f in ('name', 'descr'):
+            if str(body.get(f) or '').strip() == ibname:
+                body[f] = ''
     # выбрали «авто» по платформе → снимаем и закреплённое семейство (8.3/8.5)
     if 'exe' in body and not (body.get('exe') or '').strip():
         body['family'] = ''
