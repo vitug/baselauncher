@@ -1421,12 +1421,41 @@ function askClearAppCache(){
     [{t:'Очистить',f:()=>clearCacheNow('app')},{t:'Отмена'}]);
 }
 /* меню копирования рядом с кнопкой ⧉ в строке базы */
+/* пункты «скопировать реквизиты» — один список и для контекстного меню базы, и для кнопки ⧉ */
+function copyItemsInto(box,b){
+  const i=baseCopyInfo(b);
+  const items=[
+    {t:'Копировать имя базы', k:'', v:i.name, lab:'имя'},
+    {t:'Копировать путь/адрес базы', k:'', v:i.baseAddr, lab:'адрес базы'},
+    {t:i.srvr?'Копировать адрес сервера':'Адрес сервера (файловая база)', k:'', v:i.srvAddr,
+      lab:'сервер', off:!i.srvr},
+    {t:i.ref?'Копировать имя базы на сервере':'Имя базы на сервере', k:'', v:i.ref, lab:'ref', off:!i.ref},
+    {t:'Копировать строку соединения', k:'', v:i.conn, lab:'строка соединения'},
+  ];
+  if(i.ws)items.push({t:'Копировать адрес сайта', k:'', v:i.ws, lab:'сайт'});
+  items.forEach(it=>{
+    const d=document.createElement('div');
+    d.className='ci'+(it.off?' off':'');
+    d.textContent=it.t;
+    if(!it.off)d.onclick=()=>{ctxClose();copyText(it.v,it.lab)};
+    box.appendChild(d);
+  });
+}
+/* кнопка ⧉ в строке: только пункты копирования, а не всё меню базы */
 function copyMenuFor(guid,el){
   /* повторный клик по той же кнопке закрывает меню (stopPropagation не даёт сработать
      обработчику «клик мимо», поэтому переключаем состояние сами) */
   if(CTX_GUID===guid&&$('ctxm').style.display!=='none'){ctxClose();return}
-  const r=el.getBoundingClientRect();
-  ctxShow(r.left, r.bottom+4, guid);
+  const b=(STATE.bases||[]).find(v=>v.guid===guid);
+  if(!b)return;
+  CTX_GUID=guid;
+  const box=$('ctxm'); box.innerHTML='';
+  copyItemsInto(box,b);
+  box.style.display='block'; box.style.left='0px'; box.style.top='0px';
+  const r=box.getBoundingClientRect();
+  const rr=el?el.getBoundingClientRect():{left:0,bottom:0};
+  box.style.left=Math.max(6,Math.min(rr.left, innerWidth-r.width-8))+'px';
+  box.style.top=Math.min(rr.bottom+4, innerHeight-r.height-8)+'px';
 }
 function ctxShow(x,y,guid){
   const b=(STATE.bases||[]).find(v=>v.guid===guid);
@@ -1450,24 +1479,7 @@ function ctxShow(x,y,guid){
     box.style.top=Math.min(y, innerHeight-rf.height-8)+'px';
     return;
   }
-  const i=baseCopyInfo(b);
-  const items=[
-    {t:'Копировать имя базы', k:'', v:i.name, lab:'имя'},
-    {t:'Копировать путь/адрес базы', k:'', v:i.baseAddr, lab:'адрес базы'},
-    {t:i.srvr?'Копировать адрес сервера':'Адрес сервера (файловая база)', k:'', v:i.srvAddr,
-      lab:'сервер', off:!i.srvr},
-    {t:i.ref?'Копировать имя базы на сервере':'Имя базы на сервере', k:'', v:i.ref, lab:'ref', off:!i.ref},
-    {t:'Копировать строку соединения', k:'', v:i.conn, lab:'строка соединения'},
-  ];
-  if(i.ws)items.push({t:'Копировать адрес сайта', k:'', v:i.ws, lab:'сайт'});
-  items.forEach((it,idx)=>{
-    const d=document.createElement('div');
-    d.className='ci'+(it.off?' off':'');
-    d.textContent=it.t;
-    if(it.k){const k=document.createElement('span');k.className='k';k.textContent=it.k;d.appendChild(k)}
-    if(!it.off)d.onclick=()=>{ctxClose();copyText(it.v,it.lab)};
-    box.appendChild(d);
-  });
+  copyItemsInto(box,b);
   /* удаление базы из ibases.v8i — отдельным блоком внизу */
   const sep=document.createElement('div'); sep.className='sep'; box.appendChild(sep);
   const cU=document.createElement('div');
