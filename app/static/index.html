@@ -860,7 +860,20 @@ function dropOnFolder(e,tr){
   const guid=DRAG_G||(e.dataTransfer?e.dataTransfer.getData('text/plain'):'');
   tr.classList.remove('drop-hi');
   if(!guid)return;
-  moveBase(guid,path);
+  askMove(guid,path);
+}
+/* перенос перетаскиванием — только после подтверждения: случайный drop не должен
+   молча переставлять базу в другую папку дерева (и в ibases.v8i) */
+function askMove(guid,folder){
+  const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
+  const cur=(b.folder||'/'), dst=folder||'/';
+  if(cur===dst){ stat('«'+(b.name||guid)+'» уже в этой папке','info'); dragEnd(); return }
+  const curName=(cur==='/'?'«Без папки»':cur), dstName=(dst==='/'?'«Без папки»':dst);
+  dragEnd();                                   // подсветку источника/цели гасим сразу
+  askBox('Перенести базу?',
+    '«'+(b.name||guid)+'»\n\nиз: '+curName+'\nв: '+dstName
+      +'\n\nПапка меняется и в списке баз 1С (ibases.v8i). Сама база на диске не трогается.',
+    [{t:'Перенести',primary:true,f:()=>moveBase(guid,dst)},{t:'Отмена'}]);
 }
 /* перенос базы: пишем Folder= в ibases.v8i и перерисовываем дерево */
 async function moveBase(guid,folder){
@@ -901,7 +914,7 @@ function rootDragOver(e){
 function rootDrop(e){
   if(!DRAG_G)return;
   e.preventDefault();
-  moveBase(DRAG_G,'/');
+  askMove(DRAG_G,'/');
 }
 
 function folderRow(n,depth){
