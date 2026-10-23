@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from core import (cache, com, config, hotkey, importer, launcher, netcheck, platforms_share,
                   procs, tray, v8i_writer, watch)
 
-app = FastAPI(title='BaseLauncher', version='0.30.5')
+app = FastAPI(title='BaseLauncher', version='0.30.6')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -252,6 +252,17 @@ def _build_cmd_from_body(body: dict, base: dict):
         return JSONResponse({'error': 'у платформы только тонкий клиент (1cv8c.exe) — '
                                       'конфигуратора нет, выберите полную платформу'},
                             status_code=400), mode
+    # Конфигуратор есть только у толстого клиента. Если за базой закреплён 1cv8c.exe
+    # (тонкий — например, 1С сама на него переключилась), команда DESIGNER молча
+    # откроет Предприятие: тонкий клиент ключ DESIGNER игнорирует.
+    if mode == 'designer' and exe and exe.lower().endswith('1cv8c.exe') and not body.get('exe'):
+        thick = Path(exe).with_name('1cv8.exe')
+        if thick.is_file():
+            exe = str(thick)
+        else:
+            return JSONResponse({'error': 'у этой сборки только тонкий клиент (1cv8c.exe) — '
+                                          'конфигуратора нет; выберите полную платформу в настройках базы'},
+                                status_code=400), mode
     # веб-база (ws=): Предприятие — тонкий клиент (1cv8c.exe),
     # Конфигуратор — только толстый (у тонкого конфигуратора нет)
     if base.get('ws') and not body.get('exe'):
