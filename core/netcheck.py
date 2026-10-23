@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import socket
 import urllib.parse
+import re
 from pathlib import Path
 from urllib.request import getproxies
+from urllib.request import urlopen, Request
 
 DEFAULT_PORT = 1541
 TIMEOUT = 2.0
@@ -125,3 +127,23 @@ def _tcp(host: str, port: int, timeout: float) -> tuple[bool, str]:
         finally:
             s.close()
     return False, last or 'нет связи'
+
+
+def web_version(url: str, timeout: float = 8.0) -> str:
+    """Версия платформы веб-публикации из её стартовой страницы (var VERSION = "8.3.27.1989").
+
+    Нужна, чтобы выбрать подходящий клиент: тонкий клиент НОВЕЕ публикации к ней не подключается
+    («Не удается установить соединение»), а 1С ещё и перезапускается своим автообновлением.
+    """
+    try:
+        u = (url or '').strip().rstrip(';').strip('"')
+        if not u.lower().startswith(('http://', 'https://')):
+            u = 'http://' + u
+        req = Request(u, headers={'User-Agent': 'Mozilla/5.0 (BaseLauncher)'})
+        html = urlopen(req, timeout=timeout).read(400_000).decode('utf-8', 'replace')
+        m = re.search(r'VERSION\s*=\s*"(\d+\.\d+\.\d+\.\d+)"', html)
+        if not m:
+            m = re.search(r'sysver=(\d+\.\d+\.\d+\.\d+)', html)
+        return m.group(1) if m else ''
+    except Exception:                   # noqa: BLE001
+        return ''

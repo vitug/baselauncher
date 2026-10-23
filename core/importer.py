@@ -22,7 +22,7 @@ _SLOT_FAMILIES = {'8.1': '8.1', '8.2': '8.2', '8.3': '8.3', '8.4': '8.4', '8.5':
 
 def _family_of_exe(exe: str, platforms: list) -> str:
     for p in platforms:
-        if p.exe.lower() == (exe or '').lower():
+        if exe and p.exe and p.exe.lower() == exe.lower():
             return p.family
     # из пути: ...\1cv8\8.5.1.1580\bin\1cv8.exe
     parts = (exe or '').replace('/', '\\').split('\\')
@@ -41,8 +41,12 @@ def _resolve_exe(guid: str, cfg: dict, platforms: list) -> tuple[str, str]:
     pinned = config.family_exe(cfg, fam)
     if pinned:
         return pinned, 'config'
+    # платформы «только тонкий клиент» (1cv8c.exe без 1cv8.exe) в автоподбор НЕ берём:
+    # это обычно 32-бит-клиенты и клиенты под конкретные публикации, и «самая новая» такая
+    # платформа (напр. 8.3.28.949) ломает запуск серверных баз со старым кластером.
+    # Они остаются в дереве платформ для явного выбора и для автоподбора ws-баз по версии публикации.
     for p in platforms:  # platforms отсортированы от новейших
-        if p.family == fam:
+        if p.family == fam and p.exe:
             return p.exe, 'auto'
     return '', 'none'
 

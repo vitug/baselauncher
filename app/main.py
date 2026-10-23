@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from core import cache, config, hotkey, importer, launcher, netcheck, platforms_share, procs, tray, v8i_writer, watch
 
-app = FastAPI(title='BaseLauncher', version='0.19.5')
+app = FastAPI(title='BaseLauncher', version='0.19.7')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -165,6 +165,25 @@ def _build_cmd_from_body(body: dict, base: dict):
             alt = Path(exe).with_name('1cv8.exe')
             if alt.is_file():
                 exe = str(alt)
+        # клиент новее публикации к ней не подключается («Не удается установить соединение»,
+        # 1С при этом ещё и перезапускается автообновлением). Берём платформу версии публикации.
+        try:
+            pub = netcheck.web_version(base['ws'])
+            plats = importer.build_state().get('platforms', [])
+            low = (exe or '').lower()
+            cur = ''
+            if low:
+                for p in plats:
+                    if low in ((p.get('exe') or '').lower(), (p.get('exe_thin') or '').lower()):
+                        cur = p.get('key') or ''
+                        break
+            if pub and cur and pub != cur:
+                for p in plats:
+                    if p.get('key') == pub and (p.get('exe_thin') or p.get('exe')):
+                        exe = p.get('exe_thin') or p.get('exe')
+                        break
+        except Exception:                       # noqa: BLE001
+            pass
     try:
         return launcher.build_cmd(exe, mode, base['connect'], extra, storage,
                                   user, pwd), mode
@@ -231,6 +250,15 @@ async def launch(req: Request):
     if isinstance(cmd, JSONResponse):
         return cmd
     exe = body.get('exe') or base.get('exe')
+    # для веб-баз платформа могла быть заменена на версию публикации внутри build_cmd —
+    # сторож должен знать настоящий exe (в командной строке он первым в кавычках)
+    try:
+        import re as _re
+        m_exe = _re.match(r'"([^"]+)"', cmd if isinstance(cmd, str) else '')
+        if m_exe and Path(m_exe.group(1)).is_file():
+            exe = m_exe.group(1)
+    except Exception:                       # noqa: BLE001
+        pass
     if not exe or not Path(exe).is_file():
         return JSONResponse(
             {'error': f'exe платформы не найден на диске: {exe or "(не определён)"}'},
@@ -391,7 +419,13 @@ def precheck(guid: str):
         return JSONResponse({'error': 'база не найдена'}, status_code=404)
     conn = ('Srvr="%s";Ref="%s";' % (base['server'], base.get('ref') or '')) if base.get('server') \
         else (base['ws'] if base.get('ws') else 'File="%s";' % (base.get('path') or ''))
-    return {'ok': True, 'conn': conn, 'check': netcheck.check(conn)}
+    out = {'ok': True, 'conn': conn, 'check': netcheck.check(conn)}
+    if base.get('ws'):
+        out['web_version'] = netcheck.web_version(base['ws'])
+        out['exe_version'] = next((p.get('key') for p in importer.build_state().get('platforms', [])
+                                   if (base.get('exe') or '').lower()
+                                   in ((p.get('exe') or '').lower(), (p.get('exe_thin') or '').lower())), '')
+    return out
 
 
 @app.get('/api/launch/events')
