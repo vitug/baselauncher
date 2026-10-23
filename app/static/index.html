@@ -79,6 +79,7 @@ td.act{width:1%;white-space:nowrap;text-align:right}
   border-radius:6px;user-select:none}
 .star:hover{color:var(--amber);background:rgba(255,193,7,.18)}
 .star.on{color:var(--amber)}
+.favstar{color:#f5c542;margin-right:3px;font-size:15px}
 .fam{display:inline-block;padding:2px 8px;border-radius:5px;font-weight:600;font-size:11.5px}
 .f-8\.3{background:#1d3a5f;color:var(--blue)} .f-8\.5{background:#32285f;color:var(--purple)}
 .f-8\.2{background:#1d4a33;color:var(--green)} .f-8\.1{background:#4a3a1d;color:var(--amber)}
@@ -654,7 +655,7 @@ function folderRow(n,depth){
       <td colspan="4" style="padding-left:${depth*18+6}px">
       <div class="fld">
         <span class="arrow">${open?'▼':'▶'}</span>
-        <span class="fld-name">${esc(n.name)}</span><span class="cnt">${countBases(n)}</span>
+        <span class="fld-name">${n.path==='__fav'?'<span class="favstar">★</span> Избранное':esc(n.name)}</span><span class="cnt">${countBases(n)}</span>
         <span class="fld-act">${
         n.path&&n.path.startsWith('__')?''
         :`<button class="grp" onclick="event.stopPropagation();expandGroup(${idx})" title="развернуть всё внутри этой группы">+ всё</button>
@@ -766,7 +767,7 @@ function render(){
     h+=openBlock();
     h+=recentBlock();
     const favs=STATE.bases.filter(b=>b.fav&&(fam==='all'||b.family===fam));
-    if(favs.length){ h+=folderRow({path:'__fav',name:'★ Избранное',folders:[],bases:favs},0) }
+    if(favs.length){ h+=folderRow({path:'__fav',name:'Избранное',folders:[],bases:favs},0) }
     h+=renderNode(tree['/'],0);
     $('rows').innerHTML=h;
     shown=countBases(tree['/'])+favs.length;
