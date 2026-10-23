@@ -477,7 +477,7 @@ function countBases(n){let c=n.bases.length;n.folders.forEach(f=>c+=countBases(f
 
 function badge(b){
   const v=(b.exe||'').split('\\').filter(s=>/^\d+\.\d+\.\d+/.test(s))[0]||'';
-  const src=b.exe_src==='sm'?'SM':b.exe_src==='our'?'наш':b.exe_src;
+  const src=b.exe_src==='sm'?'SM':b.exe_src==='our'?'наш':b.exe_src==='learnt'?'подобрана':b.exe_src;
   let s=`<span class="fam f-${b.family||'none'}">${b.family||'?'}</span>`;
   if(b.path_ok===false) s+=` <span class="warn" title="${esc(b.path_info||'папки базы нет')}: ${esc(b.path||'')}">✖папка</span>`;
   if(b.exe_ok===false) s+=` <span class="warn" title="exe платформы не найден на диске">✖exe</span>`;
@@ -1600,6 +1600,19 @@ async function pollLaunchErrors(){
   }catch(e){}
 }
 function showLaunchError(ev){
+  if(ev.switched) return;                    /* 1С сама перезапустилась нужной версией клиента */
+  if(ev.retrying){                           /* 8.3 не подошла — сами пробуем 8.5 */
+    const r=ev.retrying, v=(r.versions||[]).join(', ');
+    stat((ev.name||'')+': 1С не открылась — пробую платформой '+r.family+' ('+v+')','info');
+    toast('«'+(ev.name||'')+'»: клиент не подошёл к серверу,\nпробую '+r.family+' — '+v,7000);
+    return;
+  }
+  if(ev.retry){                             /* 1С не сошлась версиями — сами перезапустили другим семейством */
+    const fam=ev.retry.family||'8.5';
+    stat((ev.name||'')+': не сошлись версии клиента и сервера — запускаю платформой '+fam+' ('+(ev.retry.version||'')+')','info');
+    toast('«'+(ev.name||'')+'»: 8.3 не подошла (версии сервера),\nзапускаю платформой '+fam+' — '+(ev.retry.version||''),9000);
+    return;
+  }
   stat('1С не запустилась: '+(ev.name||''),'err');
   toast('1С не запустилась: '+(ev.name||'')+'\n'+(ev.hint||''),12000);
   askBox('1С не запустилась: '+(ev.name||''),
