@@ -37,6 +37,17 @@ def _resolve_exe(guid: str, cfg: dict, platforms: list) -> tuple[str, str]:
     our = config.get_base(cfg, guid)
     if our.get('exe'):
         return our['exe'], 'our'
+    # платформа, которой базу открывали раньше (выучено из живого сеанса): сервер требует ровно её
+    learnt = (our.get('learnt') or '').strip()
+    if learnt and Path(learnt).is_file():
+        return learnt, 'learnt'
+    # семейство, закреплённое за базой (например 8.5, если сервер 8.5.1.x):
+    # берём самую новую полную платформу этого семейства
+    fam_pin = (our.get('family') or '').strip()
+    if fam_pin:
+        for p in platforms:
+            if p.family == fam_pin and (p.exe or p.exe_thin):
+                return (p.exe or p.exe_thin), 'our-family'
     fam = cfg.get('default_family') or '8.3'
     pinned = config.family_exe(cfg, fam)
     if pinned:
