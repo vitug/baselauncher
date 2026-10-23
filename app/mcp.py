@@ -558,7 +558,10 @@ def t_base_users(a: dict) -> dict:
                   'users_table': res.get('users_table') or '',
                   'users_source': res.get('users_source') or '',
                   'error': res.get('error') or '', 'hint': res.get('hint') or '',
-                  'users_error': res.get('users_error') or ''})
+                  'users_error': res.get('users_error') or '',
+                  'users_ib_error': res.get('users_ib_error') or '',
+                  'note': ('' if names else
+                           'в базе нет зарегистрированных пользователей ИБ (это не ошибка подключения)')})
 
 
 def t_platforms(_a: dict) -> dict:
@@ -689,9 +692,13 @@ TOOLS = [
       'pwd': {'type': 'string', 'description': 'пароль Предприятия'},
       'pwd_cfg': {'type': 'string', 'description': 'пароль Конфигуратора (если отличается)'}},
      t_set_credentials),
-    ('base_users', 'Список пользователей ИБ через COM-подключение (справочник Пользователи) — '
-     'чтобы выбрать логин и записать его через set_credentials. Нужны логин/пароль пользователя, '
-     'у которого есть права на чтение справочника.',
+    ('base_users', 'Пользователи информационной базы через COM: штатный '
+     'ПользователиИнформационнойБазы.ПолучитьПользователей() (список зарегистрированных '
+     'пользователей ИБ, не зависит от наличия справочника Пользователи), с откатом на справочник '
+     'Пользователи/ПользователиИБ конфигурации. В ответе users (имена), users_source (откуда взят), '
+     'users_count, users_ib_error. Пустой список — в базе нет зарегистрированных пользователей, '
+     'это не ошибка. Нужны логин/пароль с правами администрирования ИБ. Логин затем пишется '
+     'через set_credentials.',
      {'base': {'type': 'string'}, 'user': {'type': 'string'}, 'pwd': {'type': 'string'},
       'timeout': {'type': 'number'}}, t_base_users),
     ('base_cache', 'Кэш клиента 1С для одной базы: what=info (размеры), user (кэш текущего '
