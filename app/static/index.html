@@ -24,7 +24,14 @@ header .sub{color:var(--muted);font-size:12px;margin-right:auto}
 #search{padding:7px 26px 7px 10px;border-radius:7px;border:1px solid var(--border);
   background:var(--bg);color:var(--fg);outline:none;width:100%;box-sizing:border-box}
 #search:focus{border-color:var(--blue)}
-.searchwrap{position:relative;display:flex;align-items:center}
+.searchwrap{position:relative;display:flex;align-items:center;gap:5px}
+#search{flex:1 1 auto;min-width:0}
+#search-hist-btn{flex:0 0 auto;width:24px;height:24px;line-height:1;border:1px solid var(--border);
+  border-radius:50%;cursor:pointer;background:var(--panel);color:var(--muted);font-size:12px;
+  font-family:inherit;display:flex;align-items:center;justify-content:center;padding:0;
+  transition:color .12s,border-color .12s,background .12s}
+#search-hist-btn:hover{background:var(--panel);color:var(--fg)}
+#search-hist-btn.has-items{color:var(--blue)}
 #search-clear{position:absolute;right:4px;top:50%;transform:translateY(-50%);
   width:20px;height:20px;line-height:1;border:0;border-radius:50%;cursor:pointer;
   background:transparent;color:var(--muted);font-size:15px;font-family:inherit;
@@ -367,6 +374,7 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
 <div id="stick">
   <div id="tabs"></div>
   <span class="searchwrap" id="searchwrap">
+    <button id="search-hist-btn" title="история поиска (Alt+↓)" aria-label="история поиска">⟲</button>
     <input id="search" placeholder="поиск: имя, путь, сервер… (Ctrl+F)" autofocus>
     <button id="search-clear" title="очистить поиск (Esc)" aria-label="очистить поиск">×</button>
     <div id="hist"></div>
@@ -1159,6 +1167,7 @@ let HIST=[], histSel=-1;
 try{ HIST=JSON.parse(localStorage.getItem(HIST_KEY)||'[]'); }catch(e){ HIST=[]; }
 if(!Array.isArray(HIST)) HIST=[];
 HIST=HIST.filter(x=>x&&typeof x.q==='string'&&x.q).slice(0,HIST_MAX);
+document.addEventListener('DOMContentLoaded',()=>{ try{ histMark(); }catch(e){} });
 
 function histSave(){ try{ localStorage.setItem(HIST_KEY,JSON.stringify(HIST)); }catch(e){} }
 function histAdd(text){
@@ -1168,6 +1177,7 @@ function histAdd(text){
   HIST.unshift({q:t,at:Date.now()});
   HIST=HIST.slice(0,HIST_MAX);
   histSave();
+  histMark();
 }
 function histWhen(ts){
   const d=new Date(ts||0), now=new Date();
@@ -1188,8 +1198,8 @@ function histFiltered(){
 function histRender(){
   const list=histFiltered();
   if(!HIST.length){
-    $('hist').innerHTML='<div class="he">история поиска пуста — запросы сохраняются при Enter '
-      +'и при запуске базы из результатов</div>';
+    $('hist').innerHTML='<div class="he">история поиска пуста.<br>Запрос сохраняется сам через '
+      +'полторы секунды после ввода (или по Enter) — и при запуске базы из результатов.</div>';
     return;
   }
   if(!list.length){
@@ -1207,10 +1217,21 @@ function histRender(){
       </div>`).join('');
 }
 function histOpen(){
-  if(!HIST.length){ histClose(); return; }   // пустая история — выпадашку не показываем
   histSel=-1; histRender(); $('searchwrap').classList.add('open-hist');
+  histMark();
 }
 function histClose(){ $('searchwrap').classList.remove('open-hist'); histSel=-1; }
+/* вернуть фокус в поле, но не открывать выпадашку заново — иначе она «залипает» */
+function focusSearchQuiet(){
+  window.__histNoOpen=true;
+  try{ $('search').focus(); }
+  finally{ setTimeout(()=>{ window.__histNoOpen=false; },0); }
+}
+function histMark(){                        // «часы» подсвечиваются, когда история не пуста
+  const b=$('search-hist-btn');
+  if(b){ b.classList.toggle('has-items',HIST.length>0);
+         b.title=HIST.length? ('история поиска · '+HIST.length+' (Alt+↓)') : 'история поиска пуста'; }
+}
 function histMove(step){
   const list=histFiltered();
   if(!list.length) return;
@@ -1233,14 +1254,13 @@ function histPick(i){
   histAdd(item.q);                       // подняли наверх — «последний использованный»
   histClose();
   render();
-  el.focus();
+  focusSearchQuiet();
 }
 function histDrop(i){
-  HIST.splice(i,1); histSave(); histSel=-1; histRender();
-  if(!HIST.length) histRender();
+  HIST.splice(i,1); histSave(); histSel=-1; histRender(); histMark();
 }
 function histClearAll(){
-  HIST=[]; histSave(); histSel=-1; histRender();
+  HIST=[]; histSave(); histSel=-1; histRender(); histMark();
   toast('история поиска очищена',4000);
 }
 
@@ -1248,8 +1268,9 @@ function clearSearch(){                       // крестик в поле по
   const el=$('search');
   if(el.value){ el.value=''; q=''; }
   $('searchwrap').classList.remove('has-q');
+  histClose();
   render();
-  el.focus();
+  focusSearchQuiet();
 }
 async function comInfo(guid){
   const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
@@ -2184,14 +2205,27 @@ let PAGE_VER=null;   // версия, с которой загружена эт�
     render();
     histSel=-1;
     if($('searchwrap').classList.contains('open-hist')) histRender();
+    /* автозапись: набрал и остановился — запрос попал в историю без Enter */
+    clearTimeout(window.__histT);
+    window.__histT=setTimeout(()=>{
+      if(q.trim().length>=2 && document.querySelectorAll('#rows tr').length){
+        histAdd(q); histMark();
+      }
+    },1500);
   });
   $('search-clear').addEventListener('click',()=>{clearSearch();histRender();});
+  $('search-hist-btn').addEventListener('click',e=>{
+    e.preventDefault(); e.stopPropagation();
+    if($('searchwrap').classList.contains('open-hist')) histClose();
+    else { histOpen(); focusSearchQuiet(); }
+  });
   /* focusin+click: поле с autofocus уже в фокусе при загрузке, событие focus тогда не придёт */
-  $('search').addEventListener('focusin',()=>histOpen());
-  $('search').addEventListener('click',()=>histOpen());
+  /* Само по клику в поле историю НЕ открываем: выпадашка перекрывает первые строки
+     результатов и кажется «залипшей». Открытие — кнопка ⟲, Alt+↓ или ↓ в пустом поле. */
   $('search').addEventListener('keydown',e=>{
     const open=$('searchwrap').classList.contains('open-hist');
-    if(e.key==='ArrowDown'&&open){e.preventDefault();histMove(1);return;}
+    if(e.key==='ArrowDown'&&(open||e.altKey||!q.trim())){
+      e.preventDefault(); if(!open) histOpen(); histMove(1); return;}
     if(e.key==='ArrowUp'&&open){e.preventDefault();histMove(-1);return;}
     if(e.key==='Enter'){
       if(open&&histSel>=0){e.preventDefault();histPick(histSel);}
@@ -2207,7 +2241,11 @@ let PAGE_VER=null;   // версия, с которой загружена эт�
     if(!e.target.closest('.searchwrap')) histClose();
   });
   document.querySelector('main table').addEventListener('click',e=>{
-    const tr=e.target.closest('tr.base'); if(tr)clickBase(tr.dataset.g)});
+    const tr=e.target.closest('tr.base');
+    if(tr){
+      if(q.trim()) histAdd(q);       // клик по найденной базе — запрос тоже в историю
+      clickBase(tr.dataset.g);
+    }});
   setInterval(pollSessions, 3000);
   setInterval(pollLaunchErrors, 3000);
   // последняя выбранная обработка для /Execute — помним между перезагрузками страницы
