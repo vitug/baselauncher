@@ -950,6 +950,7 @@ function jumpToRow(guid){
     prefix+='/'+seg; OPEN.add(prefix);
   });
   OPEN.add(b.folder||'/');
+  if(!b.folder||b.folder==='/') OPEN.add('__nofolder');   // база без папки — группа «Без папки» внизу
   if(q||fam!=='all'){ q=''; fam='all'; $('search').value=''; }
   if(TAB!=='all'){ TAB='all'; localStorage.setItem('bl_tab','all'); }
   saveColl(); render();
@@ -1444,6 +1445,15 @@ function ctxShow(x,y,guid){
   del.textContent=b.running?'Удалить базу из списка… (открыта!)':'Удалить базу из списка…';
   del.onclick=()=>{ctxClose();askDeleteBase(guid)};
   box.appendChild(del);
+  /* настройки базы — в самом низу, горячая клавиша Alt+Enter */
+  const sep2=document.createElement('div'); sep2.className='sep'; box.appendChild(sep2);
+  const setg=document.createElement('div');
+  setg.className='ci';
+  setg.textContent='Настройки базы…';
+  const kk=document.createElement('span'); kk.className='k'; kk.textContent='Alt+Enter';
+  setg.appendChild(kk);
+  setg.onclick=()=>{ctxClose();openSettings(guid)};
+  box.appendChild(setg);
   box.style.display='block';
   box.style.left='0px'; box.style.top='0px';       // чтобы измерить размер
   const r=box.getBoundingClientRect();
@@ -2286,6 +2296,16 @@ let PAGE_VER=null;   // версия, с которой загружена эт�
   });
   document.addEventListener('mousedown',e=>{
     if(!e.target.closest('.searchwrap')) histClose();
+  });
+  /* Alt+Enter — настройки базы: выбранная строка, иначе база, открытая в редакторе */
+  document.addEventListener('keydown',e=>{
+    if(e.key!=='Enter'||!e.altKey||e.ctrlKey||e.shiftKey) return;
+    if(document.querySelector('#ovl.on,#novl.on,#askovl.on')) return;
+    const g=SEL||CUR;
+    if(!g) return;
+    e.preventDefault();
+    if($('ctxm').style.display!=='none') ctxClose();
+    openSettings(g);
   });
   /* Enter по выбранной строке: после клика фокус вне поля поиска, поэтому слушаем документ */
   document.addEventListener('keydown',e=>{
