@@ -129,6 +129,8 @@ tr.folder .grp:hover{border-color:var(--blue)}
 tr.folder .grp.add-folder{border-style:dashed;color:var(--muted)}
 tr.folder .grp.add-folder:hover{color:var(--fg)}
 tr.base.flash td{animation:fl 1.6s}
+tr.base.sel td{background:rgba(80,140,255,.18)}
+tr.base.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 @keyframes fl{0%{background:#2d4a2f}100%{background:transparent}}
 td{padding:6px 10px;border-bottom:1px solid var(--border);vertical-align:top}
 td.name{white-space:nowrap;max-width:min(320px,40vw);overflow:hidden;text-overflow:ellipsis}
@@ -518,6 +520,7 @@ let COLLAPSED=new Set(JSON.parse(localStorage.getItem('bl_collapsed')||'[]')); /
 let TAB=localStorage.getItem('bl_tab')||'all';   // вкладка: all | open | recent | fav
 let OPEN=new Set(JSON.parse(localStorage.getItem('bl_open')||'[]'));          // папки дерева, развёрнутые ЯВНО
 let FOLDERS=[], CUR=null;   // CUR = guid базы, открытой в редакторе
+let SEL=null, SEL_Q='';     // выбранная строка (клик во время поиска только выделяет)
 const $=id=>document.getElementById(id);
 
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
@@ -676,7 +679,7 @@ function baseRow(b,depth){
   const dcl=b.launch_day==='today'?' today':(b.launch_day==='yesterday'?' yesterday':'');
   const run=b.running
     ? `<span class="run" title="открыта: ${(b.running_modes||[]).map(m=>m==='designer'?'конфигуратор':'предприятие').join(', ')} (клик по строке — переключиться)">● открыта</span>`:'';
-  return `<tr class="base${dcl}${b.running?' running':''}" id="r-${b.guid}" data-g="${b.guid}" data-folder="${esc(b.folder||'/')}" draggable="true" ondragstart="dragStart(event,'${b.guid}')" ondragend="dragEnd(event)" ${desc}>
+  return `<tr class="base${dcl}${b.running?' running':''}${b.guid===SEL?' sel':''}" id="r-${b.guid}" data-g="${b.guid}" data-folder="${esc(b.folder||'/')}" draggable="true" ondragstart="dragStart(event,'${b.guid}')" ondragend="dragEnd(event)" ${desc}>
     <td class="name" style="padding-left:${depth*18+6}px"><span class="star${b.fav?' on':''}"
       onclick="event.stopPropagation();toggleFav('${b.guid}')" title="избранное">${b.fav?'★':'☆'}</span>${launchDot(b)}${esc(b.name)}${modeTag(b)}${run}${launchTag(b)}</td>
     <td class="path" title="${esc(loc)}">${esc(loc)}</td>
@@ -954,6 +957,7 @@ function jumpToRow(guid){
   if(!tr){toast('строка базы не найдена в общем списке');return}
   tr.scrollIntoView({block:'center',behavior:'smooth'});
   tr.classList.remove('flash'); void tr.offsetWidth; tr.classList.add('flash');
+  selectBase(guid,false);
 }
 
 /* ---------- фильтры/рендер ---------- */
@@ -1283,6 +1287,7 @@ function clearSearch(){                       // крестик в поле по
   $('searchwrap').classList.remove('has-q');
   histClose();
   render();
+  if(SEL) revealSel();                        // база остаётся видимой в общем списке
   focusSearchQuiet();
 }
 async function comInfo(guid){
@@ -1468,6 +1473,7 @@ function clearFilter(){
 }
 
 async function launch(guid,mode,force,skipCheck){
+  try{LAUNCH_TS[guid]=Date.now()}catch(e){}
   if(q.trim()) histAdd(q);              // запрос, по которому нашли базу, — в историю поиска
   const b=STATE.bases.find(x=>x.guid===guid); if(!b)return;
   if(mode==='designer'&&b.has_designer===false){
@@ -1556,6 +1562,29 @@ function pickSession(guid){
   launch(guid,modeOf(guid));
 }
 const clickBase=pickSession;
+/* выбранная строка: клик по базе во время поиска только выделяет её, запуск — Enter
+   или двойной клик. SEL_Q — при каком запросе строку выбрали: если запрос сменился,
+   Enter не должен запускать «старую» базу. */
+const LAUNCH_TS={};
+function selectBase(guid,scroll){
+  SEL=guid; SEL_Q=q.trim();
+  document.querySelectorAll('tr.base.sel').forEach(t=>t.classList.remove('sel'));
+  const tr=document.querySelector('tr.base[data-g="'+guid+'"]');
+  if(tr){ tr.classList.add('sel');
+    if(scroll!==false) tr.scrollIntoView({block:'nearest'}); }
+  const b=(STATE.bases||[]).find(x=>x.guid===guid);
+  if(b) stat('выбрана: '+b.name+(q.trim()?' — Enter или двойной клик откроет':' — двойной клик откроет'),'info');
+}
+/* показать выбранную базу в общем списке: если её скрывает поиск/фильтр/закладка —
+   снять их (jumpToRow), иначе просто прокрутить и мигнуть */
+function revealSel(){
+  if(!SEL) return;
+  const tr=document.querySelector('tr.base[data-g="'+SEL+'"]');
+  if(!tr){ jumpToRow(SEL); return }
+  selectBase(SEL,false);
+  tr.scrollIntoView({block:'center',behavior:'smooth'});
+  tr.classList.remove('flash'); void tr.offsetWidth; tr.classList.add('flash');
+}
 let ASK=null;
 /* одно мини-окно на все вопросы: заголовок, текст и произвольные кнопки */
 function askBox(title,text,buttons){
@@ -2241,8 +2270,13 @@ let PAGE_VER=null;   // версия, с которой загружена эт�
       e.preventDefault(); if(!open) histOpen(); histMove(1); return;}
     if(e.key==='ArrowUp'&&open){e.preventDefault();histMove(-1);return;}
     if(e.key==='Enter'){
-      if(open&&histSel>=0){e.preventDefault();histPick(histSel);}
-      else if(q.trim()){histAdd(q);histSel=-1;histRender();}
+      if(open&&histSel>=0){e.preventDefault();histPick(histSel);return;}
+      if(q.trim()){
+        histAdd(q);histSel=-1;histRender();
+        if(SEL&&SEL_Q===q.trim()&&document.querySelector('tr.base[data-g="'+SEL+'"]')){
+          e.preventDefault(); LAUNCH_TS[SEL]=Date.now(); clickBase(SEL);   // запуск только по Enter
+        }
+      }
       return;
     }
     if(e.key==='Escape'){
@@ -2253,12 +2287,33 @@ let PAGE_VER=null;   // версия, с которой загружена эт�
   document.addEventListener('mousedown',e=>{
     if(!e.target.closest('.searchwrap')) histClose();
   });
+  /* Enter по выбранной строке: после клика фокус вне поля поиска, поэтому слушаем документ */
+  document.addEventListener('keydown',e=>{
+    if(e.key!=='Enter'||e.ctrlKey||e.altKey||e.shiftKey) return;
+    if(document.querySelector('#ovl.on,#novl.on,#askovl.on')) return;
+    const tg=e.target||{};
+    if(/^(INPUT|TEXTAREA|SELECT|BUTTON|A)$/.test(tg.tagName||'')) return;
+    if(!SEL) return;
+    if(!document.querySelector('tr.base[data-g="'+SEL+'"]')) return;
+    e.preventDefault(); LAUNCH_TS[SEL]=Date.now(); clickBase(SEL);
+  });
   document.querySelector('main table').addEventListener('click',e=>{
-    const tr=e.target.closest('tr.base');
-    if(tr){
-      if(q.trim()) histAdd(q);       // клик по найденной базе — запрос тоже в историю
-      clickBase(tr.dataset.g);
-    }});
+    const tr=e.target.closest('tr.base'); if(!tr) return;
+    const g=tr.dataset.g;
+    selectBase(g,false);
+    if(q.trim()){                    // во время поиска клик только выделяет строку
+      histAdd(q);                    // запрос в историю — база найдена, значит он рабочий
+      return;
+    }
+    if(Date.now()-(LAUNCH_TS[g]||0)<700) return;   // второй клик двойного — не запускаем дважды
+    clickBase(g);
+  });
+  document.querySelector('main table').addEventListener('dblclick',e=>{
+    const tr=e.target.closest('tr.base'); if(!tr) return;
+    const g=tr.dataset.g; selectBase(g,false);
+    if(Date.now()-(LAUNCH_TS[g]||0)<700) return;
+    LAUNCH_TS[g]=Date.now(); clickBase(g);
+  });
   setInterval(pollSessions, 3000);
   setInterval(pollLaunchErrors, 3000);
   // последняя выбранная обработка для /Execute — помним между перезагрузками страницы
