@@ -872,6 +872,57 @@ async function clearCacheNow(what,guid){
   toast(`кэш очищен: ${freed} · ${n}`+(j.sessions_running?`\n\nВнимание: открыто сеансов 1С — ${j.sessions_running}. Часть занятых файлов кэша могла остаться; закрой 1С и повтори.`:''));
   if(what==='app') await reload();
 }
+/* ---------- серверные операции через COM (как в обновляторе) ---------- */
+async function postJSON(url,body){
+  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body||{})});
+  return await r.json();
+}
+async function detectPlatform(guid){
+  const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
+  stat('спрашиваю версию сервера у «'+(b.name||guid)+'»…','info');
+  let r={};
+  try{ r=await postJSON('/api/base/'+guid+'/detect',{pin:true}); }catch(e){ stat('ошибка: '+e,'err'); return }
+  if(r.error==='база не найдена'){ stat('база не найдена','err'); return }
+  if(!r.server_version){
+    askBox('Версию сервера определить не удалось',
+      (r.error||'нет ответа')+(r.hint?'\n\n'+r.hint:'')
+      +'\n\nДля серверных баз нужен логин/пароль пользователя ИБ (настройки базы).',
+      [{t:'Понятно',primary:true},{t:'Настройки базы',f:()=>openSettings(guid)}]);
+    return;
+  }
+  const ver=r.version||'';
+  stat('сервер '+r.server_version+(ver?(' → платформа '+ver):''),'ok');
+  toast('«'+(b.name||guid)+'»\nверсия сервера: '+r.server_version
+        +(ver?('\nзакреплена платформа '+ver):'\nподходящая платформа не установлена'),9000);
+  await reload();
+}
+async function comInfo(guid){
+  const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
+  stat('подключаюсь к «'+(b.name||guid)+'» по COM…','info');
+  let r={};
+  try{ r=await postJSON('/api/base/'+guid+'/cominfo',{}); }catch(e){ stat('ошибка: '+e,'err'); return }
+  if(!r.ok){
+    askBox('COM-подключение не удалось',
+      (r.error||'нет ответа')+(r.hint?'\n\n'+r.hint:'')
+      +'\n\nЛогин и пароль берутся из настроек базы; их можно задать и через MCP (set_credentials).',
+      [{t:'Понятно',primary:true},{t:'Настройки базы',f:()=>openSettings(guid)}]);
+    return;
+  }
+  const c=r.config||{};
+  const users=(r.users||[]).slice(0,15)
+      .map(u=>'  '+(u['Имя']||u['Имя ']||'?')+(u['Удалён']?' (пометка удаления)':'')+(u['БезПароля']?' · пароль не задан':''))
+      .join('\n');
+  const text='Конфигурация: '+(c.name||'?')+(c.version?(' '+c.version):'')
+    +'\nПодключение: '+(r.platform||'').split('\\').slice(-3).join('\\')
+    +(r.connect_user?('\nПользователь: '+r.connect_user):'')
+    +'\n\nПользователей ИБ: '+(r.users_count!=null?r.users_count:'—')
+    +(r.users_active!=null?(' (активных '+r.users_active+')'):'')
+    +(users?('\n'+users):'')
+    +(!users&&r.users_error?('\n\nСправочник пользователей недоступен: '+String(r.users_error).slice(0,140)):'');
+  stat((b.name||guid)+': конфигурация '+(c.name||'?'),'ok');
+  askBox('Сведения из базы (COM)', text, [{t:'Понятно',primary:true}]);
+}
 function askClearBaseCache(guid){
   const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
   askBox('Очистить кэш базы?',
@@ -977,6 +1028,17 @@ function ctxShow(x,y,guid){
   cl.textContent='Очистить кэш этой базы…';
   cl.onclick=()=>{ctxClose();askClearBaseCache(guid)};
   box.appendChild(cl);
+  /* серверные операции через COM (как в обновляторе) */
+  const det=document.createElement('div');
+  det.className='ci';
+  det.textContent='Определить платформу по версии сервера (COM)';
+  det.onclick=()=>{ctxClose();detectPlatform(guid)};
+  box.appendChild(det);
+  const cinfo=document.createElement('div');
+  cinfo.className='ci';
+  cinfo.textContent='Сведения из базы: конфигурация, пользователи (COM)';
+  cinfo.onclick=()=>{ctxClose();comInfo(guid)};
+  box.appendChild(cinfo);
   const del=document.createElement('div');
   del.className='ci danger';
   del.textContent=b.running?'Удалить базу из списка… (открыта!)':'Удалить базу из списка…';
