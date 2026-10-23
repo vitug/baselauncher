@@ -126,6 +126,7 @@ def build_state() -> dict:
         bases.append(BaseEntry(
             guid=guid,
             name=(our.get('name') or name),
+            ibname=name,
             descr=str(our.get('descr') or ''),
             user=str(our.get('user') or ''),
             pwd=pwd,

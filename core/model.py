@@ -47,6 +47,7 @@ class BaseEntry:
     pwd: str = ''            # пароль ИБ (Предприятие) /P — расшифрован из config.json
     pwd_cfg: str = ''        # пароль для Конфигуратора (свой, если отличается)
     pwd_note: str = ''       # '' | 'set' (есть пароль) | 'broken' (не расшифровался: чужая машина)
+    ibname: str = ''         # имя секции из ibases.v8i (до наших переименований)
 
     def as_dict(self):
         return asdict(self)
