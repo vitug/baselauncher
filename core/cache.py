@@ -184,3 +184,75 @@ def info(root: Path) -> dict:
     return {'one_c': {'path': str(local_root()), 'roaming': str(roaming_root()),
                       **one_c_info()},
             'app': app_info(root)}
+
+# ---- кэш конкретной базы: пользователь / общий для всех пользователей ПК ----------
+# Из справки 1С (и разбора реального каталога на этом хосте):
+#   %LOCALAPPDATA%\1C\1cv8\<guid>\  — Config, ConfigSave, SICache, cfgrepo, cgf-cache,
+#                                       <guid>\vrs-cache (кэш версий), dbg.pfl
+#   %APPDATA%\1C\1cv8\<guid>\        — настройки интерфейса, lognhist.reg
+#   %PROGRAMDATA%\1C\1cv8\<guid>\    — общий кэш для всех пользователей ПК
+# Данные ИБ не затрагиваются: они в файле базы или на сервере 1С.
+
+
+def programdata_root() -> Path:
+    base = os.environ.get('PROGRAMDATA') or r'C:\ProgramData'
+    return Path(base) / '1C' / '1cv8'
+
+
+def base_dirs(guid: str) -> dict:
+    """Каталоги кэша одной базы: user (текущий пользователь Windows) и program (все пользователи)."""
+    user = []
+    for root in (local_root(), roaming_root()):
+        p = root / guid
+        if p.is_dir():
+            user.append(p)
+    prog = []
+    p = programdata_root() / guid
+    if p.is_dir():
+        prog.append(p)
+    return {'user': user, 'program': prog}
+
+
+def base_info(guid: str, budget: float = 2.0) -> dict:
+    """Размеры кэша базы по уровням. budget — сколько секунд тратить на обход каждого каталога."""
+    dirs = base_dirs(guid)
+    out = {}
+    for what in ('user', 'program'):
+        total = files = 0
+        partial = False
+        for d in dirs[what]:
+            s = size_of(d, budget=budget)
+            total += s['bytes']
+            files += s['files']
+            partial = partial or s['partial']
+        out[what] = {'bytes': total, 'human': human(total), 'files': files,
+                     'dirs': len(dirs[what]), 'partial': partial,
+                     'paths': [str(d) for d in dirs[what]]}
+    return out
+
+
+def clear_base(guid: str, what: str = 'user') -> dict:
+    """Удалить кэш базы: what=user (LOCALAPPDATA+APPDATA) | program (%PROGRAMDATA%) | both."""
+    guid = (guid or '').strip()
+    if not guid:
+        raise ValueError('не передан guid базы')
+    want = ('user', 'program') if what in ('both', 'all', '') else (what,)
+    for w in want:
+        if w not in ('user', 'program'):
+            raise ValueError("what: user | program | both")
+    dirs = base_dirs(guid)
+    freed = 0
+    removed = []
+    errors = []
+    found = 0
+    for w in want:
+        for d in dirs[w]:
+            found += 1
+            r = _rmtree(d)
+            freed += r['bytes']
+            if r['removed']:
+                removed.append(str(d))
+            errors.extend(r['errors'])
+    return {'ok': not errors or bool(removed), 'what': ','.join(want), 'guid': guid,
+            'dirs_found': found, 'dirs_removed': len(removed), 'removed': removed[:10],
+            'freed': freed, 'freed_human': human(freed), 'errors': errors[:10]}
