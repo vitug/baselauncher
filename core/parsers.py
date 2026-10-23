@@ -81,9 +81,31 @@ def parse_settings_slots(path: Path = SETTINGS_PATH) -> dict[str, str]:
     return slots
 
 
+# Управляющие символы вместо букв — след «лишнего» раскодирования escape-строк:
+# путь D:\bases1C после одного лишнего unicode_escape превращается в D:<BS>ases1C,
+# и COM отвечает «Неправильный путь к файлу … 123(0x7B): Синтаксическая ошибка в имени».
+# «\b» в пути — это обратный слэш + буква, съеденные раскодированием: вернуть оба знака.
+_CTRL_LETTER = {'\x07': '\\a', '\x08': '\\b', '\x09': '\\t', '\x0a': '\\n',
+                '\x0b': '\\v', '\x0c': '\\f', '\x0d': '\\r'}
+
+
+def sanitize_path(p: str) -> str:
+    """Починить путь из битого Connect: вернуть буквы вместо управляющих символов,
+    схлопнуть удвоенные обратные слэши (кроме UNC-префикса \\\\server)."""
+    s = (p or '').strip().strip('"')
+    if not s:
+        return s
+    s = ''.join(_CTRL_LETTER.get(ch, ch) if ch < ' ' else ch for ch in s)
+    unc = s.startswith('\\\\')
+    body = s[2:] if unc else s
+    while '\\\\' in body:
+        body = body.replace('\\\\', '\\')
+    return ('\\\\' if unc else '') + body
+
+
 def parse_connect(connect: str) -> tuple[str, str, str, str]:
     """'File="C:\\x";' -> (path, '', '', '');  'Srvr="s:port";Ref="db";' -> ('', srvr, ref, '');
     'ws="https://…"' (веб-база) -> ('', '', '', url)."""
     parts = dict(re.findall(r'(\w+)="([^"]*)"', connect or ''))
-    return parts.get('File', ''), parts.get('Srvr', ''), parts.get('Ref', ''), \
-        parts.get('ws', '')
+    return sanitize_path(parts.get('File', '')), parts.get('Srvr', ''), \
+        parts.get('Ref', ''), parts.get('ws', '')

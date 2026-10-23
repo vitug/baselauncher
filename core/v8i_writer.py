@@ -90,6 +90,11 @@ def add_base(name: str, connect: str, folder: str = '/', app: str = 'Auto') -> s
     folder = (folder or '/').strip() or '/'
     if not name:
         raise ValueError('пустое имя базы')
+    # Путь мог прийти с «съеденными» слэшами (\b -> 0x08): писать в файл 1С только чистый.
+    from core.parsers import sanitize_path
+    _m = re.match(r'(?is)^\s*File\s*=\s*"(.*)"\s*$', connect or '')
+    if _m:
+        connect = 'File="%s"' % sanitize_path(_m.group(1))
     _, text = _read()
     secs = _sections(text)
     _check_name(text, name)
