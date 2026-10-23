@@ -14,6 +14,13 @@ import threading
 import re
 from pathlib import Path
 
+try:                                   # pywin32: нужен и для dispatch, и для IDispatch-вызовов
+    import pythoncom
+    import win32com.client.dynamic as _dyn
+except Exception:                      # noqa: BLE001  (на машине без pywin32 модуль всё равно импортируется)
+    pythoncom = None                   # type: ignore[assignment]
+    _dyn = None                        # type: ignore[assignment]
+
 _registered: dict[str, bool] = {}
 _lock = threading.Lock()
 PROGIDS = ('V83.COMConnector', 'V85.COMConnector')
@@ -134,6 +141,70 @@ def _conn_string(connect: str, user: str, pwd: str) -> str:
 _USERS_FALLBACK = ('Пользователи', 'ПользователиИБ', 'ПользователиБазы')
 
 
+def _ole(obj):
+    """Сырой IDispatch (для вызовов по именам — русские имена win32com.dynamic не умеет)."""
+    return getattr(obj, '_oleobj_', obj)
+
+
+def _disp(obj, name: str) -> int:
+    return _ole(obj).GetIDsOfNames(name)
+
+
+def _getprop(obj, name: str):
+    o = _ole(obj)
+    return o.Invoke(_disp(obj, name), 0, pythoncom.DISPATCH_PROPERTYGET, True)
+
+
+def _callm(obj, name: str, *args):
+    o = _ole(obj)
+    return o.Invoke(_disp(obj, name), 0, pythoncom.DISPATCH_METHOD, True, *args)
+
+
+def users_ib(conn) -> dict:
+    """Пользователи информационной базы штатным механизмом платформы.
+
+    ПользователиИнформационнойБазы.ПолучитьПользователей() — список зарегистрированных
+    пользователей ИБ. Не зависит от конфигурации (в базе может не быть справочника
+    Пользователи вовсе) и не требует выборки данных; нужны права администрирования ИБ.
+
+    Вызовы идут через IDispatch по русским именам: win32com.client.dynamic генерирует
+    питоновский код из имени члена и на кириллице падает (SyntaxError «def (self, *args)»).
+    """
+    try:
+        import win32com.client.dynamic as dyn
+    except Exception as e:                             # noqa: BLE001
+        return {'ok': False, 'error': 'нет pywin32: %s' % e}
+    try:
+        coll = _getprop(conn, 'ПользователиИнформационнойБазы')
+        raw = _callm(coll, 'ПолучитьПользователей')
+    except Exception as e:                             # noqa: BLE001
+        return {'ok': False, 'error': str(e).splitlines()[0][:200]}
+    out = []
+    try:
+        arr = dyn.Dispatch(raw)
+        try:
+            items = list(arr) if int(arr.Count()) else []
+        except Exception:                              # noqa: BLE001
+            items = list(arr)
+    except Exception as e:                             # noqa: BLE001
+        return {'ok': False, 'error': 'список получен, но не читается: %s' % str(e)[:150]}
+    for u in items:
+        def val(fld, dflt=None):
+            try:
+                return _getprop(u, fld)
+            except Exception:                          # noqa: BLE001
+                return dflt
+        nm = str(val('Имя', '') or '').strip()
+        if not nm:
+            continue
+        out.append({'Имя': nm,
+                    'Полное': str(val('ПолноеИмя', '') or ''),
+                    'БезПароля': not bool(val('АутентификацияСтандартная', True)),
+                    'Заблокирован': bool(val('Заблокирован', False)),
+                    'Удалён': bool(val('Заблокирован', False))})
+    return {'ok': True, 'users': out}
+
+
 def _users_tables(conn) -> tuple:
     """Имена справочников-пользователей: сначала найденные в метаданных, затем типовые.
 
@@ -200,8 +271,18 @@ def probe(connect: str, user: str = '', pwd: str = '', exe: str = '',
 
     if not want_users:
         return out
-    # пользователи ИБ (справочник есть не во всех конфигурациях; имя может отличаться)
+    # 1) пользователи ИБ штатным механизмом платформы (не зависит от конфигурации)
     out['users'] = []
+    ib = users_ib(conn)
+    if ib.get('ok'):
+        rows_ib = ib['users']
+        out['users'] = rows_ib[:users_limit]
+        out['users_count'] = len(rows_ib)
+        out['users_active'] = sum(1 for r in rows_ib if not r.get('Удалён'))
+        out['users_source'] = 'ПользователиИнформационнойБазы'
+        return out
+    out['users_ib_error'] = ib.get('error') or ''
+    # 2) справочник Пользователи (имя в разных конфигурациях может отличаться)
     last_err = ''
     out['users_tried'] = []
     for table in _users_tables(conn):
