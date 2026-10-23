@@ -45,8 +45,11 @@ header .sub{color:var(--muted);font-size:12px;margin-right:auto}
   background:var(--bg);color:var(--fg);font-size:12.5px}
 #adhoc .hint{color:var(--muted);font-size:11px}
 /* вкладки-закладки: Открытые / Недавние / Избранное (вместо блоков в дереве) */
-#tabs{display:flex;gap:8px;align-items:center;padding:10px 14px 2px;overflow-x:auto;
-  white-space:nowrap;scrollbar-width:thin}
+#tabs{display:flex;gap:8px;align-items:center;padding:10px 14px 8px;overflow-x:auto;
+  white-space:nowrap;scrollbar-width:thin;
+  /* прилипают под шапкой (и под панелью «разовые ключи», если она раскрыта) */
+  position:sticky;top:var(--stick-top,0px);z-index:4;
+  background:var(--bg);border-bottom:1px solid var(--border)}
 #tabs .tb{padding:6px 14px;border-radius:999px;border:1px solid var(--border);
   background:var(--panel);color:var(--muted);cursor:pointer;font-size:12.5px;
   font-family:inherit;display:inline-flex;align-items:center;gap:6px;
@@ -460,7 +463,8 @@ function setMode(m){MODE=m;localStorage.setItem('bl_mode',m);
   stat('режим клика: '+(m==='enterprise'?'предприятие':'конфигуратор'))}
 function toggleAdhoc(){
   $('adhoc').classList.toggle('on');
-  $('adhoc-tgl').classList.toggle('on')}
+  $('adhoc-tgl').classList.toggle('on');
+  syncStickTop()}
 
 /* ---------- разовые ключи запуска (в моменте, не сохраняются) ---------- */
 const A_BOOL=['Debug','DisableStartupMessages','DisableStartupDialogs','RunModeOrdinaryApplication'];
@@ -622,10 +626,31 @@ function baseRow(b,depth){
 /* «Открытые» / «Недавние» / «Избранное» — вкладки-закладки вверху, а не блоки в дереве */
 const TABS=[['all','Все'],['open','● Открытые','open-tab'],['recent','⟲ Недавние'],
             ['fav','★ Избранное','fav-tab']];
+/* положение прокрутки запоминается для каждой закладки отдельно */
+let TAB_SCROLL={};
+/* вкладки прилипают под шапкой: считаем её фактическую высоту (шапка переносится по ширине окна) */
+function syncStickTop(){
+  const h=document.querySelector('header');
+  const a=$('adhoc');
+  let top=(h?h.getBoundingClientRect().height:0);
+  if(a&&a.classList.contains('on')) top+=a.getBoundingClientRect().height;
+  document.documentElement.style.setProperty('--stick-top', Math.round(top)+'px');
+}
+function maxScroll(){
+  return Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+}
+function restoreTabScroll(t){
+  const y=TAB_SCROLL[t]||0;
+  requestAnimationFrame(()=>{ window.scrollTo(0, Math.min(y, maxScroll())) });
+}
 function setTab(t){
+  if(t===TAB){ restoreTabScroll(t); return }
+  TAB_SCROLL[TAB]=window.scrollY;              // запомнили, где были в прежней закладке
   TAB=t; localStorage.setItem('bl_tab',t);
   if(t!=='all'&&fam==='__bad') fam='all';
   render();
+  syncStickTop();
+  restoreTabScroll(t);
 }
 function tabsHtml(){
   const bs=STATE.bases||[], rec=STATE.recent||[];
@@ -1671,8 +1696,11 @@ function renderFolderTree(ctx){
   };
   box.innerHTML=rows('/',0).split('CTX').join(ctx);
 }
-window.addEventListener('resize',()=>{['n','s'].forEach(c=>{const t=document.getElementById(c+'-folder-tree');
-  if(t&&t.style.display!=='none') t.style.display='none'});});
+window.addEventListener('resize',()=>{
+  ['n','s'].forEach(c=>{const t=document.getElementById(c+'-folder-tree');
+    if(t&&t.style.display!=='none') t.style.display='none'});
+  syncStickTop();                 // шапка переносится по ширине — пересчитываем прилипание
+});
 /* клик мимо дерева — закрыть его */
 document.addEventListener('click', e=>{
   ['n','s'].forEach(c=>{
@@ -1800,6 +1828,7 @@ async function reload(){
   $('st-sub').textContent=`${STATE.bases.length} баз · ${STATE.platforms.length} платформ`;
   render();
   footInfo();
+  syncStickTop();
 }
 
 /* тихое обновление состояния: «Недавние» и «Открытые» не должны отставать
