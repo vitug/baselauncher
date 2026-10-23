@@ -44,6 +44,21 @@ header .sub{color:var(--muted);font-size:12px;margin-right:auto}
 #adhoc select,#adhoc input{padding:5px 8px;border-radius:6px;border:1px solid var(--border);
   background:var(--bg);color:var(--fg);font-size:12.5px}
 #adhoc .hint{color:var(--muted);font-size:11px}
+/* вкладки-закладки: Открытые / Недавние / Избранное (вместо блоков в дереве) */
+#tabs{display:flex;gap:8px;align-items:center;padding:10px 14px 2px;overflow-x:auto;
+  white-space:nowrap;scrollbar-width:thin}
+#tabs .tb{padding:6px 14px;border-radius:999px;border:1px solid var(--border);
+  background:var(--panel);color:var(--muted);cursor:pointer;font-size:12.5px;
+  font-family:inherit;display:inline-flex;align-items:center;gap:6px;
+  transition:background .12s,color .12s,border-color .12s}
+#tabs .tb:hover{color:var(--fg);border-color:var(--blue)}
+#tabs .tb.on{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
+#tabs .tb .n{opacity:.75;font-size:11.5px}
+#tabs .tb.on .n{opacity:.95}
+#tabs .tb.open-tab.on{background:var(--green);border-color:var(--green);color:#0f1115}
+#tabs .tb.fav-tab.on{background:var(--amber);border-color:var(--amber);color:#0f1115}
+main{padding-top:6px}
+
 main{max-width:1240px;margin:0;padding:10px 14px 60px}
 table{width:100%;border-collapse:collapse}
 tr.base,tr.folder{cursor:pointer}
@@ -304,6 +319,7 @@ body{padding-bottom:46px}
   </span>
   <span class="hint">действуют только на следующий запуск, в настройках базы не сохраняются</span>
 </div>
+<div id="tabs"></div>
 <main><table><tbody id="rows"></tbody></table>
 <div class="empty" id="empty" style="display:none">ничего не найдено</div></main>
 
@@ -412,6 +428,7 @@ body{padding-bottom:46px}
 <script>
 let STATE=null, fam='all', q='', MODE=localStorage.getItem('bl_mode')||'enterprise';
 let COLLAPSED=new Set(JSON.parse(localStorage.getItem('bl_collapsed')||'[]')); // блоки: Открытые/Недавние/Избранное
+let TAB=localStorage.getItem('bl_tab')||'all';   // вкладка: all | open | recent | fav
 let OPEN=new Set(JSON.parse(localStorage.getItem('bl_open')||'[]'));          // папки дерева, развёрнутые ЯВНО
 let FOLDERS=[], CUR=null;   // CUR = guid базы, открытой в редакторе
 const $=id=>document.getElementById(id);
@@ -585,28 +602,36 @@ function baseRow(b,depth){
       <button class="ln cmd" onclick="event.stopPropagation();dryrun('${b.guid}')" title="показать команду запуска, ничего не запуская (dry-run)">cmd</button>
     </td></tr>`;
 }
-/* свёрнутый блок «Открытые»: живые сеансы — переключение вместо нового запуска */
-function openBlock(){
-  const bs=(STATE.bases||[]).filter(b=>b.running);
-  if(!bs.length)return '';
-  const idx=FOLDERS.length; FOLDERS.push('__open');
-  const open=!COLLAPSED.has('__open');
-  let h=`<tr class="folder open-h" onclick="toggleBlock('__open')"><td colspan="4" style="padding-left:6px">
-    <div class="fld"><span class="arrow">${open?'▼':'▶'}</span>
-      <span class="fld-name">● Открытые</span><span class="cnt">${bs.length}</span>
-      <span class="fld-act"><button class="grp fld-toggle"
-        onclick="event.stopPropagation();toggleBlock('__open')"
-        title="${open?'свернуть блок':'развернуть блок'}">${open?'▴ свернуть':'▾ развернуть'}</button></span>
-    </div></td></tr>`;
-  if(open) h+=bs.map(b=>{
+/* «Открытые» / «Недавние» / «Избранное» — вкладки-закладки вверху, а не блоки в дереве */
+const TABS=[['all','Все'],['open','● Открытые','open-tab'],['recent','⟲ Недавние'],
+            ['fav','★ Избранное','fav-tab']];
+function setTab(t){
+  TAB=t; localStorage.setItem('bl_tab',t);
+  if(t!=='all'&&fam==='__bad') fam='all';
+  render();
+}
+function tabsHtml(){
+  const bs=STATE.bases||[], rec=STATE.recent||[];
+  const cnt={all:bs.length, open:bs.filter(b=>b.running).length,
+             recent:rec.length, fav:bs.filter(b=>b.fav).length};
+  const tip={all:'дерево баз (папки)',
+             open:'базы, у которых сейчас открыт сеанс — переключение вместо нового запуска',
+             recent:'быстрый запуск того, что запускали последним',
+             fav:'избранные базы'};
+  return TABS.map(([k,label,cls])=>
+    `<button class="tb ${cls||''}${TAB===k?' on':''}" data-tab="${k}" onclick="setTab('${k}')" title="${tip[k]}">`
+    +`${label}<span class="n">${cnt[k]}</span></button>`).join('');
+}
+/* строки блока «Открытые»: сеанс вместо запуска */
+function openRows(bs){
+  return (bs||[]).map(b=>{
     const pids=b.running_pids||{}, wins=b.running_win||{};
     const modes=(b.running_modes||[]).map(m=>
       `<span class="tag${wins[m]===false?' nowin':''}" title="${wins[m]===false?'у сеанса нет видимого окна (запуск из EDT)':'PID '+(pids[m]||'')}">`
       +`${m==='designer'?'конф':'предпр'}${pids[m]?' '+pids[m]:''}${wins[m]===false?' · нет окна':''}</span>`).join('');
-    const first=(b.running_modes||[])[0]||'enterprise';
     const loc=b.path||b.ws||((b.server?(b.server+(b.ref?'\\'+b.ref:'')):''));
     return `<tr class="base open" data-g="${b.guid}">
-      <td class="name" style="padding-left:24px"><span class="dot today" title="сеанс открыт"></span>${esc(b.name)}</td>
+      <td class="name"><span class="dot today" title="сеанс открыт"></span>${esc(b.name)}</td>
       <td class="path" title="${esc(loc)}">${esc(loc)}</td>
       <td class="plat">${modes}</td>
       <td class="act">
@@ -617,25 +642,11 @@ function openBlock(){
         <button class="ln designer" ${modeDisabled(b.guid,'designer')?'disabled':''} onclick="event.stopPropagation();launch('${b.guid}','designer')" title="${b.has_designer===false?'конфигуратора нет':modeTitle(b.guid,'designer','запустить ещё один сеанс конфигуратора')}">Конф</button>
         <button class="ln" ${modeDisabled(b.guid,'enterprise')?'disabled':''} onclick="event.stopPropagation();launch('${b.guid}','enterprise')" title="${modeTitle(b.guid,'enterprise','запустить ещё один сеанс предприятия')}">Предпр</button>
       </td></tr>`}).join('');
-  return h;
 }
-/* свёрнутый блок «Недавние»: быстрый запуск того, что запускали последним */
-function recentBlock(){
-  // всегда по дате запуска: самые свежие сверху (даже если сервер отдал другой порядок)
-  const rec=(STATE.recent||[]).slice().sort((a,b)=>
-    String(b.last_ts||'').localeCompare(String(a.last_ts||'')));
-  if(!rec.length)return '';
-  const idx=FOLDERS.length; FOLDERS.push('__recent');
-  const open=!COLLAPSED.has('__recent');
-  let h=`<tr class="folder recent-h" onclick="toggleBlock('__recent')"><td colspan="4" style="padding-left:6px">
-    <div class="fld"><span class="arrow">${open?'▼':'▶'}</span>
-      <span class="fld-name">⟲ Недавние</span><span class="cnt">${rec.length}</span>
-      <span class="fld-act"><button class="grp fld-toggle"
-        onclick="event.stopPropagation();toggleBlock('__recent')"
-        title="${open?'свернуть блок':'развернуть блок'}">${open?'▴ свернуть':'▾ развернуть'}</button></span>
-    </div></td></tr>`;
-  if(open) h+=rec.map(r=>`<tr class="base recent${r.day==='today'?' today':r.day==='yesterday'?' yesterday':''}" data-g="${r.guid}">
-    <td class="name" style="padding-left:24px"><span class="rc ${r.day==='yesterday'?'yesterday':''}">◷</span>${esc(r.name)}</td>
+/* строки блока «Недавние»: по дате запуска, свежие сверху, сегодня/вчера подсвечены */
+function recentRows(rec){
+  return (rec||[]).map(r=>`<tr class="base recent${r.day==='today'?' today':r.day==='yesterday'?' yesterday':''}" data-g="${r.guid}">
+    <td class="name"><span class="rc ${r.day==='yesterday'?'yesterday':''}">◷</span>${esc(r.name)}</td>
     <td class="path" title="${esc(r.path||'')}">${esc(r.path||'')}</td>
     <td class="plat"><span class="tag ${r.day}">${esc(ago(r.last_ts))}</span>${r.mode==='designer'?'<span class="ver">конфигуратор</span>':''}${r.count>1?`<span class="ver">×${r.count}</span>`:''}</td>
     <td class="act">
@@ -644,7 +655,21 @@ function recentBlock(){
       <button class="ln" ${modeDisabled(r.guid,'enterprise')?'disabled':''} onclick="event.stopPropagation();launch('${r.guid}','enterprise')" title="${modeTitle(r.guid,'enterprise','запустить Предприятие')}">Предпр</button>
       <button class="ln designer" ${modeDisabled(r.guid,'designer')?'disabled':''} onclick="event.stopPropagation();launch('${r.guid}','designer')" title="${hasDesigner(r.guid)?modeTitle(r.guid,'designer','запустить Конфигуратор'):'конфигуратора нет'}">Конф</button>
     </td></tr>`).join('');
-  return h;
+}
+/* содержимое активной вкладки с учётом поиска и фильтра по платформе */
+function tabView(){
+  const ql=q.toLowerCase();
+  const okText=b=>(b.name+' '+(b.path||'')+' '+(b.ws||'')+' '+(b.server||'')+' '+(b.ref||'')+' '+(b.descr||'')).toLowerCase().includes(ql);
+  const okFam=b=>(fam==='all'||fam==='__bad'||b.family===fam);
+  if(TAB==='recent'){
+    const rec=(STATE.recent||[]).slice().sort((a,b)=>String(b.last_ts||'').localeCompare(String(a.last_ts||'')))
+      .filter(r=>!ql||okText(r));
+    return {html:recentRows(rec), n:rec.length, empty:'нечего запускать: истории пока нет'};
+  }
+  let bs=STATE.bases.filter(b=>TAB==='open'?b.running:b.fav);
+  bs=bs.filter(b=>okFam(b)&&(!ql||okText(b)));
+  return {html:TAB==='open'?openRows(bs):bs.map(b=>baseRow(b,0)).join(''), n:bs.length,
+          empty:TAB==='open'?'нет открытых баз':'в избранном пусто — отметьте базу звёздочкой'};
 }
 function folderRow(n,depth){
   const idx=FOLDERS.length; FOLDERS.push(n.path);
@@ -732,6 +757,7 @@ function jumpToRow(guid){
   });
   OPEN.add(b.folder||'/');
   if(q||fam!=='all'){ q=''; fam='all'; $('search').value=''; }
+  if(TAB!=='all'){ TAB='all'; localStorage.setItem('bl_tab','all'); }
   saveColl(); render();
   const tr=document.getElementById('r-'+guid);
   if(!tr){toast('строка базы не найдена в общем списке');return}
@@ -751,7 +777,11 @@ function render(){
       `<span class="chip${fam===f?' on':''}" onclick="setFam('${f}')">${f} <span class="n">${chips[f]}</span></span>`)).join('');
   const ql=q.toLowerCase();
   let shown=0;
-  if(searching||fam==='__bad'){
+  $('tabs').innerHTML=tabsHtml();
+  const T=tabView();
+  if(TAB!=='all'&&!searching&&fam!=='__bad'){
+    $('rows').innerHTML=T.html; shown=T.n;
+  } else if(searching||fam==='__bad'){
     const list=STATE.bases.filter(b=>{
       if(fam==='__bad'&&!(b.path_ok===false||b.exe_ok===false)) return false;
       if(fam!=='__bad'&&fam!=='all'&&b.family!==fam) return false;
@@ -767,10 +797,6 @@ function render(){
       prune(tree['/']);
     }
     let h='';
-    h+=openBlock();
-    h+=recentBlock();
-    const favs=STATE.bases.filter(b=>b.fav&&(fam==='all'||b.family===fam));
-    if(favs.length){ h+=folderRow({path:'__fav',name:'Избранное',folders:[],bases:favs},0) }
     /* базы без папки (folder '/') — отдельной группой в самом низу дерева */
     let noFolder=tree['/'].bases;
     tree['/'].bases=[];
@@ -781,8 +807,9 @@ function render(){
                     virtual:true,count:noFolder.length},0);
     }
     $('rows').innerHTML=h;
-    shown=countBases(tree['/'])+favs.length+noFolder.length;
+    shown=countBases(tree['/'])+noFolder.length;
   }
+  $('empty').textContent=(TAB!=='all'&&!searching&&fam!=='__bad')?(T.empty||'пусто'):'ничего не найдено';
   $('empty').style.display=shown?'none':'block';
   const cntToday=STATE.bases.filter(b=>b.launch_day==='today').length;
   const cntYest=STATE.bases.filter(b=>b.launch_day==='yesterday').length;
