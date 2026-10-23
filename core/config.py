@@ -189,6 +189,12 @@ def set_base(guid: str, patch: dict) -> dict:
             pwd = (s.get('pwd') or s.get('password') or '').strip()
             if pwd:
                 st['pwd'] = seal(pwd)
+            elif s.get('keep_pwd'):
+                # UI не показывает сохранённый пароль хранилища: не трогаем его,
+                # пока пользователь не ввёл новый (иначе каждое сохранение настроек стирало бы его)
+                old = (cur.get('storage') or {}).get('pwd')
+                if old:
+                    st['pwd'] = old
             cur['storage'] = st
         else:
             cur.pop('storage', None)

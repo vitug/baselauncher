@@ -1928,12 +1928,17 @@ async function openSettings(guid){
   $('s-folder-tree').style.display='none';
   $('s-user-ib').value=our.user||''; $('s-user-ib').placeholder='';
   $('s-user-cfg').value=our.user_cfg||'';
-  $('s-pass-ib').value=b.pwd||'';
-  $('s-pass-cfg').value=b.pwd_cfg||'';
+  $('s-pass-ib').value=''; $('s-pass-ib').dataset.keep=(b.pwd_set||b.pwd)?'1':''; $('s-pass-ib').dataset.dirty='';
+  $('s-pass-cfg').value=''; $('s-pass-cfg').dataset.keep=(b.pwd_cfg_set||b.pwd_cfg)?'1':''; $('s-pass-cfg').dataset.dirty='';
   $('s-users-box').style.display='none'; $('s-users-sel').innerHTML='';
   LAST_U='ib';                                    // по умолчанию выбор из COM — в поле Предприятия
+  // пароли наружу не приходят (плейнтекст не отдаётся): показываем «сохранён»,
+  // отправляем только если пользователь реально ввёл/изменил значение
   $('s-pass-ib').placeholder=b.pwd_note==='broken'
-    ? 'не расшифровался (конфиг с другой машины) — введите заново' : '';
+    ? 'не расшифровался (конфиг с другой машины) — введите заново'
+    :(b.pwd_set||b.pwd?'пароль сохранён — введите новый, чтобы сменить (очистите поле, чтобы убрать)':'');
+  $('s-pass-cfg').placeholder=(b.pwd_cfg_set||b.pwd_cfg)
+    ?'пароль сохранён — введите новый, чтобы сменить':'как в Предприятии';
   const sel=$('s-exe');
   const cur=b.exe?(b.exe.split('\\').filter(s=>/^\d+\.\d+\.\d+/.test(s))[0]||'…'):'';
   let opts=`<option value="">Авто — по умолчанию${b.exe?' (сейчас: '+cur+')':''}</option>`;
@@ -1966,11 +1971,17 @@ async function openSettings(guid){
   $('s-dir').placeholder='путь к хранилищу (.1ccr)';
   $('s-user').value=(our.storage&&our.storage.user)||'';
   $('s-user').placeholder='';
-  $('s-pass').value=(b.storage&&b.storage.password)||'';
-  $('s-pass').placeholder='';
+  $('s-pass').value=''; $('s-pass').dataset.keep=(b.storage&&b.storage.pwd_set)?'1':''; $('s-pass').dataset.dirty='';
+  $('s-pass').placeholder=(b.storage&&b.storage.pwd_set)
+    ?'пароль сохранён — введите новый, чтобы сменить':'';
   $('ovl').classList.add('on');
 }
 function closeModal(){$('ovl').classList.remove('on');CUR=null}
+// любое нажатие в поле пароля снимает «не трогать» — тогда сохранение отправит значение
+['s-pass-ib','s-pass-cfg','s-pass'].forEach(id=>{
+  const el=$(id);
+  el.addEventListener('input',()=>{el.dataset.dirty='1'});
+});
 
 /* ── вход в базу: пользователи/пароли для Предприятия и Конфигуратора ── */
 let LAST_U='ib';                                  // поле, в которое подставится выбор из COM
@@ -1980,6 +1991,7 @@ function copyCred(from,to){                       // «заполнить из �
   if(!u&&!p){toast(from==='cfg'?'в полях Конфигуратора пусто — нечего копировать'
                                 :'в полях Предприятия пусто — нечего копировать');return}
   U(to).value=u; P(to).value=p;
+  U(to).dataset.dirty='1'; P(to).dataset.dirty='1';   // копирование = изменение: отправить при сохранении
   toast('скопировано: пользователь «'+(u||'—')+'»'+(p?' и пароль':''));
 }
 async function usersViaCom(btn){                  // список пользователей ИБ через COM
@@ -1987,8 +1999,9 @@ async function usersViaCom(btn){                  // список пользов
   if(btn){btn.disabled=true;btn.textContent='…'}
   toast('подключаюсь к базе через COM…',4000);
   try{
-    const r=await postJSON('/api/base/'+CUR+'/users',
-      {user:$('s-user-ib').value.trim(), pwd:$('s-pass-ib').value});
+    const q={user:$('s-user-ib').value.trim()};
+    if($('s-pass-ib').dataset.dirty) q.pwd=$('s-pass-ib').value;   // пусто и не трогали — сервер возьмёт сохранённый
+    const r=await postJSON('/api/base/'+CUR+'/users', q);
     if(!r.ok){
       toast('COM не подключился: '+(r.error||r.users_error||'неизвестная ошибка')
             +(r.hint?'\n'+r.hint:''),12000);return}
@@ -2021,10 +2034,16 @@ async function saveSettings(){
   if(nm===ibName)nm='';                 // имя не меняли — не засоряем конфиг
   if(ds===ibName)ds='';                 // описание-дубль имени — тоже
   const body={name:nm, descr:ds,
-    user:$('s-user-ib').value.trim(), pwd:$('s-pass-ib').value,
-    user_cfg:$('s-user-cfg').value.trim(), pwd_cfg:$('s-pass-cfg').value,
+    user:$('s-user-ib').value.trim(),
+    user_cfg:$('s-user-cfg').value.trim(),
     exe:$('s-exe').value, thin:$('s-thin').checked, mode:$('s-mode').value,
-    storage:{dir:$('s-dir').value.trim(),user:$('s-user').value.trim(),password:$('s-pass').value}};
+    storage:{dir:$('s-dir').value.trim(),user:$('s-user').value.trim()}};
+  // пароли: отправляем только если поле реально трогали (иначе сервер стирает сохранённый).
+  // Поле пустое + не трогали + пароль был → сохраняем прежний (keep_pwd / не отправляем ключ).
+  if($('s-pass-ib').dataset.dirty) body.pwd=$('s-pass-ib').value;
+  if($('s-pass-cfg').dataset.dirty) body.pwd_cfg=$('s-pass-cfg').value;
+  if($('s-pass').dataset.dirty) body.storage.password=$('s-pass').value;
+  else if($('s-pass').dataset.keep) body.storage.keep_pwd=true;
   const guid=CUR, was=$('ovl').dataset.folder||'/', now=$('s-folder').value||'/';
   const r=await fetch('/api/base/'+guid,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify(body)});
