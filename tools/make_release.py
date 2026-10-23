@@ -118,8 +118,12 @@ def build(no_zip: bool = False) -> Path:
             z.write(p, arcname=str(Path(pkg.name) / p.relative_to(pkg)))
     digest = hashlib.sha256(zip_path.read_bytes()).hexdigest()
     sums = DIST / 'SHA256SUMS.txt'
-    with sums.open('a', encoding='utf-8') as f:
-        f.write('%s  %s\n' % (digest, zip_path.name))
+    old = []
+    if sums.is_file():
+        old = [l for l in sums.read_text(encoding='utf-8').splitlines()
+               if l.strip() and not l.strip().endswith(zip_path.name)]
+    old.append('%s  %s' % (digest, zip_path.name))
+    sums.write_text('\n'.join(old) + '\n', encoding='utf-8')
     print('\nархив : %s (%.1f КБ)' % (zip_path, zip_path.stat().st_size / 1024))
     print('sha256: %s' % digest)
     return zip_path
