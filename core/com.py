@@ -131,6 +131,29 @@ def _conn_string(connect: str, user: str, pwd: str) -> str:
     return c + ';'
 
 
+_USERS_FALLBACK = ('Пользователи', 'ПользователиИБ', 'ПользователиБазы')
+
+
+def _users_tables(conn) -> tuple:
+    """Имена справочников-пользователей: сначала найденные в метаданных, затем типовые.
+
+    В разных конфигурациях (и в пустых базах) справочник может называться иначе или отсутствовать,
+    поэтому смотрим Metadata.Справочники и пробуем всё, что похоже на пользователей.
+    """
+    found = []
+    try:
+        for c in conn.Metadata.Справочники:
+            nm = str(getattr(c, 'Name', '') or '')
+            if 'пользовател' in nm.lower() and nm not in found:
+                found.append(nm)
+    except Exception:                                  # noqa: BLE001
+        pass
+    for nm in _USERS_FALLBACK:
+        if nm not in found:
+            found.append(nm)
+    return tuple(found)
+
+
 def probe(connect: str, user: str = '', pwd: str = '', exe: str = '',
           users_limit: int = 200, want_users: bool = True) -> dict:
     """Подключиться и собрать сведения о базе. Возвращает dict (ok/error/...)."""
@@ -177,20 +200,41 @@ def probe(connect: str, user: str = '', pwd: str = '', exe: str = '',
 
     if not want_users:
         return out
-    # пользователи ИБ (справочник есть не во всех конфигурациях)
-    try:
-        rows = _query(conn, 'ВЫБРАТЬ Пользователи.Наименование КАК Имя, '
-                            'Пользователи.ПометкаУдаления КАК Удалён, '
-                            'Пользователи.НедействительныйПароль КАК БезПароля '
-                            'ИЗ Справочник.Пользователи КАК Пользователи '
-                            'УПОРЯДОЧИТЬ ПО Имя',
-                      ['Имя', 'Удалён', 'БезПароля'])
-        out['users'] = rows[:users_limit]
-        out['users_count'] = len(rows)
-        out['users_active'] = sum(1 for r in rows if not r.get('Удалён'))
-    except Exception as e:                         # noqa: BLE001
-        out['users'] = []
-        out['users_error'] = str(e).splitlines()[0][:200]
+    # пользователи ИБ (справочник есть не во всех конфигурациях; имя может отличаться)
+    out['users'] = []
+    last_err = ''
+    out['users_tried'] = []
+    for table in _users_tables(conn):
+        out['users_tried'].append(table)
+        try:
+            rows = _query(conn, 'ВЫБРАТЬ Пользователи.Наименование КАК Имя, '
+                                'Пользователи.ПометкаУдаления КАК Удалён, '
+                                'Пользователи.НедействительныйПароль КАК БезПароля '
+                                'ИЗ Справочник.%s КАК Пользователи '
+                                'УПОРЯДОЧИТЬ ПО Имя' % table,
+                          ['Имя', 'Удалён', 'БезПароля'])
+            out['users'] = rows[:users_limit]
+            out['users_count'] = len(rows)
+            out['users_active'] = sum(1 for r in rows if not r.get('Удалён'))
+            out['users_table'] = 'Справочник.' + table
+            last_err = ''
+            break
+        except Exception as e:                     # noqa: BLE001
+            last_err = str(e).splitlines()[0][:200]
+            # нет такого справочника / нет полей (ПометкаУдаления, НедействительныйПароль) — пробуем проще
+            try:
+                rows = _query(conn, 'ВЫБРАТЬ Пользователи.Наименование КАК Имя '
+                                    'ИЗ Справочник.%s КАК Пользователи УПОРЯДОЧИТЬ ПО Имя' % table,
+                              ['Имя'])
+                out['users'] = rows[:users_limit]
+                out['users_count'] = len(rows)
+                out['users_table'] = 'Справочник.' + table
+                last_err = ''
+                break
+            except Exception as e2:                 # noqa: BLE001
+                last_err = str(e2).splitlines()[0][:200]
+    if last_err:
+        out['users_error'] = last_err
     # общие счётчики (заодно проверка «живости» соединения)
     try:
         cnt = _query(conn, 'ВЫБРАТЬ КОЛИЧЕСТВО(*) КАК Всего ИЗ Справочник.Пользователи', ['Всего'])

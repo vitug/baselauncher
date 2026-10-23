@@ -89,6 +89,7 @@ def _full(b: dict) -> dict:
         'exe_ok': b.get('exe_ok'), 'exe_src': b.get('exe_src') or '',
         'thin': bool(b.get('thin')),
         'user': b.get('user') or '',
+        'user_cfg': b.get('user_cfg') or '',
         'pwd_set': bool(b.get('pwd')), 'pwd_cfg_set': bool(b.get('pwd_cfg')),
         'pwd_note': b.get('pwd_note') or '',
         'settled_in_config': bool(b.get('our')),
@@ -525,6 +526,8 @@ def t_set_credentials(a: dict) -> dict:
     patch = {}
     if 'user' in a:
         patch['user'] = str(a.get('user') or '').strip()
+    if 'user_cfg' in a:
+        patch['user_cfg'] = str(a.get('user_cfg') or '').strip()
     for k, fld in (('pwd', 'pwd'), ('password', 'pwd'), ('pwd_cfg', 'pwd_cfg')):
         if k in a and fld not in patch:
             patch[fld] = str(a.get(k) or '')
@@ -534,7 +537,27 @@ def t_set_credentials(a: dict) -> dict:
     st = _state()
     b = importer.find_base(st, b['guid']) or b
     return _text({'ok': True, 'base': b['name'], 'user': b.get('user') or '',
+                  'user_cfg': b.get('user_cfg') or '',
                   'pwd_set': bool(b.get('pwd_set')), 'pwd_cfg_set': bool(b.get('pwd_cfg_set'))})
+
+
+def t_base_users(a: dict) -> dict:
+    """Список пользователей ИБ через COM — чтобы выбрать логин для базы."""
+    from core import com
+    st = _state()
+    b = _resolve(st, str(a.get('base') or ''))
+    user = str(a.get('user') or b.get('user') or '').strip()
+    pwd = a.get('pwd')
+    if pwd is None:
+        pwd = b.get('pwd') or ''
+    res = com.probe_async(b.get('connect') or '', user, str(pwd), b.get('exe') or '',
+                          float(a.get('timeout') or 90), want_users=True)
+    names = [str(r.get('Имя') or '').strip() for r in (res.get('users') or [])]
+    return _text({'ok': bool(res.get('ok')), 'base': b['name'], 'users': [n for n in names if n],
+                  'users_count': res.get('users_count'), 'platform': res.get('com_platform') or '',
+                  'users_table': res.get('users_table') or '',
+                  'error': res.get('error') or '', 'hint': res.get('hint') or '',
+                  'users_error': res.get('users_error') or ''})
 
 
 def t_platforms(_a: dict) -> dict:
@@ -658,11 +681,18 @@ TOOLS = [
       'user': {'type': 'string'}, 'pwd': {'type': 'string'},
       'clear': {'type': 'boolean'}}, t_set_storage),
     ('set_credentials', 'Задать пользователя и пароль базы 1С (/N /P и COM-подключение). '
-     'Пустая строка стирает сохранённое значение.',
+     'Пустая строка стирает сохранённое значение. Для Конфигуратора можно задать свой логин '
+     '(user_cfg) и пароль (pwd_cfg); пустой user_cfg = как для Предприятия.',
      {'base': {'type': 'string'}, 'user': {'type': 'string'},
+      'user_cfg': {'type': 'string', 'description': 'пользователь Конфигуратора (необязательно)'},
       'pwd': {'type': 'string', 'description': 'пароль Предприятия'},
       'pwd_cfg': {'type': 'string', 'description': 'пароль Конфигуратора (если отличается)'}},
      t_set_credentials),
+    ('base_users', 'Список пользователей ИБ через COM-подключение (справочник Пользователи) — '
+     'чтобы выбрать логин и записать его через set_credentials. Нужны логин/пароль пользователя, '
+     'у которого есть права на чтение справочника.',
+     {'base': {'type': 'string'}, 'user': {'type': 'string'}, 'pwd': {'type': 'string'},
+      'timeout': {'type': 'number'}}, t_base_users),
     ('base_cache', 'Кэш клиента 1С для одной базы: what=info (размеры), user (кэш текущего '
      'пользователя Windows: %LOCALAPPDATA%/1C/1cv8/<guid> + %APPDATA%/1C/1cv8/<guid>), '
      'program (общий для всех пользователей ПК: %PROGRAMDATA%/1C/1cv8/<guid>), both. '

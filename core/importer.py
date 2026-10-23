@@ -129,6 +129,7 @@ def build_state() -> dict:
             ibname=name,
             descr=str(our.get('descr') or ''),
             user=str(our.get('user') or ''),
+            user_cfg=str(our.get('user_cfg') or ''),
             pwd=pwd,
             pwd_cfg=pwd_cfg, pwd_note=pwd_note,
             folder=keys.get('Folder', '/'),
