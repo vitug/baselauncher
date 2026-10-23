@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from core import (cache, com, config, dbtools, hotkey, importer, launcher, netcheck, platforms_share,
                   procs, tray, v8i_writer, watch)
 
-app = FastAPI(title='BaseLauncher', version='0.32.2')
+app = FastAPI(title='BaseLauncher', version='0.32.3')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
