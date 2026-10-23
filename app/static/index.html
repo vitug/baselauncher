@@ -21,7 +21,7 @@ header{position:sticky;top:0;z-index:5;display:flex;gap:10px;align-items:center;
 header h1{font-size:15px;margin:0 8px 0 0;font-weight:600}
 header h1 #h-ver{color:var(--muted);font-weight:400;font-size:12px}
 header .sub{color:var(--muted);font-size:12px;margin-right:auto}
-#search{flex:0 1 280px;padding:7px 10px;border-radius:7px;border:1px solid var(--border);
+#search{padding:7px 10px;border-radius:7px;border:1px solid var(--border);
   background:var(--bg);color:var(--fg);outline:none}
 #search:focus{border-color:var(--blue)}
 .mode{display:flex;border:1px solid var(--border);border-radius:7px;overflow:hidden}
@@ -45,11 +45,12 @@ header .sub{color:var(--muted);font-size:12px;margin-right:auto}
   background:var(--bg);color:var(--fg);font-size:12.5px}
 #adhoc .hint{color:var(--muted);font-size:11px}
 /* вкладки-закладки: Открытые / Недавние / Избранное (вместо блоков в дереве) */
-#tabs{display:flex;gap:8px;align-items:center;padding:10px 14px 8px;overflow-x:auto;
-  white-space:nowrap;scrollbar-width:thin;
-  /* прилипают под шапкой (и под панелью «разовые ключи», если она раскрыта) */
-  position:sticky;top:var(--stick-top,0px);z-index:4;
-  background:var(--bg);border-bottom:1px solid var(--border)}
+/* закладки + поиск: одна строка (поиск справа от закладок), прилипает под шапкой */
+#stick{position:sticky;top:var(--stick-top,0px);z-index:4;display:flex;align-items:center;gap:10px;
+  padding:10px 14px 9px;background:var(--bg);border-bottom:1px solid var(--border)}
+#tabs{display:flex;gap:8px;align-items:center;overflow-x:auto;white-space:nowrap;
+  scrollbar-width:thin;flex:1 1 auto;min-width:0}
+#search{flex:0 0 270px;margin-left:auto}
 #tabs .tb{padding:6px 14px;border-radius:999px;border:1px solid var(--border);
   background:var(--panel);color:var(--muted);cursor:pointer;font-size:12.5px;
   font-family:inherit;display:inline-flex;align-items:center;gap:6px;
@@ -245,6 +246,8 @@ body{padding-bottom:46px}
   background:var(--bg);color:var(--fg);font-size:13px}
 #modal input:focus,#modal select:focus{border-color:var(--blue)}
 #modal .row2{display:flex;gap:10px} #modal .row2>div{flex:1}
+#modal .fw{display:flex;gap:6px;align-items:center} #modal .fw input{flex:1;min-width:0}
+#modal .fw .add{flex:0 0 auto;padding:6px 9px}
 #modal .chk{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:var(--fg)}
 .ksec{margin-top:14px;font-size:12px;color:var(--muted);
   border-top:1px solid var(--border);padding-top:10px;font-weight:600}
@@ -282,6 +285,7 @@ body{padding-bottom:46px}
   td.name{max-width:58vw;white-space:normal}
   td.act{white-space:normal;text-align:right}
   .mode button{padding:5px 8px;font-size:12px}
+  #stick{flex-wrap:wrap}                /* на узком окне поиск уезжает под закладки */
   #search{flex:1 1 100%;order:9}
 }
 @media (max-width:520px){
@@ -307,7 +311,6 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <button id="b-tray" class="add" onclick="toTray()"
     title="убрать окно в трей (сервер работает, вернуть — Ctrl+Shift+S или клик по иконке в трее)">⌄ в трей</button>
   <div id="chips"></div>
-  <input id="search" placeholder="поиск: имя, путь, сервер…" autofocus>
   <button id="b-clear-filter" class="add" onclick="clearFilter()" style="display:none"
     title="сбросить фильтр: очистить поиск и вернуть «Все» (Esc)">✕ фильтр</button>
 </header>
@@ -331,7 +334,10 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   </span>
   <span class="hint">действуют только на следующий запуск, в настройках базы не сохраняются</span>
 </div>
-<div id="tabs"></div>
+<div id="stick">
+  <div id="tabs"></div>
+  <input id="search" placeholder="поиск: имя, путь, сервер… (Ctrl+F)" autofocus>
+</div>
 <main ondragover="rootDragOver(event)" ondrop="rootDrop(event)"><table><tbody id="rows"></tbody></table>
 <div class="empty" id="empty" style="display:none">ничего не найдено</div></main>
 
@@ -396,13 +402,31 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <label>Описание <span class="hint">свободный текст для себя</span></label>
   <input type="text" id="s-descr">
 
+  <div class="ksec">Вход в базу</div>
   <div class="row2">
-    <div><label>Пользователь ИБ (/N)</label><input type="text" id="s-user-ib"></div>
-    <div><label>Пароль ИБ (/P)</label><input type="password" id="s-pass-ib"></div>
+    <div><label>Предприятие — пользователь (/N)</label>
+      <div class="fw"><input type="text" id="s-user-ib" onfocus="LAST_U='ib'">
+        <button type="button" class="add" onclick="usersViaCom(this)"
+          title="получить список пользователей ИБ через COM-подключение">COM</button></div></div>
+    <div><label>Предприятие — пароль (/P)</label><input type="password" id="s-pass-ib"></div>
+  </div>
+  <div class="row2">
+    <div><label>Конфигуратор — пользователь (/N)</label>
+      <div class="fw"><input type="text" id="s-user-cfg" onfocus="LAST_U='cfg'" placeholder="как в Предприятии">
+        <button type="button" class="add" onclick="copyCred('ib','cfg')"
+          title="скопировать пользователя и пароль из Предприятия">←</button></div></div>
+    <div><label>Конфигуратор — пароль (/P)</label>
+      <div class="fw"><input type="password" id="s-pass-cfg" placeholder="как в Предприятии">
+        <button type="button" class="add" onclick="copyCred('cfg','ib')"
+          title="скопировать пользователя и пароль в Предприятие">→</button></div></div>
+  </div>
+  <div id="s-users-box" style="display:none">
+    <label>Пользователи из базы (COM) <span class="hint">выбор подставится в поле, которое выбрано последним</span></label>
+    <select id="s-users-sel" onchange="applyUserPick(this.value)"></select>
   </div>
   <div class="hint">Хранится в своём конфиге data/config.json не открытым текстом
     (обфускация «от дурака»). Пароль показывается расшифрованным — поменяйте поле и сохраните.
-    Пустое поле = входить без пароля.</div>
+    Пустое поле = входить без пароля. Пустой пользователь Конфигуратора = как в Предприятии.</div>
 
   <div class="ksec">Расположение в дереве</div>
   <label>Папка (родитель) — при сохранении база переносится в ibases.v8i</label>
@@ -1534,7 +1558,11 @@ async function openSettings(guid){
   setParent(b.folder||'/','s');
   $('s-folder-tree').style.display='none';
   $('s-user-ib').value=our.user||''; $('s-user-ib').placeholder='';
-  $('s-pass-ib').value=b.pwd||b.pwd_cfg||'';
+  $('s-user-cfg').value=our.user_cfg||'';
+  $('s-pass-ib').value=b.pwd||'';
+  $('s-pass-cfg').value=b.pwd_cfg||'';
+  $('s-users-box').style.display='none'; $('s-users-sel').innerHTML='';
+  LAST_U='ib';                                    // по умолчанию выбор из COM — в поле Предприятия
   $('s-pass-ib').placeholder=b.pwd_note==='broken'
     ? 'не расшифровался (конфиг с другой машины) — введите заново' : '';
   const sel=$('s-exe');
@@ -1574,6 +1602,42 @@ async function openSettings(guid){
   $('ovl').classList.add('on');
 }
 function closeModal(){$('ovl').classList.remove('on');CUR=null}
+
+/* ── вход в базу: пользователи/пароли для Предприятия и Конфигуратора ── */
+let LAST_U='ib';                                  // поле, в которое подставится выбор из COM
+function copyCred(from,to){                       // «заполнить из другого заполненного поля»
+  const U=p=>p==='cfg'?$('s-user-cfg'):$('s-user-ib'), P=p=>p==='cfg'?$('s-pass-cfg'):$('s-pass-ib');
+  const u=U(from).value, p=P(from).value;
+  if(!u&&!p){toast(from==='cfg'?'в полях Конфигуратора пусто — нечего копировать'
+                                :'в полях Предприятия пусто — нечего копировать');return}
+  U(to).value=u; P(to).value=p;
+  toast('скопировано: пользователь «'+(u||'—')+'»'+(p?' и пароль':''));
+}
+async function usersViaCom(btn){                  // список пользователей ИБ через COM
+  if(!CUR)return;
+  if(btn){btn.disabled=true;btn.textContent='…'}
+  toast('подключаюсь к базе через COM…',4000);
+  try{
+    const r=await postJSON('/api/base/'+CUR+'/users',
+      {user:$('s-user-ib').value.trim(), pwd:$('s-pass-ib').value});
+    if(!r.ok){
+      toast('COM не подключился: '+(r.error||r.users_error||'неизвестная ошибка')
+            +(r.hint?'\n'+r.hint:''),12000);return}
+    const us=r.users||[];
+    if(!us.length){toast('подключился, но список пользователей пуст'+(r.users_error?'\n'+r.users_error:''),9000);return}
+    $('s-users-sel').innerHTML='<option value="">— выберите пользователя ('+us.length+') —</option>'
+      +us.map(u=>`<option value="${esc(u)}">${esc(u)}</option>`).join('');
+    $('s-users-box').style.display='';
+    toast('из базы получено пользователей: '+us.length+' · подставится в поле '
+          +(LAST_U==='cfg'?'Конфигуратора':'Предприятия'),7000);
+  }catch(e){toast('ошибка запроса: '+e,9000)}
+  finally{if(btn){btn.disabled=false;btn.textContent='COM'}}
+}
+function applyUserPick(v){
+  if(!v)return;
+  $(LAST_U==='cfg'?'s-user-cfg':'s-user-ib').value=v;
+  toast('пользователь: '+v);
+}
 async function saveSettings(){
   if(!CUR)return;
   const b=(STATE.bases||[]).find(x=>x.guid===CUR)||{};
@@ -1583,6 +1647,7 @@ async function saveSettings(){
   if(ds===ibName)ds='';                 // описание-дубль имени — тоже
   const body={name:nm, descr:ds,
     user:$('s-user-ib').value.trim(), pwd:$('s-pass-ib').value,
+    user_cfg:$('s-user-cfg').value.trim(), pwd_cfg:$('s-pass-cfg').value,
     exe:$('s-exe').value, thin:$('s-thin').checked, mode:$('s-mode').value,
     storage:{dir:$('s-dir').value.trim(),user:$('s-user').value.trim(),password:$('s-pass').value}};
   const guid=CUR, was=$('ovl').dataset.folder||'/', now=$('s-folder').value||'/';
@@ -1782,6 +1847,9 @@ document.addEventListener('keydown',e=>{
   if(e.ctrlKey&&e.shiftKey&&(e.code==='KeyS'||String(e.key).toLowerCase()==='s'
      ||String(e.key).toLowerCase()==='ы')){
     e.preventDefault(); if(!HK_OK) trayToggle(); return}
+  // Ctrl+F — курсор в поле поиска (оно теперь под закладками)
+  if(e.ctrlKey&&!e.shiftKey&&!e.altKey&&String(e.key).toLowerCase()==='f'){
+    e.preventDefault(); const q=$('search'); q.focus(); q.select(); return}
   // Ctrl+1…4 — закладки: Все / Избранное / Открытые / Недавние (в порядке полоски)
   if(e.ctrlKey&&!e.shiftKey&&!e.altKey){
     const d=(String(e.code||'').match(/^Digit([1-9])$/)||[])[1]||(String(e.key||'').match(/^([1-9])$/)?String(e.key):'');

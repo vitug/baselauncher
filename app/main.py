@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from core import (cache, com, config, hotkey, importer, launcher, netcheck, platforms_share,
                   procs, tray, v8i_writer, watch)
 
-app = FastAPI(title='BaseLauncher', version='0.26.1')
+app = FastAPI(title='BaseLauncher', version='0.28.0')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -221,7 +221,12 @@ def _build_cmd_from_body(body: dict, base: dict):
     storage = body.get('storage')
     if storage is None:
         storage = base.get('storage') or {}
-    user = body.get('user') or base.get('user') or ''
+    # пользователь: у Конфигуратора может быть свой логин; пусто — берём общий
+    if mode == 'designer':
+        user = (body.get('user_cfg') or base.get('user_cfg')     # свой для Конфигуратора
+                or body.get('user') or base.get('user') or '')
+    else:
+        user = body.get('user') or base.get('user') or ''
     # пароль: из запроса -> свой для режима -> свой для другого режима (config.json, sealed)
     pwd = (body.get('pwd') or '').strip()
     if not pwd:
@@ -667,6 +672,34 @@ async def base_detect(guid: str, req: Request):
         pass
     res = detect_platform(base, pin=bool(body.get('pin', True)))
     return {**res, 'base': importer.find_base(importer.build_state(), base['guid']) or base}
+
+
+@app.post('/api/base/{guid}/users')
+async def base_users(guid: str, req: Request):
+    """Список пользователей ИБ через COM (как обновлятор): для выбора логина в настройках.
+
+    Тело: {user, pwd} — чем подключаться (по умолчанию из настроек базы).
+    Возвращает {ok, users:[{Имя, Удалён, БезПароля}], users_count, error, hint}.
+    """
+    _, base = _base_or_404(guid)
+    if not base:
+        return JSONResponse({'error': 'база не найдена'}, status_code=404)
+    body = {}
+    try:
+        body = await req.json()
+    except Exception:                       # noqa: BLE001
+        pass
+    user = (body.get('user') or base.get('user') or '').strip()
+    pwd = body.get('pwd')
+    if pwd is None:
+        pwd = base.get('pwd') or ''
+    res = com.probe_async(base.get('connect') or '', user, pwd, base.get('exe') or '', 90, want_users=True)
+    names = [str(r.get('Имя') or '').strip() for r in (res.get('users') or [])]
+    return {'ok': bool(res.get('ok')), 'users': [n for n in names if n],
+            'users_count': res.get('users_count'), 'platform': res.get('com_platform') or '',
+            'users_table': res.get('users_table') or '', 'users_tried': res.get('users_tried') or [],
+            'error': res.get('error') or '', 'hint': res.get('hint') or '',
+            'users_error': res.get('users_error') or ''}
 
 
 @app.post('/api/base/{guid}/cominfo')

@@ -135,7 +135,7 @@ def get_base(cfg: dict, guid: str) -> dict:
     return (cfg.get('bases') or {}).get((guid or '').lower(), {})
 
 
-_FIELDS = ('name', 'descr', 'user', 'exe', 'mode', 'extra_keys', 'family', 'learnt')
+_FIELDS = ('name', 'descr', 'user', 'user_cfg', 'exe', 'mode', 'extra_keys', 'family', 'learnt')
 
 
 def set_base(guid: str, patch: dict) -> dict:
