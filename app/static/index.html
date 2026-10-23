@@ -129,7 +129,7 @@ tr.folder .grp:hover{border-color:var(--blue)}
 tr.folder .grp.add-folder{border-style:dashed;color:var(--muted)}
 tr.folder .grp.add-folder:hover{color:var(--fg)}
 tr.base.flash td{animation:fl 1.6s}
-tr.base.sel td{background:rgba(80,140,255,.18)}
+tr.base.sel td{background:rgba(80,140,255,.18)!important}
 tr.base.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 @keyframes fl{0%{background:#2d4a2f}100%{background:transparent}}
 td{padding:6px 10px;border-bottom:1px solid var(--border);vertical-align:top}
@@ -159,8 +159,9 @@ td.act{width:1%;white-space:nowrap;text-align:right}
 .dot.yesterday{background:var(--amber)}
 .rc{font-size:12px;line-height:1;color:var(--blue);margin-right:6px}
 .rc.yesterday{color:var(--amber)}
-tr.base.today td{background:rgba(90,200,140,.09)}
-tr.base.yesterday td{background:rgba(230,180,70,.07)}
+/* зелёная/жёлтая заливка «сегодня/вчера» убрана: она перебивала подсветку выбранной строки.
+   Дата запуска остаётся видна по значку ◷ и бейджу с временем в колонке платформы. */
+tr.base.today td,tr.base.yesterday td{background:transparent}
 .tag{font-size:10.5px;padding:1px 6px;border-radius:9px;border:1px solid var(--border);
   color:var(--muted);white-space:nowrap;margin-left:4px}
 .tag.today{border-color:var(--green);color:var(--green)}
