@@ -240,6 +240,11 @@ def _build_cmd(b: dict, a: dict):
     """Собрать команду. Логика повторяет REST-слой (exe по режиму, пароль из конфига)."""
     mode = a.get('mode') or 'enterprise'
     extra = a.get('extra_keys') or []
+    if a.get('platform') and not a.get('exe'):      # разовый запуск конкретной версией платформы
+        a = dict(a)
+        a['exe'] = _platform_exe(_state(), a['platform'], mode)
+        if not a['exe']:
+            raise ValueError('платформа %r не найдена' % a['platform'])
     storage = a.get('storage') if a.get('storage') is not None else (b.get('storage') or {})
     user = a.get('user') or b.get('user') or ''
     pwd = (a.get('pwd') or '').strip()
@@ -366,6 +371,133 @@ def t_activate(a: dict) -> dict:
                   'pid': int(pid), 'result': res})
 
 
+def _platform_exe(st: dict, spec: str, mode: str = 'enterprise') -> str:
+    """Найти exe платформы по описанию: полный путь, версия (8.3.25.1336 / 8.3.25) или семейство."""
+    spec = (spec or '').strip()
+    if not spec:
+        return ''
+    if (':' in spec or spec.startswith('\\\\')) and Path(spec).is_file():
+        return spec
+    plats = st.get('platforms') or []
+    want_designer = (mode or '').lower() in ('designer', 'config', 'configurator')
+    cand = []
+    for p in plats:
+        if p.get('key') == spec or (p.get('key') or '').startswith(spec.rstrip('.') ):
+            cand.append(p)
+        elif spec in ('8.3', '8.5') and p.get('family') == spec:
+            cand.append(p)
+    for p in cand:                       # сначала те, где есть толстый клиент (конфигуратор)
+        exe = p.get('exe') or ('' if want_designer else p.get('exe_thin')) or ''
+        if exe and Path(exe).is_file():
+            return exe
+    return ''
+
+
+def t_set_platform(a: dict) -> dict:
+    """Закрепить платформу за базой (или вернуть «авто»)."""
+    st = _state()
+    b = _resolve(st, str(a.get('base') or ''))
+    spec = str(a.get('platform') or a.get('version') or a.get('exe') or '').strip()
+    if bool(a.get('auto')) or spec.lower() in ('', 'auto', 'авто'):
+        config.set_base(b['guid'], {'exe': '', 'family': '', 'learnt': ''})
+        st = _state()
+        b = importer.find_base(st, b['guid']) or b
+        return _text({'ok': True, 'base': b['name'], 'exe': b.get('exe') or '',
+                      'exe_src': b.get('exe_src'), 'note': 'платформа снова подбирается автоматически'})
+    mode = a.get('mode') or b.get('mode') or 'enterprise'
+    exe = _platform_exe(st, spec, mode)
+    if not exe:
+        have = sorted({p.get('key') or '' for p in (st.get('platforms') or [])})
+        return _err('платформа %r не найдена. Установлены: %s' % (spec, ', '.join(have)))
+    config.set_base(b['guid'], {'exe': exe, 'family': ''})
+    st = _state()
+    b = importer.find_base(st, b['guid']) or b
+    return _text({'ok': True, 'base': b['name'], 'exe': exe, 'exe_src': 'our',
+                  'has_designer': bool(b.get('has_designer')),
+                  'note': 'закреплено за базой: дальше запускается этой платформой'})
+
+
+def t_detect_platform(a: dict) -> dict:
+    """Версия сервера 1С через COM (как обновлятор) + закрепление её платформы за базой."""
+    from app.main import detect_platform
+    st = _state()
+    b = _resolve(st, str(a.get('base') or ''))
+    res = detect_platform(b, pin=bool(a.get('pin', True)))
+    if res.get('server_version'):
+        res['host'] = b.get('server') or b.get('where') or ''
+    return _text({k: v for k, v in res.items() if k != 'base'} | {'base': b['name']})
+
+
+def t_cominfo(a: dict) -> dict:
+    """Сведения из базы по COM: конфигурация, режим совместимости, пользователи ИБ."""
+    from core import com
+    st = _state()
+    b = _resolve(st, str(a.get('base') or ''))
+    user = str(a.get('user') or b.get('user') or '').strip()
+    pwd = a.get('pwd')
+    if pwd is None:
+        pwd = b.get('pwd') or ''
+    res = com.probe_async(b.get('connect') or '', user, str(pwd), b.get('exe') or '',
+                          float(a.get('timeout') or 90))
+    if a.get('save') and (a.get('user') is not None or a.get('pwd') is not None):
+        patch = {}
+        if a.get('user') is not None:
+            patch['user'] = user
+        if a.get('pwd') is not None:
+            patch['pwd'] = str(a.get('pwd') or '')
+        config.set_base(b['guid'], patch)
+        res['saved'] = True
+    res['base'] = b['name']
+    return _text(res)
+
+
+def t_set_storage(a: dict) -> dict:
+    """Задать/снять хранилище конфигурации у базы (ключи конфигуратора)."""
+    st = _state()
+    b = _resolve(st, str(a.get('base') or ''))
+    d = str(a.get('dir') or a.get('storage') or '').strip()
+    cfg = config.load()
+    cur = (config.get_base(cfg, b['guid']).get('storage') or {})
+    if not d or bool(a.get('clear')):
+        config.set_base(b['guid'], {'storage': {}})
+        st = _state()
+        b = importer.find_base(st, b['guid']) or b
+        return _text({'ok': True, 'base': b['name'], 'storage': None,
+                      'note': 'хранилище снято'})
+    user = a['user'] if 'user' in a else cur.get('user', '')
+    if 'pwd' in a or 'password' in a:
+        pwd = str(a.get('pwd') or a.get('password') or '').strip()
+    else:                                   # не передали — сохранить прежний пароль
+        pwd = config.unseal(cur.get('pwd') or '') if cur.get('pwd') else ''
+    config.set_base(b['guid'], {'storage': {'dir': d, 'user': user, 'pwd': pwd}})
+    st = _state()
+    b = importer.find_base(st, b['guid']) or b
+    s = b.get('storage') or {}
+    return _text({'ok': True, 'base': b['name'],
+                  'storage': {'dir': s.get('dir'), 'user': s.get('user'),
+                              'pwd_set': bool(s.get('pwd'))},
+                  'note': 'подставляется в конфигуратор: /ConfigurationRepositoryF/-N/-P'})
+
+
+def t_set_credentials(a: dict) -> dict:
+    """Задать пользователя/пароль базы (для входа и для COM-подключения)."""
+    st = _state()
+    b = _resolve(st, str(a.get('base') or ''))
+    patch = {}
+    if 'user' in a:
+        patch['user'] = str(a.get('user') or '').strip()
+    for k, fld in (('pwd', 'pwd'), ('password', 'pwd'), ('pwd_cfg', 'pwd_cfg')):
+        if k in a and fld not in patch:
+            patch[fld] = str(a.get(k) or '')
+    if not patch:
+        return _err('передайте user и/или pwd (пустая строка — стереть)')
+    config.set_base(b['guid'], patch)
+    st = _state()
+    b = importer.find_base(st, b['guid']) or b
+    return _text({'ok': True, 'base': b['name'], 'user': b.get('user') or '',
+                  'pwd_set': bool(b.get('pwd_set')), 'pwd_cfg_set': bool(b.get('pwd_cfg_set'))})
+
+
 def t_platforms(_a: dict) -> dict:
     st = _state()
     fams = (st.get('defaults') or {}).get('families') or {}
@@ -436,6 +568,7 @@ TOOLS = [
      {'base': {'type': 'string'}}, t_delete_base),
     ('dryrun', 'Показать команду запуска, ничего не запуская (пароли в выводе скрыты).',
      {'base': {'type': 'string'}, 'mode': {'type': 'string', 'enum': ['enterprise', 'designer']},
+      'platform': {'type': 'string', 'description': 'разово: версия/семейство/путь к exe'},
       'extra_keys': {'type': 'array', 'items': {'type': 'string'}}}, t_dryrun),
     ('launch_base', 'Запустить базу 1С (по умолчанию Предприятие). Если этот режим уже открыт — '
      'вернёт already_running с PID; force=true откроет второй сеанс. Через ~3 с окно базы '
@@ -443,6 +576,7 @@ TOOLS = [
      {'base': {'type': 'string'},
       'mode': {'type': 'string', 'enum': ['enterprise', 'designer']},
       'force': {'type': 'boolean'},
+      'platform': {'type': 'string', 'description': 'разово запустить этой платформой (версия или путь)'},
       'extra_keys': {'type': 'array', 'items': {'type': 'string'},
                      'description': 'разовые ключи: /Debug, /C ..., /Execute "..."'},
       'user': {'type': 'string'}, 'pwd': {'type': 'string'}}, t_launch),
@@ -459,6 +593,37 @@ TOOLS = [
      'mode — если база открыта в двух режимах.',
      {'base': {'type': 'string'}, 'pid': {'type': 'integer'},
       'mode': {'type': 'string', 'enum': ['enterprise', 'designer']}}, t_activate),
+    ('set_platform', 'Закрепить платформу за базой (как выбор платформы в SM): '
+     'platform = версия ("8.3.25.1336", "8.3.25"), семейство ("8.5") или полный путь к exe; '
+     'auto=true — вернуть автоматический подбор. Дальше база всегда запускается этой платформой.',
+     {'base': {'type': 'string'},
+      'platform': {'type': 'string', 'description': 'версия, семейство или путь к 1cv8.exe'},
+      'auto': {'type': 'boolean'},
+      'mode': {'type': 'string', 'enum': ['enterprise', 'designer'],
+               'description': 'для какого режима важнее (designer требует толстый клиент)'}},
+     t_set_platform),
+    ('detect_platform', 'Узнать версию сервера 1С по COM-подключению (как обновлятор, без окна) '
+     'и закрепить за базой платформу этой версии. Работает и когда версии не совпали: 1С в тексте '
+     'ошибки отдаёт версию сервера. pin=false — только показать, не закреплять.',
+     {'base': {'type': 'string'}, 'pin': {'type': 'boolean'}}, t_detect_platform),
+    ('base_cominfo', 'Подключиться к базе по COM (comcntr.dll, как обновлятор) и получить: имя и '
+     'версию конфигурации, режим совместимости, пользователей ИБ (всего/активных, список), '
+     'текст ошибки подключения. Нужны логин/пароль пользователя ИБ (можно save=true — сохранить).',
+     {'base': {'type': 'string'}, 'user': {'type': 'string'}, 'pwd': {'type': 'string'},
+      'save': {'type': 'boolean'}, 'timeout': {'type': 'number'}}, t_cominfo),
+    ('set_storage', 'Задать хранилище конфигурации у базы (ключи конфигуратора '
+     '/ConfigurationRepositoryF/-N/-P): dir вида tcp://host:2543/имя_хранилища или \\\\сервер\\папка, '
+     'user, pwd (пустая строка — без пароля). clear=true — снять хранилище. '
+     'Если pwd не передан, сохраняется прежний.',
+     {'base': {'type': 'string'}, 'dir': {'type': 'string'},
+      'user': {'type': 'string'}, 'pwd': {'type': 'string'},
+      'clear': {'type': 'boolean'}}, t_set_storage),
+    ('set_credentials', 'Задать пользователя и пароль базы 1С (/N /P и COM-подключение). '
+     'Пустая строка стирает сохранённое значение.',
+     {'base': {'type': 'string'}, 'user': {'type': 'string'},
+      'pwd': {'type': 'string', 'description': 'пароль Предприятия'},
+      'pwd_cfg': {'type': 'string', 'description': 'пароль Конфигуратора (если отличается)'}},
+     t_set_credentials),
     ('list_platforms', 'Установленные платформы 1С: версия, семейство 8.3/8.5, разрядность, '
      'exe и exe тонкого клиента, есть ли конфигуратор, какая платформа по умолчанию для семейства.',
      {}, t_platforms),
