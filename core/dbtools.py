@@ -184,12 +184,12 @@ def list_dir(path: str, exts=('.dt',), limit: int = 400) -> dict:
                 dirs.append({'name': e.name, 'path': str(e)})
             elif e.suffix.lower() in exts:
                 try:
-                    size = e.stat().st_size
+                    st = e.stat()          # один stat: файл мог исчезнуть между вызовами
                 except OSError:
-                    size = 0
-                files.append({'name': e.name, 'path': str(e), 'size': size,
+                    continue
+                files.append({'name': e.name, 'path': str(e), 'size': st.st_size,
                               'mtime': datetime.datetime.fromtimestamp(
-                                  e.stat().st_mtime).strftime('%d.%m.%Y %H:%M')})
+                                  st.st_mtime).strftime('%d.%m.%Y %H:%M')})
     except PermissionError:
         return {'error': 'нет доступа к %s' % p}
     up = str(p.parent) if str(p.parent) != str(p) else ''
