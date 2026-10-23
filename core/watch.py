@@ -69,6 +69,18 @@ def _drop(ev_id: str) -> bool:
 
 def _alive(pid: int) -> bool:
     """Процесс жив? (tasklist через subprocess — без psutil)."""
+    return _pid_alive(pid)
+
+
+def _unlink(p: Path) -> None:
+    """Тихо удалить служебный снимок-пробу."""
+    try:
+        Path(p).unlink(missing_ok=True)
+    except Exception:                   # noqa: BLE001
+        pass
+
+
+def _pid_alive(pid: int) -> bool:
     try:
         r = subprocess.run(['tasklist', '/FI', 'PID eq %d' % pid, '/NH'],
                            capture_output=True, timeout=10,
@@ -117,28 +129,75 @@ def _ready(pid: int) -> tuple[str, int]:
     return ready, dialog
 
 
-def _dialog_shown(pid: int) -> int:
-    """hwnd видимого диалога-сообщения 1С (ошибка/предупреждение), иначе 0.
+def _ink_ratio(path: str) -> float:
+    """Доля «не фоновых» пикселей в BMP (0 — пустое окно, 0.01+ — текст/иконки)."""
+    try:
+        data = Path(path).read_bytes()
+        off = int.from_bytes(data[10:14], 'little')
+        w = int.from_bytes(data[18:22], 'little', signed=True)
+        h = int.from_bytes(data[22:26], 'little', signed=True)
+        bpp = int.from_bytes(data[28:30], 'little')
+        if bpp != 24 or not w or not h:
+            return 0.0
+        row = ((w * 3 + 3) // 4) * 4
+        px = data[off:]
+        colors: dict[tuple, int] = {}
+        total = 0
+        for y in range(abs(h)):
+            base = y * row
+            for x in range(0, w * 3, 3):
+                i = base + x
+                if i + 2 >= len(px):
+                    break
+                c = (px[i], px[i + 1], px[i + 2])
+                colors[c] = colors.get(c, 0) + 1
+                total += 1
+        if not total:
+            return 0.0
+        return 1.0 - max(colors.values()) / total
+    except Exception:                   # noqa: BLE001
+        return 0.0
 
-    Только классы сообщений и только top-level окна: во время сплэша у 1С полно видимых
-    служебных `V8Window`, и любое «не-рамное» окно считать диалогом нельзя.
+
+def _message_window(pid: int) -> tuple[int, str]:
+    """(hwnd, снимок) окна-сообщения 1С, иначе (0, '').
+
+    Класс/размер не помогают: служебное `V8TopLevelFrameSDIsec` 413x174 при обычном запуске
+    выглядит так же, как окно «Не удается установить соединение» 414x163. Различаем по
+    содержимому: у сообщения есть текст/иконка, служебное окно пустое (см. _ink_ratio).
     """
-    wanted = ('V8ConfirmationWindow', 'V8MessageBox', 'V8InformationWindow',
-              'V8ValidationMessageWnd', 'V8AlertWindow')
     GWL_STYLE = -16
     WS_CHILD = 0x40000000
+    probe = _dir() / ('_probe_%d.bmp' % pid)      # один файл на процесс: не мусорим
     for hwnd, cls, _title in _windows_of(pid):
-        if not cls.startswith(wanted):
+        if not cls.startswith('V8'):
             continue
+        if cls.startswith('V8ToolTip'):
+            continue
+        # главное окно (заставка/база) — не сообщение; окно-сообщение живёт в ...SDIsec
+        if cls.startswith('V8TopLevelFrame') and not cls.startswith('V8TopLevelFrameSDIsec'):
+            continue
+        if (_title or '').strip():
+            continue                            # у сообщений заголовок пустой
         style = u32.GetWindowLongW(hwnd, GWL_STYLE) or 0
         if style & WS_CHILD:
             continue
         r = wt.RECT()
         u32.GetWindowRect(hwnd, ctypes.byref(r))
         w, h = r.right - r.left, r.bottom - r.top
-        if w >= 200 and h >= 90:          # диалог, а не служебный микро-контрол
-            return hwnd
-    return 0
+        if not (200 <= w <= 1400 and 90 <= h <= 900):
+            continue
+        if not _shot(hwnd, pid, target=probe):
+            continue
+        if _ink_ratio(str(probe)) >= 0.008:         # есть содержимое → это сообщение
+            keep = _dir() / ('%s_%s_%d.bmp' % (datetime.datetime.now().strftime('%Y%m%d-%H%M%S'),
+                                               pid, hwnd))
+            try:
+                keep.write_bytes(probe.read_bytes())
+            except OSError:
+                keep = probe
+            return hwnd, str(keep)
+    return 0, ''
 
 
 class _BITMAPINFOHEADER(ctypes.Structure):
@@ -152,7 +211,7 @@ class _BITMAPINFO(ctypes.Structure):
     _fields_ = [('bmiHeader', _BITMAPINFOHEADER), ('bmiColors', wt.DWORD * 3)]
 
 
-def _shot(hwnd: int, pid: int) -> str:
+def _shot(hwnd: int, pid: int, target: Path | None = None) -> str:
     """BMP содержимого одного окна (через DC окна — работает и на отключённом RDP-экране)."""
     rect = wt.RECT()
     u32.GetWindowRect(hwnd, ctypes.byref(rect))
@@ -181,8 +240,11 @@ def _shot(hwnd: int, pid: int) -> str:
     u32.ReleaseDC(hwnd, src)
     if not ok:
         return ''
-    fname = '%s_%s_%d.bmp' % (datetime.datetime.now().strftime('%Y%m%d-%H%M%S'), pid, hwnd)
-    path = _dir() / fname
+    if target is None:
+        fname = '%s_%s_%d.bmp' % (datetime.datetime.now().strftime('%Y%m%d-%H%M%S'), pid, hwnd)
+        path = _dir() / fname
+    else:
+        path = target
     hdr = (b'BM' + (14 + 40 + len(buf.raw)).to_bytes(4, 'little') + b'\0\0\0\0'
            + (14 + 40).to_bytes(4, 'little') + (40).to_bytes(4, 'little')
            + w.to_bytes(4, 'little', signed=True) + h.to_bytes(4, 'little', signed=True)
@@ -269,27 +331,34 @@ def watch(pid: int, guid: str, name: str, exe: str, conn: str,
     started = time.time()
     ready = ''
     dialog = 0
+    dialog_shot = ''
+    probe = _dir() / ('_probe_%d.bmp' % pid)
     while time.time() - started < watch_timeout:
         time.sleep(1.0)
         if not _alive(pid):
             break
         ready, dialog = _ready(pid)
         if ready:
+            _unlink(probe)
             return                      # нормальный запуск: окно базы появилось
         if dialog:
             break                       # 1С показала сообщение — сразу снимаем его
-        d = _dialog_shown(pid)
+        if not _alive(pid):
+            break
+        d, shot_now = _message_window(pid)
         if d:
-            dialog = d
-            time.sleep(0.6)             # даём диалогу дорисоваться
+            dialog, dialog_shot = d, shot_now
             break
     if ready:
+        _unlink(probe)
         return
     if _alive(pid) and not dialog:
-        return                          # процесс жив и молчит: считаем, что база открылась медленно
+        _unlink(probe)
+        # процесс жив и молчит: считаем, что база открылась медленно
+        return
     if dialog and _alive(pid):
         kind = 'dialog'
-        shots = [_shot(dialog, pid)] or capture(pid, name)
+        shots = [dialog_shot] if dialog_shot else ([_shot(dialog, pid)] or capture(pid, name))
     else:
         kind = 'exited'
         shots = []
@@ -306,6 +375,7 @@ def watch(pid: int, guid: str, name: str, exe: str, conn: str,
         log.write_text(json.dumps(old[:40], ensure_ascii=False, indent=1), encoding='utf-8')
     except Exception:                   # noqa: BLE001
         pass
+    _unlink(probe)
 
 
 def start(pid: int, guid: str, name: str, exe: str, conn: str,

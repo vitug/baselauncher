@@ -21,13 +21,8 @@ def parse_conn(conn: str) -> dict:
     c = (conn or '').strip().rstrip(';')
     low = c.lower()
     out = {'kind': '', 'raw': conn or ''}
-    if 'ws=' in low or low.startswith('ws"'):
-        url = c.split('=', 1)[1].strip().strip('"').strip()
-        u = urllib.parse.urlparse(url if '://' in url else 'http://' + url)
-        out.update(kind='web', url=url, host=u.hostname or '', port=u.port or (443 if u.scheme == 'https' else 80),
-                   target='%s://%s' % (u.scheme or 'http', u.netloc))
-        return out
-    if 'file=' in low:
+    # порядок важен: у Srvr= значение может содержать tcp://, поэтому проверяем его первым
+    if 'file=' in low and 'srvr=' not in low:
         path = c.split('=', 1)[1].strip().strip('"').strip()
         out.update(kind='file', path=path, target=path)
         return out
@@ -55,6 +50,15 @@ def parse_conn(conn: str) -> dict:
             port = p or port
         out.update(kind='server', host=host, port=int(port), ref=ref,
                    target='%s:%s' % (host, port))
+        return out
+    # веб-база: ws="url" или просто URL (base['ws'] в /api/precheck приходит без обёртки)
+    if 'ws=' in low or '://' in c:
+        url = c.split('=', 1)[1].strip() if 'ws=' in low else c
+        url = url.strip().strip('"').strip()
+        u = urllib.parse.urlparse(url if '://' in url else 'http://' + url)
+        out.update(kind='web', url=url, host=u.hostname or '',
+                   port=u.port or (443 if u.scheme == 'https' else 80),
+                   target='%s://%s' % (u.scheme or 'http', u.netloc))
         return out
     return out
 
