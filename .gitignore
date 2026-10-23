@@ -10,3 +10,7 @@ data/install/
 data/*.log
 data/errors/*.bmp
 data/launch-errors.json
+
+# сборка поставки
+dist/
+

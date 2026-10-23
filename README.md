@@ -22,6 +22,21 @@ D:/python/WPy64-31241/python-3.12.4.amd64/python.exe run_server.py
 и сирота не остаётся. uvicorn-reload по умолчанию выключен (стабильность); для разработки —
 `BL_RELOAD=1`.
 
+## Поставка
+
+Сборка дистрибутива (папка + zip + контрольная сумма):
+
+```bash
+python tools/make_release.py          # → dist/Baselauncher-<версия>/ и .zip, dist/SHA256SUMS.txt
+python tools/make_release.py --no-zip # только папка
+```
+
+В поставку идут `app/`, `core/`, `assets/`, `boot.py`, `run_server.py`, `mcp_server.py`,
+`README.md`, `requirements.txt` и файлы из `deploy/` (`INSTALL.md`, `BaseLauncher.cmd`,
+`install.cmd`, `install-autostart.cmd`). `data/` создаётся пустой: сборка падает, если в неё
+попал `config.json`, журнал или бэкап — там логины и пароли. Инструкция для получателя —
+`deploy/INSTALL.md` (в пакете `INSTALL.md`).
+
 ## Структура
 
 - `core/` — логика на чистом stdlib (движко-независимая):
