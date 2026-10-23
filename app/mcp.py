@@ -193,6 +193,45 @@ def t_add_folder(a: dict) -> dict:
                   'path': ('' if parent == '/' else parent) + '/' + name})
 
 
+def t_base_cache(a: dict) -> dict:
+    """Размеры либо очистка кэша базы: what=info|user|program|both."""
+    st = _state()
+    b = _resolve(st, str(a.get('base') or ''))
+    if not b:
+        return _err('база не найдена: %s' % (a.get('base') or ''))
+    what = str(a.get('what') or 'info').strip().lower()
+    from core import cache as _cache
+    if what in ('info', '', 'size'):
+        info = _cache.base_info(b['guid'])
+        return _text({'base': b['name'], 'guid': b['guid'], 'running': bool(b.get('running')), **info})
+    try:
+        res = _cache.clear_base(b['guid'], what)
+    except ValueError as e:
+        return _err(e)
+    res['base'] = b['name']
+    res['running'] = bool(b.get('running'))
+    return _text(res)
+
+
+def t_move_base(a: dict) -> dict:
+    st = _state()
+    b = _resolve(st, str(a.get('base') or ''))
+    if not b:
+        return _err('база не найдена: %s' % (a.get('base') or ''))
+    folder = str(a.get('folder') or '/').strip() or '/'
+    try:
+        r = v8i_writer.move(b['guid'], folder)
+    except ValueError as e:
+        return _err(e)
+    importer._BASES_CACHE.clear()
+    st = _state()
+    path = [f for f in st['folders']
+            if (('' if (f.get('folder') or '/') == '/' else f['folder']) + '/' + f['name']) == folder]
+    return _text({'ok': True, 'name': r['name'], 'from': r['from'], 'to': r['to'],
+                  'guid': b['guid'], 'folder_guid': (path[0]['guid'] if path else None),
+                  'bases': len(st['bases'])})
+
+
 def t_delete_base(a: dict) -> dict:
     st = _state()
     ref = (a.get('base') or '').strip()
@@ -624,6 +663,16 @@ TOOLS = [
       'pwd': {'type': 'string', 'description': 'пароль Предприятия'},
       'pwd_cfg': {'type': 'string', 'description': 'пароль Конфигуратора (если отличается)'}},
      t_set_credentials),
+    ('base_cache', 'Кэш клиента 1С для одной базы: what=info (размеры), user (кэш текущего '
+     'пользователя Windows: %LOCALAPPDATA%/1C/1cv8/<guid> + %APPDATA%/1C/1cv8/<guid>), '
+     'program (общий для всех пользователей ПК: %PROGRAMDATA%/1C/1cv8/<guid>), both. '
+     'Данные базы не затрагиваются; очищать только при закрытых сеансах.',
+     {'base': {'type': 'string'},
+      'what': {'type': 'string', 'enum': ['info', 'user', 'program', 'both']}}, t_base_cache),
+    ('move_base', 'Перенести базу в папку дерева (пишется Folder= в ibases.v8i, как перетаскивание '
+     'в интерфейсе). base — имя или guid базы; folder — полный путь папки ("/Разработка/Проекты") '
+     'или "/", чтобы убрать из папок («Без папки»). Папка должна существовать (add_folder).',
+     {'base': {'type': 'string'}, 'folder': {'type': 'string'}}, t_move_base),
     ('list_platforms', 'Установленные платформы 1С: версия, семейство 8.3/8.5, разрядность, '
      'exe и exe тонкого клиента, есть ли конфигуратор, какая платформа по умолчанию для семейства.',
      {}, t_platforms),
@@ -640,7 +689,7 @@ TOOL_MAP = {name: (desc, schema, fn) for name, desc, schema, fn in TOOLS}
 REQUIRED = {
     'get_base': ['base'], 'launch_base': ['base'], 'run_processing': ['base', 'processing'],
     'delete_base': ['base'], 'dryrun': ['base'], 'open_web': ['base'],
-    'add_base': ['name'], 'add_folder': ['name'],
+    'add_base': ['name'], 'add_folder': ['name'], 'move_base': ['base', 'folder'],
 }
 
 
