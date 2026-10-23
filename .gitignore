@@ -1,14 +1,12 @@
-data/launches.log
 __pycache__/
+
 # генерируемые данные и локальные настройки (не коммитить)
 data/bases.json
 data/overrides.json
 data/overrides.migrated.json
 data/config.json
+data/config.json.bak-*
 data/install/
-data/launches.log
-data/server.log
-data/pythonw.log
-data/focus.log
+data/*.log
 data/errors/*.bmp
 data/launch-errors.json
