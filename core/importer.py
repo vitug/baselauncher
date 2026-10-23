@@ -110,7 +110,12 @@ def build_state() -> dict:
         if ws:
             has_designer = False
         elif exe and exe.lower().endswith('1cv8c.exe'):
-            has_designer = Path(exe).with_name('1cv8.exe').is_file()
+            # «тонкий клиент» в закреплении не значит «нет конфигуратора»: рядом может не
+            # быть 1cv8.exe этой же сборки, но толстый клиент того же семейства установлен
+            # (например, сервер 8.5.1, а локально стоит 8.5.1.1564). Конфигуратор запустим им.
+            fam = _family_of_exe(exe, platforms)
+            has_designer = Path(exe).with_name('1cv8.exe').is_file() or any(
+                p.family == fam and p.exe and Path(p.exe).is_file() for p in platforms)
         # наличиe папки файловой базы и файла базы внутри
         if path:
             if Path(path).is_dir():
