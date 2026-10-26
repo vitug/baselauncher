@@ -276,7 +276,8 @@ body{padding-bottom:46px}
 #status .ok{color:var(--green)} #status .err{color:var(--red)}
 #toast{position:fixed;right:16px;bottom:52px;max-width:640px;padding:10px 14px;border-radius:8px;
   background:var(--panel);border:1px solid var(--border);box-shadow:0 6px 24px #0009;
-  font:12px/1.5 Consolas,monospace;display:none;white-space:pre-wrap;word-break:break-all}
+  font:12px/1.5 Consolas,monospace;display:none;white-space:pre-wrap;word-break:break-all;
+  cursor:pointer}
 .empty{padding:30px;text-align:center;color:var(--muted)}
 /* ---- контекстное меню «копировать» по правому клику на базе ---- */
 #ctxm{position:fixed;z-index:90;display:none;min-width:260px;padding:4px;border-radius:8px;
@@ -1090,7 +1091,11 @@ function render(){
 }
 
 /* ---------- действия ---------- */
-function toast(msg,ms=6000){const t=$('toast');t.textContent=msg;t.style.display='block';
+function toast(msg,ms=6000){const t=$('toast');
+  t.onclick=()=>{t.style.display='none';clearTimeout(t._h)};   /* клик по плашке — закрыть */
+  /* повтор того же сообщения (например, cmd по той же базе) — переключает: скрывает */
+  if(t.style.display==='block'&&t.textContent===msg){t.style.display='none';clearTimeout(t._h);return}
+  t.textContent=msg;t.style.display='block';
   clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',ms)}
 function stat(msg,cls){$('st-msg').innerHTML=`<span class="${cls||''}">${esc(msg)}</span>`}
 
