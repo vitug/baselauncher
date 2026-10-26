@@ -1649,7 +1649,8 @@ function sessionsOf(guid){
 async function activateSession(guid,s){
   const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
   if(!s.pid)return launch(guid,s.mode);
-  if(s.window===false||((b.running_win||{})[s.mode]===false))return noWindow(b,s.mode,s.pid);
+  // кэш running_win может устареть (EDT поднимает окно после авто-проверок) —
+  // всегда проверяем живьём: activate на сервере делает свежий EnumWindows
   const r=await activate(s.pid);
   if(r&&r.ok===false&&r.no_window)noWindow(b,s.mode,s.pid);
 }
@@ -1791,7 +1792,7 @@ async function switchTo(guid,mode){
   const b=(STATE.bases||[]).find(x=>x.guid===guid); if(!b)return;
   const pid=pidOf(b,mode);
   if(!pid){launch(guid,mode);return}
-  if(((b.running_win||{})[mode]===false)){noWindow(b,mode,pid);return}
+  /* окно проверяем только живьём (кэш running_win устаревает у EDT-сеансов) */
   const r=await activate(pid);
   if(r&&r.ok===false&&r.no_window)noWindow(b,mode,pid);
 }
