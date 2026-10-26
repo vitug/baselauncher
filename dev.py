@@ -66,7 +66,8 @@ def main():
                BL_PORT=str(DEV_PORT),
                BL_DATA=DATA_DEV,
                BL_IBASES=V8I_COPY,
-               BL_DEV='1')
+               BL_DEV='1',
+               BL_RELOAD='1')      # автоперезагрузка кода при правках (разработка тут)
     _log('запуск сервера на :%d (песочница %s)' % (DEV_PORT, DATA_DEV))
     p = subprocess.Popen([sys.executable, os.path.join(ROOT, 'run_server.py')],
                          cwd=ROOT, env=env)
