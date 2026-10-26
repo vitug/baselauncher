@@ -1947,7 +1947,7 @@ async function openSettings(guid){
     ?'пароль сохранён — введите новый, чтобы сменить':'как в Предприятии';
   const sel=$('s-exe');
   const cur=b.exe?(b.exe.split('\\').filter(s=>/^\d+\.\d+\.\d+/.test(s))[0]||'…'):'';
-  let opts=`<option value="">Авто — по умолчанию${b.exe?' (сейчас: '+cur+')':''}</option>`;
+  let opts=`<option value="">▸ АВТО — по версии из ibases.v8i / настройкам${b.exe?' (сейчас: '+cur+')':''}</option>`;
   // дерево: семейство (8.5 / 8.3) → есть ли конфигуратор (1cv8.exe), а не разрядность:
   // 32-битные платформы с толстым клиентом (8.3.24.1667 x86 и др.) — это тоже «разработка»
   const numV=p=>{const m=String(p.key).match(/\d+(?:\.\d+)+/);return m?m[0]:''};
@@ -1960,7 +1960,7 @@ async function openSettings(guid){
     (groups[k]=groups[k]||[]).push(p)});
   Object.keys(groups).sort((a,b)=>{
     const [fa,ka]=a.split('|'),[fb,kb]=b.split('|');
-    return (famNum(fb)-famNum(fa)) || ((ka==='dev')-(kb==='dev')) || a.localeCompare(b);
+    return (famNum(fb)-famNum(fa)) || ((kb==='dev')-(ka==='dev')) || a.localeCompare(b);
   }).forEach(k=>{
     const [fam,kind]=k.split('|');
     const lbl=kind==='dev'?'конфигуратор (толстый клиент)':'только тонкий клиент';
@@ -1969,7 +1969,7 @@ async function openSettings(guid){
       +'</optgroup>';
   });
   sel.innerHTML=opts;
-  sel.value=our.exe||'';
+  sel.value=(our.exe&&[...sel.options].some(o=>o.value===our.exe))?our.exe:'';
   $('s-mode').value=b.default_mode||'';
   [...$('s-mode').options].forEach(o=>{o.disabled=(o.value==='designer'&&b.has_designer===false)});
   if(b.has_designer===false&&$('s-mode').value==='designer') $('s-mode').value='';
