@@ -1962,9 +1962,11 @@ async function openSettings(guid){
   const groups={};
   (j.platforms||[]).forEach(p=>{const k=(p.family||'другие')+'|'+(p.exe?'dev':'thin');
     (groups[k]=groups[k]||[]).push(p)});
+  // порядок групп: 8.3·конфигуратор → 8.5·конфигуратор → прочие конфигураторы → тонкие
   Object.keys(groups).sort((a,b)=>{
     const [fa,ka]=a.split('|'),[fb,kb]=b.split('|');
-    return (famNum(fb)-famNum(fa)) || ((kb==='dev')-(ka==='dev')) || a.localeCompare(b);
+    const rk=(f,k)=>(k==='dev'&&f==='8.3')?0:(k==='dev'&&f==='8.5')?1:(k==='dev')?2:3;
+    return (rk(fa,ka)-rk(fb,kb)) || (famNum(fb)-famNum(fa)) || a.localeCompare(b);
   }).forEach(k=>{
     const [fam,kind]=k.split('|');
     const lbl=kind==='dev'?'конфигуратор (толстый клиент)':'только тонкий клиент';
