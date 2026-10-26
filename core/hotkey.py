@@ -53,12 +53,17 @@ def _pid_of(hwnd: int) -> int:
     return p.value
 
 
-def find_starter_window(port: int = 8797) -> list[tuple[int, str, int]]:
+def find_starter_window(port: int = 8797,
+                        own_only: bool = False) -> list[tuple[int, str, int]]:
     """Окна стартера: (hwnd, title, pid), включая скрытые (трей), но БЕЗ вкладок браузера.
 
     Отличаем от обычных вкладок Edge по двум признакам: заголовок РОВНО «BaseLauncher»
     (у вкладки он вида «BaseLauncher — Личный: Microsoft Edge») либо `--app=` с нашим
-    адресом в командной строке процесса.
+    адресом в командной строке процесса. Заголовок «BaseLauncher DEV» (dev-инстанс,
+    порт 8798) боевым окном НЕ считается.
+
+    own_only=True (dev-инстанс): только `--app=` с нашим портом — по заголовку не
+    ищем, иначе найдётся окно рабочего инстанса.
     """
     out: list[tuple[int, str, int]] = []
     CB = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
@@ -76,8 +81,18 @@ def find_starter_window(port: int = 8797) -> list[tuple[int, str, int]]:
         cmd = seen_cmd[pid]
         own = '--app=' in cmd and ('127.0.0.1:%d' % port) in cmd
         tl = title.strip().lower()
-        by_title = tl.startswith(STARTER_TITLE.lower()) and 'edge' not in tl
-        if by_title or own:
+        by_title = (tl.startswith(STARTER_TITLE.lower()) and 'edge' not in tl
+                    and 'dev' not in tl)      # окно dev-инстанса не трогаем
+        # ГЛАВНЫЙ признак при нескольких инстансах: метка порта в заголовке
+        # («· UI/MCP :8797»). Edge держит все --app-окна в ОДНОМ процессе,
+        # поэтому cmdline ('--app=...8797') по PID различает окна ненадёжно.
+        import re as _re
+        _mark = _re.search(r':(879\d|87\d\d)\b', tl)
+        if _mark:
+            hit = (_mark.group(1) == str(port))
+        else:
+            hit = own or (by_title and not own_only)
+        if hit:
             out.append((hwnd, title, pid))
         return True
     u32.EnumWindows(CB(cb), 0)
@@ -90,7 +105,8 @@ def _log(msg: str) -> None:
     """Диагностика горячей клавиши: пишем в data/focus.log (не в stdout — под pythonw его нет)."""
     try:
         from datetime import datetime
-        p = Path(__file__).resolve().parent.parent / 'data' / 'focus.log'
+        from .paths import DATA_DIR
+        p = DATA_DIR / 'focus.log'
         p.parent.mkdir(parents=True, exist_ok=True)
         with p.open('a', encoding='utf-8') as f:
             f.write(f'{datetime.now():%Y-%m-%d %H:%M:%S} {msg}\n')
@@ -120,7 +136,8 @@ u32.SetWindowPlacement.argtypes = [wt.HWND, ctypes.POINTER(WINDOWPLACEMENT)]
 
 
 def _geom_file() -> Path:
-    return Path(__file__).resolve().parent.parent / 'data' / 'window.json'
+    from .paths import DATA_DIR
+    return DATA_DIR / 'window.json'
 
 
 SPI_GETWORKAREA = 0x0030

@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from core import (cache, com, config, dbtools, hotkey, importer, launcher, netcheck, platforms_share,
                   procs, tray, v8i_writer, watch)
 
-app = FastAPI(title='BaseLauncher', version='0.32.6')
+app = FastAPI(title='BaseLauncher', version='0.33.0')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
@@ -24,8 +24,18 @@ ROOT = Path(__file__).parent.parent
 
 @app.on_event('startup')
 def _startup():
-    """Глобальная клавиша Ctrl+Shift+S (показать / убрать в трей) и иконка в трее."""
-    hotkey.start(PORT)          # клавиша Ctrl+Shift+S + сторож геометрии окна
+    """Глобальная клавиша Ctrl+Shift+S (показать / убрать в трей) и иконка в трее.
+
+    Dev-режим (BL_DEV=1, отдельный инстанс для разработки): клавишу и трей не
+    занимает (они уже принадлежат рабочему инстансу), а своё окно открывает на
+    отдельном виртуальном столе Windows — см. core/vdesk.py.
+    """
+    from core import paths
+    if not paths.DEV:
+        hotkey.start(PORT)      # клавиша Ctrl+Shift+S + сторож геометрии окна
+    else:
+        paths_log('dev-режим: глобальная клавиша и трей отключены '
+                  '(заняты рабочим инстансом на :8797)')
 
     def _ensure_window():
         import time
@@ -33,11 +43,43 @@ def _startup():
         try:
             if not hotkey.find_starter_window(PORT):
                 hotkey.focus_starter(PORT)      # окна нет — открыть (и одно!)
-        except Exception:                       # noqa: BLE001
-            pass
+            if paths.DEV:
+                # окно только что открылось (или уже было) — увезти на dev-стол.
+                # Матчинг по порту: чужое окно не ловим — в заголовке метка
+                # «:8797»/«:8798» (find_starter_window отсекает чужие порты),
+                # а «BaseLauncher DEV» в заголовке отметим сами (UI).
+                from core import vdesk
+                for _ in range(6):              # до ~9 с: окно может открываться долго
+                    wins = hotkey.find_starter_window(PORT)
+                    if wins:
+                        hwnd = wins[0][0]
+                        try:
+                            res = vdesk.move_window_to_dev_desktop(hwnd, switch=False)
+                            paths_log('dev-окно hwnd=%s перенесено на '
+                                      'виртуальный стол: %s' % (hwnd, res.get('desktop')))
+                        except OSError as e:
+                            paths_log('vdesk перенос не удался: %r' % (e,))
+                        break
+                    time.sleep(1.5)
+        except Exception as e:                  # noqa: BLE001
+            try:
+                paths_log('vdesk: %r' % (e,))
+            except Exception:                   # noqa: BLE001
+                pass
 
     threading.Thread(target=_ensure_window, daemon=True, name='bl-window').start()
-    tray.start(PORT)
+    if not paths.DEV:
+        tray.start(PORT)
+
+
+def paths_log(msg):
+    """Лог в data-каталог текущего (dev или боевого) инстанса."""
+    try:
+        from core.paths import DATA_DIR
+        with (DATA_DIR / 'server.log').open('a', encoding='utf-8') as f:
+            f.write(time.strftime('%Y-%m-%d %H:%M:%S ') + msg + '\n')
+    except OSError:
+        pass
 
 
 @app.get('/')
@@ -92,7 +134,8 @@ def state():
     только внутри launch/COM. Иначе любой локальный GET вынимал бы все пароли."""
     st = importer.build_state()
     st['bases'] = [_no_pwd(b) for b in st['bases']]
-    return {**st, 'version': app.version}
+    from core import paths as _p
+    return {**st, 'dev': _p.DEV, 'version': app.version}
 
 
 @app.get('/api/sessions')
@@ -483,7 +526,8 @@ async def launch(req: Request):
 def _dbg(msg: str) -> None:
     """Журнал автоповтора платформы (data/retry.log): почему не переключилось."""
     try:
-        with (Path(__file__).resolve().parent.parent / 'data' / 'retry.log').open(
+        from core.paths import DATA_DIR as _DD
+        with (_DD / 'retry.log').open(
                 'a', encoding='utf-8') as f:
             f.write('%s %s\n' % (datetime.datetime.now().strftime('%H:%M:%S'), msg))
     except Exception:                       # noqa: BLE001

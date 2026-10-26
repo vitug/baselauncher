@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 MODES = {'enterprise': 'ENTERPRISE', 'designer': 'DESIGNER'}
-DATA = Path(__file__).parent.parent / 'data'
+from .paths import DATA_DIR as DATA
 LOG = DATA / 'launches.log'
 
 

@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-V8I = Path(os.environ.get('APPDATA', '')) / '1C' / '1CEStart' / 'ibases.v8i'
+from .paths import V8I_PATH as V8I
 _HEADER = re.compile(r'(?m)^\[(.+)\]\r?\n')
 
 

@@ -38,7 +38,7 @@ from pathlib import Path
 
 from . import parsers, smcrypt
 
-DATA_DIR = Path(__file__).resolve().parent.parent / 'data'
+from .paths import DATA_DIR
 CONFIG_PATH = DATA_DIR / 'config.json'
 LEGACY_OVERRIDES = DATA_DIR / 'overrides.json'
 
