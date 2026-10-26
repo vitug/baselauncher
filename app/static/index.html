@@ -1948,23 +1948,24 @@ async function openSettings(guid){
   const sel=$('s-exe');
   const cur=b.exe?(b.exe.split('\\').filter(s=>/^\d+\.\d+\.\d+/.test(s))[0]||'…'):'';
   let opts=`<option value="">Авто — по умолчанию${b.exe?' (сейчас: '+cur+')':''}</option>`;
-  // дерево: семейство (8.5 / 8.3 / 8.1) → разрядность (64 — разработка, 32 — тонкий клиент)
+  // дерево: семейство (8.5 / 8.3) → есть ли конфигуратор (1cv8.exe), а не разрядность:
+  // 32-битные платформы с толстым клиентом (8.3.24.1667 x86 и др.) — это тоже «разработка»
   const numV=p=>{const m=String(p.key).match(/\d+(?:\.\d+)+/);return m?m[0]:''};
   const cmpV=(a,b)=>{const A=numV(a).split('.').map(Number),B=numV(b).split('.').map(Number);
     for(let i=0;i<Math.max(A.length,B.length);i++){const d=(B[i]||0)-(A[i]||0);if(d)return d}
     return 0};
   const famNum=f=>{const m=String(f).match(/\d+(\.\d+)?/);return m?parseFloat(m[0]):0};
   const groups={};
-  (j.platforms||[]).forEach(p=>{const k=(p.family||'другие')+'|'+(p.bitness||'?');
+  (j.platforms||[]).forEach(p=>{const k=(p.family||'другие')+'|'+(p.exe?'dev':'thin');
     (groups[k]=groups[k]||[]).push(p)});
   Object.keys(groups).sort((a,b)=>{
-    const [fa,ba]=a.split('|'),[fb,bb]=b.split('|');
-    return (famNum(fb)-famNum(fa)) || ((ba==='x86')-(bb==='x86')) || a.localeCompare(b);
+    const [fa,ka]=a.split('|'),[fb,kb]=b.split('|');
+    return (famNum(fb)-famNum(fa)) || ((ka==='dev')-(kb==='dev')) || a.localeCompare(b);
   }).forEach(k=>{
-    const [fam,bit]=k.split('|');
-    const bits=bit==='x64'?'64 бита (разработка)':bit==='x86'?'32 бита (тонкий клиент)':bit;
-    opts+=`<optgroup label="Платформа ${esc(fam)} · ${esc(bits)}">`
-      +groups[k].sort(cmpV).map(p=>`<option value="${esc(p.exe)}">${esc(p.key)} · ${esc(p.source)}</option>`).join('')
+    const [fam,kind]=k.split('|');
+    const lbl=kind==='dev'?'конфигуратор (толстый клиент)':'только тонкий клиент';
+    opts+=`<optgroup label="Платформа ${esc(fam)} · ${esc(lbl)}">`
+      +groups[k].sort(cmpV).map(p=>`<option value="${esc(p.exe||p.exe_thin)}">${esc(p.key)} · ${p.bitness==='x64'?'64':'32'} бита · ${esc(p.source)}</option>`).join('')
       +'</optgroup>';
   });
   sel.innerHTML=opts;
