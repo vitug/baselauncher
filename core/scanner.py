@@ -12,6 +12,8 @@ from .model import Platform
 SCAN_ROOTS = [
     r'C:\Program Files\1cv8',
     r'C:\Program Files (x86)\1cv8',
+    r'C:\Program Files\1cv82',       # старые 8.2 (там же лежит 1cv8s.exe — серверный)
+    r'C:\Program Files (x86)\1cv82',
     r'D:\storage1C\ПлатформаКвас',   # личное хранилище пользователя (разведано при импорте из SM)
 ]
 
