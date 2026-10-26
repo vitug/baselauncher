@@ -8,6 +8,7 @@ SM не используется. Приоритет эффективного ex
 """
 import datetime
 import json
+import re
 from pathlib import Path
 
 from . import config, launcher, parsers, procs, scanner
@@ -62,6 +63,35 @@ def _resolve_exe(guid: str, cfg: dict, platforms: list) -> tuple[str, str]:
     return '', 'none'
 
 
+_DEPOT_VER_CACHE = {}
+
+
+def _depot_ver(dirpath: str) -> str:
+    """Версия платформы файлового хранилища 1С (каталог/UNC-шара): файл ``ver``.
+
+    Содержимое вида ``{0,2,8,3,22,1704,"Designer"}`` → ``8.3.22.1704``.
+    Удалённые хранилища (``tcp://``) так прочитать нельзя — возвращаем ''.
+    """
+    d = str(dirpath or '').strip()
+    if not d or d.lower().startswith('tcp://'):
+        return ''
+    hit = _DEPOT_VER_CACHE.get(d)
+    if hit is not None:
+        return hit
+    ver = ''
+    try:
+        raw = open(d.rstrip('\\\\') + '\\ver', 'rb').read(64).decode('utf-8-sig', 'replace')
+        m = re.match(r'\{0,2,(\d+),(\d+),(\d+),(\d+),', raw.strip())
+        if m:
+            ver = '%s.%s.%s.%s' % m.groups()
+    except OSError:
+        pass
+    except Exception:                     # noqa: BLE001
+        pass
+    _DEPOT_VER_CACHE[d] = ver
+    return ver
+
+
 def build_state() -> dict:
     v8i_secs = parsers.parse_v8i()
     cfg = config.load()
@@ -98,7 +128,8 @@ def build_state() -> dict:
         st_cfg = our.get('storage') or {}
         if st_cfg.get('dir'):
             storage = {'dir': st_cfg.get('dir', ''), 'user': st_cfg.get('user', ''),
-                       'password': config.unseal(st_cfg.get('pwd') or '')}
+                       'password': config.unseal(st_cfg.get('pwd') or ''),
+                       'ver': _depot_ver(st_cfg.get('dir') or '')}
         # пароли ИБ: Предприятие / Конфигуратор (в файле — sealed)
         pwd = config.unseal(our.get('pwd') or '')
         pwd_cfg = config.unseal(our.get('pwd_cfg') or '')

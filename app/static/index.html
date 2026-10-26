@@ -534,6 +534,7 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <div class="ksec">Хранилище конфигурации (подключается в конфигураторе)</div>
   <label>Путь к хранилищу</label>
   <input type="text" id="s-dir" placeholder="\\server\repo\repo.1ccr или d:\repo\...1ccr">
+      <div id="s-dir-note" style="font:11px/1.4 Segoe UI;color:#888;margin:-6px 0 6px"></div>
   <div class="row2">
     <div><label>Пользователь хранилища</label><input type="text" id="s-user"></div>
     <div><label>Пароль хранилища</label><input type="password" id="s-pass"></div>
@@ -1947,7 +1948,8 @@ async function openSettings(guid){
     ?'пароль сохранён — введите новый, чтобы сменить':'как в Предприятии';
   const sel=$('s-exe');
   const cur=b.exe?(b.exe.split('\\').filter(s=>/^\d+\.\d+\.\d+/.test(s))[0]||'…'):'';
-  let opts=`<option value="">▸ АВТО — по версии из ibases.v8i / настройкам${b.exe?' (сейчас: '+cur+')':''}</option>`;
+  const dver=(b.storage&&b.storage.ver)?b.storage.ver:'';
+  let opts=`<option value="">▸ АВТО — по версии из ibases.v8i / настройкам${b.exe?' (сейчас: '+cur+')':''}${dver&&' · хранилище: '+dver||''}</option>`;
   // дерево: семейство (8.5 / 8.3) → есть ли конфигуратор (1cv8.exe), а не разрядность:
   // 32-битные платформы с толстым клиентом (8.3.24.1667 x86 и др.) — это тоже «разработка»
   const numV=p=>{const m=String(p.key).match(/\d+(?:\.\d+)+/);return m?m[0]:''};
@@ -1976,6 +1978,11 @@ async function openSettings(guid){
   $('s-thin').checked=!!our.thin;
   $('s-dir').value=(our.storage&&our.storage.dir)||'';
   $('s-dir').placeholder='путь к хранилищу (.1ccr)';
+  $('s-dir-note').textContent=(b.storage&&b.storage.ver)
+    ?('файловое хранилище создано платформой '+b.storage.ver+' — конфигуратор возьмёт её или новее того же семейства')
+    :((b.storage&&String(b.storage.dir||'').toLowerCase().startsWith('tcp://'))
+      ?'удалённое хранилище (tcp://) — версию по нему не узнать, используйте «Определить по серверу»'
+      :'');
   $('s-user').value=(our.storage&&our.storage.user)||'';
   $('s-user').placeholder='';
   $('s-pass').value=''; $('s-pass').dataset.keep=(b.storage&&b.storage.pwd_set)?'1':''; $('s-pass').dataset.dirty='';
