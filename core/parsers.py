@@ -12,7 +12,7 @@ import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-V8I_PATH = Path(__import__('os').path.expandvars(r'%APPDATA%\1C\1CEStart\ibases.v8i'))
+from .paths import V8I_PATH
 SM_DIR = Path(__import__('os').path.expandvars(r'%APPDATA%\SM14\SMSettings'))
 V8CONFIG_PATH = SM_DIR / 'v8config.smc'
 SETTINGS_PATH = SM_DIR / 'settings.cnf'

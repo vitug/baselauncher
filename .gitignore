@@ -16,3 +16,5 @@ dist/
 
 __pycache__/
 *.pyc
+data_dev/
+data_dev_console.log

@@ -13,7 +13,7 @@ from pathlib import Path
 from . import config, launcher, parsers, procs, scanner
 from .model import BaseEntry
 
-DATA_DIR = Path(__file__).resolve().parent.parent / 'data'
+from .paths import DATA_DIR
 STATE_PATH = DATA_DIR / 'bases.json'
 
 # семейство -> какие ключи слотов settings.cnf ему соответствуют
