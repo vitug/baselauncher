@@ -36,7 +36,8 @@ _DIR: Path | None = None
 def _dir() -> Path:
     global _DIR
     if _DIR is None:
-        _DIR = Path(__file__).resolve().parent.parent / 'data' / 'errors'
+        from .. import paths
+        _DIR = paths.DATA_DIR / 'errors'
         _DIR.mkdir(parents=True, exist_ok=True)
     return _DIR
 

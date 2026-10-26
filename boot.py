@@ -43,7 +43,8 @@ def post(path, timeout=45):
 
 def log(msg):
     try:
-        with open(ROOT / 'data' / 'boot.log', 'a', encoding='utf-8') as f:
+        from core.paths import DATA_DIR
+        with open(DATA_DIR / 'boot.log', 'a', encoding='utf-8') as f:
             f.write(time.strftime('%Y-%m-%d %H:%M:%S ') + msg + '\n')
     except OSError:
         pass

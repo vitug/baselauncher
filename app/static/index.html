@@ -355,7 +355,7 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
 </head>
 <body>
 <header>
-  <h1>BaseLauncher <span id="h-ver" title="версия сервера"></span></h1>
+  <h1>BaseLauncher <span id="h-ver" title="версия сервера"></span><span id="dev-badge" style="display:none;background:#c62828;color:#fff;font-size:12px;padding:1px 8px;border-radius:10px;margin-left:8px;vertical-align:middle" title="dev-инстанс: песочница data_dev, порт 8798">DEV</span></h1>
   <div class="mode" title="режим запуска при клике по строке базы">
     <button id="m-ent" class="on" onclick="setMode('enterprise')">Предприятие</button>
     <button id="m-dsg" class="d" onclick="setMode('designer')">Конфигуратор</button>
@@ -2289,7 +2289,7 @@ async function footInfo(){
       el.textContent=[v?'v'+v:'', 'UI/MCP :'+port].filter(Boolean).join(' · ');
       el.title='версия · порт: UI, REST и MCP-сервер (http://127.0.0.1:'+port+'/mcp) — один и тот же';
     }
-    document.title='BaseLauncher '+(v?'v'+v+' ':'')+'· UI/MCP :'+port;
+    document.title=(STATE&&STATE.dev?'BaseLauncher DEV ':'BaseLauncher ')+(v?'v'+v+' ':'')+'· UI/MCP :'+port;
   }catch(e){}
 }
 async function toTray(){
@@ -2309,6 +2309,7 @@ async function hotkeyInfo(){
 
 async function reload(){
   const r=await fetch('/api/state'); STATE=await r.json();
+  if(STATE.dev){ const b=document.getElementById('dev-badge'); if(b) b.style.display='inline-block'; }
   $('st-sub').textContent=`${STATE.bases.length} баз · ${STATE.platforms.length} платформ`;
   render();
   footInfo();
