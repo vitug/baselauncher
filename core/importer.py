@@ -92,6 +92,33 @@ def _depot_ver(dirpath: str) -> str:
     return ver
 
 
+_IB_FMT_CACHE = {}
+
+
+def _ib_fmt(path: str) -> str:
+    """Формат файловой базы из заголовка ``1Cv8.1CD`` (первые 11 байт).
+
+    Магия ``1CDDBMSV`` + байты версии формата: ``8.2.14``, ``8.3.8`` и т.п.
+    Это МИНИМАЛЬНАЯ платформа для открытия базы (8.3 открывает 8.2.14, но не 8.0.x);
+    сама платформа, создавшая базу, в файле не хранится (см. tool1cd).
+    """
+    d = str(path or '').strip()
+    if not d:
+        return ''
+    hit = _IB_FMT_CACHE.get(d)
+    if hit is not None:
+        return hit
+    fmt = ''
+    try:
+        b = open(d.rstrip('\\') + '\\1Cv8.1CD', 'rb').read(12)
+        if b[:8] == b'1CDBMSV8' and len(b) >= 12:
+            fmt = '%d.%d.%d' % (b[8], b[9], b[10])
+    except OSError:
+        pass
+    _IB_FMT_CACHE[d] = fmt
+    return fmt
+
+
 def build_state() -> dict:
     v8i_secs = parsers.parse_v8i()
     cfg = config.load()
@@ -185,6 +212,7 @@ def build_state() -> dict:
             default_mode=(str(our.get('mode')) if our.get('mode') in ('enterprise', 'designer') else ''),
             path_ok=path_ok,
             path_info=path_info,
+            ib_fmt=(_ib_fmt(path) if path else ''),
             exe_ok=exe_ok,
         ).as_dict())
 
