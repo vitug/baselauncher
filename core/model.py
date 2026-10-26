@@ -39,6 +39,7 @@ class BaseEntry:
     our: dict = field(default_factory=dict)        # наши правки (overrides.json) как есть
     path_ok: bool | None = None  # папка файловой базы на месте (None — серверная/неизвестно)
     path_info: str = ''          # 'ok' | 'папки базы нет' | 'нет файла 1Cv8.1CD' | 'серверная'
+    ib_fmt: str = ''             # формат 1CD из заголовка 1Cv8.1CD ('8.3.8'/'8.2.14'…) — минимальная платформа
     exe_ok: bool = False         # exe платформы существует на диске
     fav: bool = False        # избранное (наша отметка)
     default_mode: str = ''   # режим запуска по клику: 'enterprise' | 'designer' | '' (как в шапке)

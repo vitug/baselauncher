@@ -534,6 +534,7 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <div class="ksec">Хранилище конфигурации (подключается в конфигураторе)</div>
   <label>Путь к хранилищу</label>
   <input type="text" id="s-dir" placeholder="\\server\repo\repo.1ccr или d:\repo\...1ccr">
+      <div id="s-ibfmt" style="font:11px/1.4 Segoe UI;color:#888;margin:0 0 6px"></div>
       <div id="s-dir-note" style="font:11px/1.4 Segoe UI;color:#888;margin:-6px 0 6px"></div>
   <div class="row2">
     <div><label>Пользователь хранилища</label><input type="text" id="s-user"></div>
@@ -1949,7 +1950,8 @@ async function openSettings(guid){
   const sel=$('s-exe');
   const cur=b.exe?(b.exe.split('\\').filter(s=>/^\d+\.\d+\.\d+/.test(s))[0]||'…'):'';
   const dver=(b.storage&&b.storage.ver)?b.storage.ver:'';
-  let opts=`<option value="">▸ АВТО — по версии из ibases.v8i / настройкам${b.exe?' (сейчас: '+cur+')':''}${dver&&' · хранилище: '+dver||''}</option>`;
+  const fver=b.ib_fmt?(' · формат 1CD: '+b.ib_fmt):'';
+  let opts=`<option value="">▸ АВТО — по версии из ibases.v8i / настройкам${b.exe?' (сейчас: '+cur+')':''}${dver&&' · хранилище: '+dver||''}${fver}</option>`;
   // дерево: семейство (8.5 / 8.3) → есть ли конфигуратор (1cv8.exe), а не разрядность:
   // 32-битные платформы с толстым клиентом (8.3.24.1667 x86 и др.) — это тоже «разработка»
   const numV=p=>{const m=String(p.key).match(/\d+(?:\.\d+)+/);return m?m[0]:''};
@@ -1978,6 +1980,7 @@ async function openSettings(guid){
   $('s-thin').checked=!!our.thin;
   $('s-dir').value=(our.storage&&our.storage.dir)||'';
   $('s-dir').placeholder='путь к хранилищу (.1ccr)';
+  $('s-ibfmt').textContent=b.ib_fmt?('формат 1CD: '+b.ib_fmt+' — минимальная платформа для открытия; платформа, создавшая базу, в файле не хранится'):'';
   $('s-dir-note').textContent=(b.storage&&b.storage.ver)
     ?('файловое хранилище создано платформой '+b.storage.ver+' — конфигуратор возьмёт её или новее того же семейства')
     :((b.storage&&String(b.storage.dir||'').toLowerCase().startsWith('tcp://'))
