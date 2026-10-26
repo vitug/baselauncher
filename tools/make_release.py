@@ -27,7 +27,7 @@ DEPLOY = ROOT / 'deploy'
 
 # что кладём в поставку
 DIRS = ['app', 'core', 'assets']
-FILES = ['boot.py', 'run_server.py', 'mcp_server.py', 'README.md', 'requirements.txt']
+FILES = ['boot.py', 'run_server.py', 'mcp_server.py', 'dev.py', 'README.md', 'requirements.txt']
 # файлы поставки: (источник в deploy/, имя в пакете)
 DEPLOY_FILES = [('INSTALL.md', 'INSTALL.md'),
                 ('BaseLauncher.cmd', 'BaseLauncher.cmd'),
