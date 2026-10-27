@@ -22,8 +22,8 @@ PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 # (запуски, настройки, удаления, чистки кэша, переводы платформ; пароли → '***')
 @app.middleware('http')
 async def audit_middleware(request: Request, call_next):
-    if request.method == 'GET':
-        return await call_next(request)                 # чтение — не действие
+    if request.method == 'GET' or request.url.path == '/mcp':
+        return await call_next(request)     # чтение и MCP-поллинг — не действия пользователя
     detail: dict = {}
     try:
         body = await request.body()
