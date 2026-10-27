@@ -701,12 +701,13 @@ TOOLS = [
      'через set_credentials.',
      {'base': {'type': 'string'}, 'user': {'type': 'string'}, 'pwd': {'type': 'string'},
       'timeout': {'type': 'number'}}, t_base_users),
-    ('base_cache', 'Кэш клиента 1С для одной базы: what=info (размеры), user (кэш текущего '
-     'пользователя Windows: %LOCALAPPDATA%/1C/1cv8/<guid> + %APPDATA%/1C/1cv8/<guid>), '
+    ('base_cache', 'Кэш клиента 1С для одной базы: what=info (размеры), config (кэш программы/конфигурации: '
+     '%LOCALAPPDATA%/1C/1cv8/<guid> — Config, ConfigSave, SICache, cgf-cache, cfgrepo), '
+     'user (настройки пользователя: %APPDATA%/1C/1cv8/<guid> — 1cv8.pfl, def.usr), '
      'program (общий для всех пользователей ПК: %PROGRAMDATA%/1C/1cv8/<guid>), both. '
      'Данные базы не затрагиваются; очищать только при закрытых сеансах.',
      {'base': {'type': 'string'},
-      'what': {'type': 'string', 'enum': ['info', 'user', 'program', 'both']}}, t_base_cache),
+      'what': {'type': 'string', 'enum': ['info', 'config', 'user', 'program', 'both']}}, t_base_cache),
     ('move_base', 'Перенести базу в папку дерева (пишется Folder= в ibases.v8i, как перетаскивание '
      'в интерфейсе). base — имя или guid базы; folder — полный путь папки ("/Разработка/Проекты") '
      'или "/", чтобы убрать из папок («Без папки»). Папка должна существовать (add_folder).',

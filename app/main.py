@@ -1049,7 +1049,8 @@ def base_cache(guid: str):
 
 @app.post('/api/base/{guid}/cache/clear')
 async def base_cache_clear(guid: str, req: Request):
-    """Очистить кэш базы: what=user | program | both.
+    """Очистить кэш базы: what=config (кэш программы, LOCALAPPDATA) | user (настройки,
+    APPDATA) | program (PROGRAMDATA) | both.
 
     Кэш самой программы-стартера здесь не чистится — только клиентский кэш 1С этой базы.
     """

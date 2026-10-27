@@ -202,24 +202,35 @@ def programdata_root() -> Path:
 
 
 def base_dirs(guid: str) -> dict:
-    """Каталоги кэша одной базы: user (текущий пользователь Windows) и program (все пользователи)."""
-    user = []
-    for root in (local_root(), roaming_root()):
-        p = root / guid
-        if p.is_dir():
-            user.append(p)
+    """Каталоги кэша одной базы, по уровням 1С.
+
+    config — %LOCALAPPDATA%\\1C\\1cv8\\<guid>: кэш программы (конфигурации): Config,
+             ConfigSave, SICache, cgf-cache, cfgrepo, КэшМодулей — пересоздаётся сам;
+             настройками не является, «кэш конфигуратора» живёт здесь же (ConfigSave/cgf-cache).
+    user   — %APPDATA%\\1C\\1cv8\\<guid>: настройки пользователя (1cv8.pfl, def.usr,
+             положения окон/форм) — удаление сбрасывает интерфейсные настройки.
+    program — %PROGRAMDATA%\\1C\\1cv8\\<guid>: общий кэш для всех пользователей ПК.
+    """
+    cfg = []
+    p = local_root() / guid
+    if p.is_dir():
+        cfg.append(p)
+    usr = []
+    p = roaming_root() / guid
+    if p.is_dir():
+        usr.append(p)
     prog = []
     p = programdata_root() / guid
     if p.is_dir():
         prog.append(p)
-    return {'user': user, 'program': prog}
+    return {'config': cfg, 'user': usr, 'program': prog}
 
 
 def base_info(guid: str, budget: float = 2.0) -> dict:
     """Размеры кэша базы по уровням. budget — сколько секунд тратить на обход каждого каталога."""
     dirs = base_dirs(guid)
     out = {}
-    for what in ('user', 'program'):
+    for what in ('config', 'user', 'program'):
         total = files = 0
         partial = False
         for d in dirs[what]:
@@ -233,15 +244,16 @@ def base_info(guid: str, budget: float = 2.0) -> dict:
     return out
 
 
-def clear_base(guid: str, what: str = 'user') -> dict:
-    """Удалить кэш базы: what=user (LOCALAPPDATA+APPDATA) | program (%PROGRAMDATA%) | both."""
+def clear_base(guid: str, what: str = 'config') -> dict:
+    """Удалить кэш базы: what=config (кэш программы/конфигурации, LOCALAPPDATA)
+    | user (настройки, APPDATA) | program (PROGRAMDATA) | both (всё)."""
     guid = (guid or '').strip()
     if not guid:
         raise ValueError('не передан guid базы')
-    want = ('user', 'program') if what in ('both', 'all', '') else (what,)
+    want = ('config', 'user', 'program') if what in ('both', 'all', '') else (what,)
     for w in want:
-        if w not in ('user', 'program'):
-            raise ValueError("what: user | program | both")
+        if w not in ('config', 'user', 'program'):
+            raise ValueError("what: config | user | program | both")
     dirs = base_dirs(guid)
     freed = 0
     removed = []
