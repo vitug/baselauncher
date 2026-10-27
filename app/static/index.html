@@ -180,6 +180,7 @@ tr.base.open td.name{box-shadow:inset 3px 0 0 var(--green)}
 tr.base.running td.name{box-shadow:inset 3px 0 0 var(--green)}
 #dtovl{position:fixed;inset:0;background:#000a;display:none;z-index:13}
 #dtovl.on{display:flex;align-items:center;justify-content:center}
+#b-menu{margin-left:auto}
 #ptovl{position:fixed;inset:0;background:#000a;display:none;z-index:13}
 #ptovl.on{display:flex;align-items:center;justify-content:center}
 #ptmodal{background:var(--card);border:1px solid var(--border);border-radius:10px;
@@ -375,13 +376,13 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <button id="b-collapse-all" class="add" onclick="collapseAll()" title="свернуть все папки дерева">− всё</button>
   <button id="b-expand-all" class="add" onclick="expandAll()" title="развернуть все папки дерева">+ всё</button>
   <button id="adhoc-tgl" onclick="toggleAdhoc()">разовые ключи ▾</button>
-  <button id="b-menu" class="add" onclick="openAppMenu(event)"
-    title="меню приложения: платформы, кэши, обслуживание">☰ меню</button>
   <button id="b-tray" class="add" onclick="toTray()"
     title="убрать окно в трей (сервер работает, вернуть — Ctrl+Shift+S или клик по иконке в трее)">⌄ в трей</button>
   <div id="chips"></div>
   <button id="b-clear-filter" class="add" onclick="clearFilter()" style="display:none"
     title="сбросить фильтр: очистить поиск и вернуть «Все» (Esc)">✕ фильтр</button>
+  <button id="b-menu" class="add" onclick="event.stopPropagation();openAppMenu(this)"
+    title="меню приложения: платформы, кэши, обслуживание">☰</button>
 </header>
 <div id="adhoc">
   <label><input type="checkbox" id="a-Debug"> /Debug</label>
