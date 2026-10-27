@@ -1734,14 +1734,16 @@ async function cbClearSelected(){
 }
 /* ---------- пакетная выгрузка конфигураций в XML ---------- */
 let XM_DATA=null, XM_SEL=new Set(), XM_TIMER=null;
-function openDumpXml(){
+function openDumpXml(preset){
   $('xmovl').classList.add('on'); $('xm-search').value='';
   if(!$('xm-root').value) $('xm-root').value='D:\\xml_out';
   XM_SEL=new Set();
+  const pre=preset||null;
   $('xmlist').innerHTML='<div class="hint">загрузка…</div>';
   fetch('/api/state').then(r=>r.json()).then(st=>{
     XM_DATA=(st.bases||[]).filter(b=>b.path&&b.file!==false)
       .map(b=>({guid:b.guid,name:b.name,path:b.path,running:!!b.running}));
+    if(pre&&XM_DATA.some(b=>b.guid===pre)) XM_SEL=new Set([pre]);
     renderDumpXml();
   }).catch(()=>{ $('xmlist').innerHTML='<div class="hint">не удалось загрузить список</div>' });
   xmPoll();
@@ -1808,14 +1810,16 @@ function xmPoll(force){
 }
 /* ---------- пакетная загрузка конфигураций из XML ---------- */
 let XIL_DATA=null, XIL_SEL=new Set(), XIL_TIMER=null;
-function openLoadXml(){
+function openLoadXml(preset){
   $('xilovl').classList.add('on'); $('xil-search').value='';
   if(!$('xil-root').value) $('xil-root').value='D:\\xml_out';
   XIL_SEL=new Set(); xilMode();
+  const pre=preset||null;
   $('xillist').innerHTML='<div class="hint">загрузка…</div>';
   fetch('/api/state').then(r=>r.json()).then(st=>{
     XIL_DATA=(st.bases||[]).filter(b=>b.path)
       .map(b=>({guid:b.guid,name:b.name,path:b.path,running:!!b.running}));
+    if(pre&&XIL_DATA.some(b=>b.guid===pre)) XIL_SEL=new Set([pre]);
     renderLoadXml();
   }).catch(()=>{ $('xillist').innerHTML='<div class="hint">не удалось загрузить список</div>' });
   xilPoll();
@@ -2291,6 +2295,18 @@ function ctxShow(x,y,guid){
     chk.title='утилита 1С «Проверка и исправление базы данных» для файловой базы: откроется её окно';
     chk.onclick=()=>{ctxClose();checkDb(guid)};
     box.appendChild(chk);
+    const dmp=document.createElement('div');
+    dmp.className='ci';
+    dmp.textContent='Выгрузить конфигурацию в XML…';
+    dmp.title='исходники конфигурации этой базы в XML (ibcmd config export)';
+    dmp.onclick=()=>{ctxClose();openDumpXml(guid)};
+    box.appendChild(dmp);
+    const ldx=document.createElement('div');
+    ldx.className='ci';
+    ldx.textContent='Загрузить конфигурацию из XML…';
+    ldx.title='загрузить конфигурацию в эту базу из XML (ibcmd config import: полная / изменённое / заданные объекты)';
+    ldx.onclick=()=>{ctxClose();openLoadXml(guid)};
+    box.appendChild(ldx);
   }
   /* настройки базы — в самом низу, горячая клавиша Alt+Enter */
   const sep2=document.createElement('div'); sep2.className='sep'; box.appendChild(sep2);
