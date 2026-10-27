@@ -1197,6 +1197,71 @@ async def cache_dead_clear(req: Request):
     return res
 
 
+@app.get('/api/cache/bases')
+def cache_bases():
+    """Кэш по каждой базе (уровень config и user): для выбора, что чистить.
+
+    Тяжёлый обход размеров — в threadpool (def, не async), с бюджетом времени на каталог.
+    """
+    st = importer.build_state()
+    out = []
+    for b in st.get('bases') or []:
+        guid = b.get('guid') or ''
+        if not guid:
+            continue
+        try:
+            info = cache.base_info(guid, budget=0.45)
+        except Exception:                        # noqa: BLE001
+            continue
+        cfg = info.get('config') or {}
+        usr = info.get('user') or {}
+        if not cfg.get('dirs') and not usr.get('dirs'):
+            continue
+        out.append({'guid': guid, 'name': b.get('name') or guid,
+                    'family': b.get('family') or '',
+                    'running': bool(b.get('running')),
+                    'config_bytes': cfg.get('bytes') or 0, 'config_human': cfg.get('human') or '0 Б',
+                    'config_partial': bool(cfg.get('partial')),
+                    'user_bytes': usr.get('bytes') or 0, 'user_human': usr.get('human') or '0 Б'})
+    out.sort(key=lambda x: -x['config_bytes'])
+    return {'ok': True, 'count': len(out), 'bases': out}
+
+
+@app.post('/api/cache/bases/clear')
+async def cache_bases_clear(req: Request):
+    """Очистить кэш выбранных баз: guids + what (config | user | program | both)."""
+    body = await req.json()
+    guids = [str(g).strip().lower() for g in (body.get('guids') or []) if str(g).strip()]
+    what = str(body.get('what') or 'config').strip().lower()
+    if not guids:
+        return JSONResponse({'error': 'не переданы guids'}, status_code=400)
+    st = importer.build_state()
+    by_guid = {b['guid']: b for b in (st.get('bases') or []) if b.get('guid')}
+    freed = 0
+    removed = 0
+    cleared = []
+    errors = []
+    skipped = []
+    for g in guids:
+        b = by_guid.get(g)
+        if not b:
+            skipped.append(g)
+            continue
+        try:
+            r = cache.clear_base(g, what)
+        except ValueError as e:
+            errors.append('%s: %s' % (b.get('name') or g, e))
+            continue
+        freed += r.get('freed') or 0
+        removed += r.get('dirs_removed') or 0
+        cleared.append(b.get('name') or g)
+        errors.extend('%s: %s' % ((b.get('name') or g), e) for e in (r.get('errors') or [])[:2])
+    return {'ok': True, 'what': what, 'cleared': cleared, 'count': len(cleared),
+            'dirs_removed': removed, 'freed': freed, 'freed_human': cache.human(freed),
+            'skipped': skipped[:5], 'errors': errors[:10],
+            'sessions_running': len(procs.running_sessions())}
+
+
 # ---- платформы: использование, массовый перевод, удаление ----------------------
 
 def _v8i_versions() -> dict[str, str]:
