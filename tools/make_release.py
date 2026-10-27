@@ -26,7 +26,7 @@ DIST = ROOT / 'dist'
 DEPLOY = ROOT / 'deploy'
 
 # что кладём в поставку
-DIRS = ['app', 'core', 'assets']
+DIRS = ['app', 'core', 'assets', 'docs']
 FILES = ['boot.py', 'run_server.py', 'mcp_server.py', 'dev.py', 'README.md', 'requirements.txt']
 # файлы поставки: (источник в deploy/, имя в пакете)
 DEPLOY_FILES = [('INSTALL.md', 'INSTALL.md'),
