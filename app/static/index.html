@@ -1807,6 +1807,7 @@ function xmToggleAll(){ const rows=xmFilterRows(); const all=rows.every(b=>XM_SE
   rows.forEach(b=>all?XM_SEL.delete(b.guid):XM_SEL.add(b.guid)); renderDumpXml() }
 function xmSum(){
   const n=XM_SEL.size;
+  $('xm-go').textContent=XM_ONE?'Выгрузить':'Выгрузить выбранные';
   $('xm-sum').textContent=XM_ONE
     ?`выгрузится в подкаталог «${esc((XM_DATA[0]&&XM_DATA[0].name)||'')}» внутри указанного каталога`
     :(n?`выбрано ${n} файловых баз — каждая выгрузится в свой подкаталог`
@@ -1906,6 +1907,7 @@ function xilToggleAll(){ const rows=xilFilterRows(); const all=rows.every(b=>XIL
 function xilSum(){
   const n=XIL_SEL.size;
   const m={changed:'только изменённое',files:'заданные объекты',full:'ПОЛНАЯ (замена конфигурации)'}[$('xil-mode').value];
+  $('xil-go').textContent=XIL_ONE?'Загрузить':'Загрузить в выбранные';
   $('xil-sum').textContent=XIL_ONE
     ?`режим: ${m}${XIL_DATA[0]&&XIL_DATA[0].running?' · база открыта — закройте сеансы':''}`
     :(n?`выбрано ${n} баз · режим: ${m}`:`файловых баз: ${XIL_DATA?XIL_DATA.length:0} — отметьте нужные · режим: ${m}`);
