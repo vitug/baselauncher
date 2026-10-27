@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import time
+from datetime import datetime
 from pathlib import Path
 
 HUMAN = ('Б', 'КБ', 'МБ', 'ГБ', 'ТБ')
@@ -256,3 +258,76 @@ def clear_base(guid: str, what: str = 'user') -> dict:
     return {'ok': not errors or bool(removed), 'what': ','.join(want), 'guid': guid,
             'dirs_found': found, 'dirs_removed': len(removed), 'removed': removed[:10],
             'freed': freed, 'freed_human': human(freed), 'errors': errors[:10]}
+
+
+# ---- мёртвые кэши: GUID-каталоги, не привязанные ни к одной базе ----------------
+# Имена подкаталогов 1cv8 — это ID информационных баз из ibases.v8i (их же пишет 1С
+# в свои кэши). Если GUID-каталог есть, а секции с таким ID в списке баз нет —
+# база удалена/переименована давно, кэш остался («мёртвый»).
+
+_GUID_DIR = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+
+
+def _cache_roots() -> list[Path]:
+    return [r for r in (local_root(), roaming_root(), programdata_root()) if r.is_dir()]
+
+
+def dead_caches(known: set[str], limit: int = 400) -> dict:
+    """Кэш-каталоги, чей GUID не в known (ID баз и папок из ibases.v8i + config)."""
+    known = {g.strip().lower() for g in (known or set()) if g}
+    items = []
+    total = 0
+    for root in _cache_roots():
+        try:
+            entries = list(os.scandir(root))
+        except OSError:
+            continue
+        for e in entries:
+            try:
+                if not e.is_dir(follow_symlinks=False) or not _GUID_DIR.match(e.name.strip().lower()):
+                    continue
+                if e.name.strip().lower() in known:
+                    continue
+                s = size_of(Path(e.path), budget=1.0)
+                mtime = datetime.fromtimestamp(e.stat(follow_symlinks=False).st_mtime).strftime('%Y-%m-%d')
+                items.append({'guid': e.name.strip().lower(), 'path': e.path,
+                              'bytes': s['bytes'], 'human': s['human'], 'files': s['files'],
+                              'mtime': mtime})
+                total += s['bytes']
+            except OSError:
+                continue
+    items.sort(key=lambda x: -x['bytes'])
+    return {'count': len(items), 'bytes': total, 'human': human(total),
+            'items': items[:limit], 'total_count': len(items)}
+
+
+def clear_dead(known: set[str], guids: list[str] | None = None) -> dict:
+    """Удалить мёртвые кэши (все, либо только перечисленные в guids)."""
+    known = {g.strip().lower() for g in (known or set()) if g}
+    want = {g.strip().lower() for g in (guids or [])} if guids else None
+    freed = 0
+    removed = 0
+    errors = []
+    for root in _cache_roots():
+        try:
+            entries = list(os.scandir(root))
+        except OSError:
+            continue
+        for e in entries:
+            try:
+                g = e.name.strip().lower()
+                if not e.is_dir(follow_symlinks=False) or not _GUID_DIR.match(g):
+                    continue
+                if g in known:
+                    continue
+                if want is not None and g not in want:
+                    continue
+                r = _rmtree(Path(e.path))
+                freed += r['bytes']
+                if r['removed']:
+                    removed += 1
+                errors.extend(r['errors'])
+            except OSError:
+                continue
+    return {'ok': True, 'removed': removed, 'freed': freed, 'freed_human': human(freed),
+            'errors': errors[:10]}

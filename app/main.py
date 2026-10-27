@@ -1154,6 +1154,218 @@ async def platform_reveal(req: Request):
     return platforms_share.reveal(v)
 
 
+@app.get('/api/cache/dead')
+def cache_dead():
+    """Мёртвые кэши 1С: GUID-каталоги, не привязанные ни к одной базе из ibases.v8i/config."""
+    known = set()
+    from core import parsers
+    try:
+        for keys in parsers.parse_v8i():
+            g = (keys.get('ID') or '').strip().lower()
+            if g:
+                known.add(g)
+    except Exception:                            # noqa: BLE001
+        pass
+    try:
+        known.update((str(g) or '').strip().lower() for g in (config.load().get('bases') or {}).keys())
+    except Exception:                            # noqa: BLE001
+        pass
+    return cache.dead_caches(known)
+
+
+@app.post('/api/cache/dead/clear')
+async def cache_dead_clear(req: Request):
+    """Удалить мёртвые кэши (все или выбранные guids)."""
+    body = await req.json()
+    guids = body.get('guids') or None
+    known = set()
+    from core import parsers
+    try:
+        for keys in parsers.parse_v8i():
+            g = (keys.get('ID') or '').strip().lower()
+            if g:
+                known.add(g)
+    except Exception:                            # noqa: BLE001
+        pass
+    try:
+        known.update((str(g) or '').strip().lower() for g in (config.load().get('bases') or {}).keys())
+    except Exception:                            # noqa: BLE001
+        pass
+    res = cache.clear_dead(known, guids)
+    res['sessions_running'] = len(procs.running_sessions())
+    return res
+
+
+# ---- платформы: использование, массовый перевод, удаление ----------------------
+
+def _v8i_versions() -> dict[str, str]:
+    """guid базы → Version= из ibases.v8i."""
+    out = {}
+    from core import parsers
+    try:
+        for keys in parsers.parse_v8i():
+            if not (keys.get('Connect') or '').strip():
+                continue
+            g = (keys.get('ID') or '').strip().lower()
+            if g:
+                out[g] = (keys.get('Version') or '').strip()
+    except Exception:                            # noqa: BLE001
+        pass
+    return out
+
+
+@app.get('/api/platforms/usage')
+def platforms_usage():
+    """По каждой установленной платформе — сколько баз на ней (закреплено / подобрано / Version=)."""
+    st = importer.build_state()
+    ver_by_guid = _v8i_versions()
+    out = []
+    for p in st.get('platforms') or []:
+        exes = {e.lower() for e in (p.get('exe'), p.get('exe_thin')) if e}
+        pinned = []
+        resolved = []
+        by_version = []
+        for b in st.get('bases') or []:
+            pin = ((b.get('our') or {}).get('exe') or '').lower()
+            res = (b.get('exe') or '').lower()
+            if pin in exes:
+                pinned.append(b['name'])
+            if res in exes:
+                resolved.append(b['name'])
+            if p.get('key') and ver_by_guid.get(b['guid']) == p['key']:
+                by_version.append(b['name'])
+        out.append({'key': p.get('key'), 'family': p.get('family'), 'bitness': p.get('bitness'),
+                    'source': p.get('source'), 'exe': p.get('exe'), 'exe_thin': p.get('exe_thin'),
+                    'pinned': pinned, 'resolved': resolved, 'by_version': by_version,
+                    'used': bool(pinned or resolved or by_version)})
+    out.sort(key=lambda x: ((x.get('family') or ''), x.get('key') or ''), reverse=True)
+    return {'platforms': out}
+
+
+@app.post('/api/platforms/migrate')
+async def platforms_migrate(req: Request):
+    """Массовый перевод баз на другую платформу: from (family|version) → to_version.
+
+    Для каждой подходящей базы: закрепляем exe в config.json и пишем Version= в ibases.v8i.
+    dry_run=true — только показать, что попадёт в перевод.
+    """
+    body = await req.json()
+    src = (body.get('from') or '').strip()
+    to_version = (body.get('to_version') or '').strip()
+    dry = bool(body.get('dry_run'))
+    if not src or not to_version:
+        return JSONResponse({'error': 'нужны from (семейство или версия) и to_version'}, status_code=400)
+    st = importer.build_state()
+    target = next((p for p in st.get('platforms') or [] if p.get('key') == to_version), None)
+    if not target:
+        return JSONResponse({'error': 'платформа %s не установлена' % to_version}, status_code=400)
+    to_exe = target.get('exe') or target.get('exe_thin') or ''
+    ver_by_guid = _v8i_versions()
+    hits = []
+    for b in st.get('bases') or []:
+        fam = b.get('family') or ''
+        if src == fam:
+            hits.append(b)
+            continue
+        # версия: в закреплённом exe, в подобранном exe или в Version= из ibases.v8i
+        vers = set()
+        for exe in (b.get('exe') or '', ((b.get('our') or {}).get('exe') or '')):
+            for part in Path(exe.replace('\\', '/')).parts:
+                if re.match(r'^\d+\.\d+\.\d+\.\d+$', part):
+                    vers.add(part)
+        v8i_ver = ver_by_guid.get(b['guid']) or ''
+        if v8i_ver:
+            vers.add(v8i_ver)
+        if src in vers:
+            hits.append(b)
+    if dry:
+        return {'ok': True, 'dry_run': True, 'count': len(hits),
+                'names': [b['name'] for b in hits][:100]}
+    done = []
+    errors = []
+    for b in hits:
+        try:
+            config.set_base(b['guid'], {'exe': to_exe, 'family': target.get('family') or '', 'learnt': ''})
+            v8i_writer.set_version(b['guid'], to_version)
+            done.append(b['name'])
+        except Exception as e:                   # noqa: BLE001
+            errors.append('%s: %s' % (b['name'], e))
+    importer._BASES_CACHE.clear()
+    return {'ok': not errors, 'count': len(done), 'names': done[:100],
+            'to_version': to_version, 'to_exe': to_exe, 'errors': errors[:10]}
+
+
+@app.post('/api/platforms/delete')
+async def platforms_delete(req: Request):
+    """Удалить установленную платформу с диска — только если на ней нет баз и живых сеансов."""
+    body = await req.json()
+    version = (body.get('version') or '').strip()
+    if not version:
+        return JSONResponse({'error': 'не передана версия платформы'}, status_code=400)
+    st = importer.build_state()
+    p = next((x for x in st.get('platforms') or [] if x.get('key') == version), None)
+    if not p:
+        return JSONResponse({'error': 'платформа %s не найдена' % version}, status_code=404)
+    usage = platforms_usage()
+    u = next((x for x in usage['platforms'] if x['key'] == version), None)
+    if u and (u['pinned'] or u['resolved'] or u['by_version']):
+        return JSONResponse({'error': 'на платформе %s есть базы' % version,
+                             'pinned': u['pinned'][:50], 'resolved': u['resolved'][:50],
+                             'by_version': u['by_version'][:50]}, status_code=409)
+    exes = [e for e in (p.get('exe'), p.get('exe_thin')) if e]
+    live = []
+    for s in procs.running_sessions():
+        cmd = procs.cmdline(s['pid']) or ''
+        if any(e.lower() in cmd.lower() for e in exes):
+            live.append(s['pid'])
+    if live:
+        return JSONResponse({'error': 'есть живые сеансы этой платформы (PID %s)' % ', '.join(map(str, live))},
+                            status_code=409)
+    # каталог версии: <source>\<key>
+    import shutil as _sh
+    from core import scanner
+    src_root = p.get('source') or ''
+    vdir = Path(src_root) / version
+    if not vdir.is_dir():
+        return JSONResponse({'error': 'каталог %s не найден' % vdir}, status_code=404)
+    try:
+        _sh.rmtree(vdir)
+        ok = True
+    except OSError:
+        ok = False
+    if not ok:
+        # Program Files и прочие защищённые — через UAC (пользователь подтверждает)
+        marker = Path(__import__('tempfile').gettempdir()) / 'bl_platdel.txt'
+        ps = ('Start-Process cmd -ArgumentList \'/c rmdir /s /q "%s" & '
+              'if exist "%s" (echo FAIL> "%s") else (echo OK> "%s")\' -Verb RunAs -Wait') % (
+            vdir, vdir, marker, marker)
+        try:
+            subprocess.run(['powershell', '-NoProfile', '-Command', ps], timeout=120, check=False)
+            ok = marker.is_file() and marker.read_text().strip() == 'OK'
+        except Exception as e:                   # noqa: BLE001
+            return JSONResponse({'error': 'UAC-удаление не удалось: %s' % e}, status_code=500)
+    if not ok:
+        return JSONResponse({'error': 'не удалось удалить %s' % vdir}, status_code=500)
+    importer._BASES_CACHE.clear()
+    return {'ok': True, 'removed': str(vdir)}
+
+
+@app.post('/api/platform/open')
+async def platform_open(req: Request):
+    """Открыть в проводнике каталог установленной платформы."""
+    body = await req.json()
+    version = (body.get('version') or '').strip()
+    st = importer.build_state()
+    p = next((x for x in st.get('platforms') or [] if x.get('key') == version), None)
+    if not p:
+        return JSONResponse({'error': 'платформа не найдена'}, status_code=404)
+    d = Path(p.get('source') or '') / version
+    if not d.is_dir():
+        return JSONResponse({'error': 'каталог не найден'}, status_code=404)
+    subprocess.Popen(['explorer', str(d)])
+    return {'ok': True, 'dir': str(d)}
+
+
 @app.post('/api/shutdown')
 def shutdown():
     """Штатная остановка сервера (освобождает порт без сирот-воркеров).

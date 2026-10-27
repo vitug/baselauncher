@@ -179,6 +179,34 @@ def move(guid: str, folder: str = '/') -> dict:
     raise ValueError('секция с таким ID не найдена')
 
 
+def set_version(guid: str, version: str) -> str:
+    """Проставить/заменить Version=<version> в секции базы (массовый перевод на другую платформу).
+
+    Возвращает имя секции. Если ключа Version= не было — строка вставляется после Connect=.
+    """
+    guid = guid.strip().lower()
+    version = (version or '').strip()
+    _, text = _read()
+    secs = _sections(text)
+    for s in secs:
+        m = re.search(r'(?m)^ID=([^\r\n]*)', s['body'])
+        if not m or m.group(1).strip().lower() != guid:
+            continue
+        if 'Connect=' not in s['body']:
+            raise ValueError('это папка, а не база')
+        body = s['body']
+        if re.search(r'(?m)^Version=', body):
+            body = _set(body, 'Version', version)
+        elif version:
+            body = re.sub(r'(?m)^(Connect=[^\r\n]*)', '\\1\r\nVersion=' + version, body, count=1)
+        else:
+            body = re.sub(r'(?m)^Version=[^\r\n]*\r?\n?', '', body)
+        if body != s['body']:
+            _write(text[:s['body_start']] + body + text[s['end']:])
+        return s['name']
+    raise ValueError('секция с таким ID не найдена')
+
+
 def delete(guid: str) -> str:
     """Вырезать секцию по ID (база или пустая папка). Возвращает имя секции."""
     guid = guid.strip().lower()

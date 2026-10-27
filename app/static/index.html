@@ -180,6 +180,14 @@ tr.base.open td.name{box-shadow:inset 3px 0 0 var(--green)}
 tr.base.running td.name{box-shadow:inset 3px 0 0 var(--green)}
 #dtovl{position:fixed;inset:0;background:#000a;display:none;z-index:13}
 #dtovl.on{display:flex;align-items:center;justify-content:center}
+#ptovl{position:fixed;inset:0;background:#000a;display:none;z-index:13}
+#ptovl.on{display:flex;align-items:center;justify-content:center}
+#ptmodal{background:var(--card);border:1px solid var(--border);border-radius:10px;
+  padding:16px;width:min(760px,94vw);max-height:88vh;overflow:auto}
+#ptlist table{width:100%;border-collapse:collapse;font-size:12px}
+#ptlist td,#ptlist th{padding:4px 6px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+#ptlist .ptb{display:flex;gap:4px;flex-wrap:wrap}
+#ptlist .ptb button{font-size:11px;padding:2px 8px}
 #dtmodal{width:620px;max-width:94vw;max-height:90vh;overflow:auto;background:var(--panel);
   border:1px solid var(--border);border-radius:12px;padding:18px 20px;box-shadow:0 12px 40px #000c}
 #dtmodal h2{margin:0 0 10px;font-size:15px}
@@ -367,6 +375,8 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <button id="b-collapse-all" class="add" onclick="collapseAll()" title="свернуть все папки дерева">− всё</button>
   <button id="b-expand-all" class="add" onclick="expandAll()" title="развернуть все папки дерева">+ всё</button>
   <button id="adhoc-tgl" onclick="toggleAdhoc()">разовые ключи ▾</button>
+  <button id="b-menu" class="add" onclick="openAppMenu(event)"
+    title="меню приложения: платформы, кэши, обслуживание">☰ меню</button>
   <button id="b-tray" class="add" onclick="toTray()"
     title="убрать окно в трей (сервер работает, вернуть — Ctrl+Shift+S или клик по иконке в трее)">⌄ в трей</button>
   <div id="chips"></div>
@@ -476,6 +486,18 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <h2 id="a-title">База уже открыта</h2>
   <div id="a-text" class="hint" style="white-space:pre-line;line-height:1.45;max-height:38vh;overflow:auto"></div>
   <div class="btns" id="a-btns"></div>
+</div></div>
+
+<div id="ptovl"><div id="ptmodal">
+  <h2>Платформы 1С на этом компьютере</h2>
+  <div class="hint" style="margin-bottom:8px">Использование: «закреплено» — exe выбран вручную в настройках базы,
+    «подобрано» — автоподбор (Version= из ibases.v8i / ближайшая платформа), «Version=» — версия в ibases.v8i.
+    Удалить можно только платформу без баз и живых сеансов.</div>
+  <div id="ptlist" style="max-height:52vh;overflow:auto"></div>
+  <div class="btns" style="display:flex;gap:8px;margin-top:12px">
+    <button class="save" onclick="loadPlatUsage(true)">Обновить</button>
+    <button id="pt-cancel" onclick="closePlat()">Закрыть</button>
+  </div>
 </div></div>
 
 <div id="ovl"><div id="modal">
@@ -1392,6 +1414,121 @@ function askClearBaseCache(guid){
 }
 /* кэш пользователя 1С и кэш программы — отдельные команды, каждая со своим подтверждением */
 let CACHE_INFO=null;
+/* ---------- общее меню приложения (☰ в шапке) ---------- */
+function openAppMenu(el){
+  const box=$('ctxm');
+  if(CTX_GUID==='__appmenu'&&box.style.display!=='none'){ctxClose();return}
+  CTX_GUID='__appmenu';
+  box.innerHTML='';
+  const mk=(t,fn,cls)=>{
+    const d=document.createElement('div'); d.className='ci'+(cls?' '+cls:'');
+    d.textContent=t; d.onclick=()=>{ctxClose();fn()}; box.appendChild(d);
+  };
+  mk('Платформы: список, перевод баз, удаление…',openPlat);
+  mk('Мёртвые кэши (не привязаны к базам)…',openDeadCaches);
+  mk('Кэш пользователя 1С (все базы)…',askClearUserCache);
+  mk('Кэш программы…',askClearAppCache);
+  box.style.display='block'; box.style.left='0px'; box.style.top='0px';
+  const r=box.getBoundingClientRect();
+  const rr=el?el.getBoundingClientRect():{left:innerWidth-r.width-20,bottom:innerHeight-60};
+  box.style.left=Math.max(8,Math.min(rr.left, innerWidth-r.width-8))+'px';
+  box.style.top=Math.max(8,Math.min(rr.bottom+4, innerHeight-r.height-8))+'px';
+}
+/* ---------- мёртвые кэши ---------- */
+async function openDeadCaches(){
+  stat('ищу мёртвые кэши…','');
+  let d=null;
+  try{ d=await (await fetch('/api/cache/dead')).json(); }catch(e){}
+  if(!d||typeof d.count!=='number'){ stat('не удалось получить мёртвые кэши','err'); return }
+  if(!d.count){ stat('мёртвых кэшей нет'); toast('мёртвых кэшей нет — все каталоги привязаны к базам'); return }
+  const top=d.items.slice(0,12).map(i=>`• ${i.human} · ${i.mtime} · ${i.guid}`).join('\n');
+  askBox(`Мёртвые кэши: ${d.count} шт · ${d.human}`,
+    'Кэш-каталоги 1С, у которых нет базы с таким ID в ibases.v8i (база удалена давно, кэш остался):\n\n'
+    +top+(d.count>12?`\n… и ещё ${d.count-12}`:'')
+    +'\n\nКаталоги: %LOCALAPPDATA%\\1C\\1cv8, %APPDATA%\\1C\\1cv8, %PROGRAMDATA%\\1C\\1cv8.\n'
+    +'Данные баз не затрагиваются. Сеансы 1С лучше закрыть — иначе занятые файлы останутся.',
+    [{t:'Удалить все мёртвые',cls:'del',primary:true,f:async()=>{
+       const r=await postJSON('/api/cache/dead/clear',{}).catch(e=>({error:String(e)}));
+       if(r.ok){ stat(`удалено мёртвых кэшей: ${r.removed}, освобождено ${r.freed_human}`,'ok');
+         toast(`мёртвые кэши: удалено ${r.removed}, освобождено ${r.freed_human}`,9000); }
+       else{ stat('ошибка: '+(r.error||JSON.stringify(r.errors||[])),'err'); toast('ОШИБКА очистки мёртвых кэшей'); }
+     }},{t:'Отмена'}]);
+}
+/* ---------- платформы: список, перевод, удаление ---------- */
+let PLAT_USAGE=null;
+function openPlat(){ $('ptovl').classList.add('on'); loadPlatUsage(); }
+function closePlat(){ $('ptovl').classList.remove('on') }
+async function loadPlatUsage(force){
+  if(PLAT_USAGE&&!force){ renderPlatUsage(); return }
+  $('ptlist').innerHTML='<div class="hint">загрузка…</div>';
+  try{ PLAT_USAGE=await (await fetch('/api/platforms/usage')).json(); }catch(e){ PLAT_USAGE=null }
+  if(!PLAT_USAGE||!PLAT_USAGE.platforms){ $('ptlist').innerHTML='<div class="hint">не удалось загрузить</div>'; return }
+  renderPlatUsage();
+}
+function renderPlatUsage(){
+  const ps=PLAT_USAGE.platforms||[];
+  let h='<table><tr><th>Версия</th><th>Где</th><th>Баз</th><th></th></tr>';
+  ps.forEach(p=>{
+    const nP=p.pinned.length,nR=p.resolved.length,nV=p.by_version.length;
+    const cnt=(nP||nR||nV)?`закреплено ${nP} · подобрано ${nR} · Version= ${nV}`:'— не используется';
+    h+=`<tr><td><b>${esc(p.key)}</b> · ${esc(p.family)} · ${esc(p.bitness)}</td>`
+      +`<td class="hint">${esc(p.source)}</td><td class="hint">${cnt}</td>`
+      +`<td><div class="ptb">`
+      +`<button onclick="platMigrateDlg('${esc(p.key)}','${esc(p.family)}')">перевести базы…</button>`
+      +`<button onclick="platOpenDir('${esc(p.key)}')">папка</button>`
+      +`<button class="del" onclick="platDelete('${esc(p.key)}')">удалить</button>`
+      +`</div></td></tr>`;
+  });
+  h+='</table>';
+  $('ptlist').innerHTML=h;
+}
+async function platOpenDir(key){
+  const r=await postJSON('/api/platform/open',{version:key}).catch(e=>({error:String(e)}));
+  if(!r.ok)toast('не удалось открыть папку: '+(r.error||''));
+}
+function platMigrateDlg(key,family){
+  const ps=(PLAT_USAGE&&PLAT_USAGE.platforms)||[];
+  const opts=ps.filter(p=>p.key!==key).map(p=>`<option value="${esc(p.key)}">${esc(p.key)} · ${esc(p.family)}</option>`).join('');
+  askBox(`Перевод баз с ${key}`,
+    `Перевести все базы платформы ${key} (семейство ${family}) на другую версию:\n`
+    +`<select id="mg-to" style="width:100%;margin:8px 0">${opts}</select>\n`
+    +'Для каждой базы: exe закрепляется в настройках лаунчера и пишется Version= в ibases.v8i '
+    +'(1С-лаунчер тоже будет открывать её новой платформой). Сначала покажем список баз.',
+    [{t:'Показать базы и перевести',primary:true,f:async()=>{
+       const to=$('mg-to')&&$('mg-to').value; if(!to){toast('не выбрана целевая платформа');return}
+       const dry=await postJSON('/api/platforms/migrate',{from:key,to_version:to,dry_run:true}).catch(e=>({error:String(e)}));
+       if(dry.error){toast('ОШИБКА: '+dry.error);return}
+       if(!dry.count){toast('на платформе '+key+' баз не найдено');return}
+       const names=dry.names.slice(0,15).join('\n')+(dry.count>15?'\n… и ещё '+(dry.count-15):'');
+       askBox(`Перевести ${dry.count} баз на ${to}?`,
+         'Базы, которые попадут в перевод:\n'+names,
+         [{t:'Перевести',primary:true,f:async()=>{
+            const r=await postJSON('/api/platforms/migrate',{from:key,to_version:to}).catch(e=>({error:String(e)}));
+            if(r.ok){ stat(`переведено баз: ${r.count} → ${to}`,'ok'); toast(`переведено ${r.count} баз на ${to}`,9000);
+              loadPlatUsage(true); reload(); }
+            else{ stat('ошибка перевода: '+(r.errors||[]).join('; '),'err'); toast('ОШИБКА перевода'); }
+          }},{t:'Отмена'}]);
+     }},{t:'Отмена'}]);
+}
+async function platDelete(key){
+  const dry=await fetch('/api/platforms/usage').then(x=>x.json()).catch(()=>null);
+  const u=dry&&dry.platforms&&dry.platforms.find(p=>p.key===key);
+  const used=u&&(u.pinned.length||u.resolved.length||u.by_version.length);
+  const info=used?`Закреплено: ${u.pinned.length}, подобрано: ${u.resolved.length}, Version=: ${u.by_version.length}`
+                 :'На этой платформе нет баз и живых сеансов.';
+  askBox(`Удалить платформу ${key}?`,
+    info+'\n\nКаталог версии будет удалён с диска (для Program Files — с подтверждением UAC).'
+    +(used?'\n\nСначала переведите базы на другую платформу («перевести базы…») или отвяжите их.':''),
+    [{t:used?'Не удалять':'Удалить',cls:'del',primary:!used,f:async()=>{
+       if(used)return;
+       const r=await postJSON('/api/platforms/delete',{version:key}).catch(e=>({error:String(e)}));
+       if(r.ok){ stat('платформа удалена: '+r.removed,'ok'); toast('платформа '+key+' удалена'); loadPlatUsage(true); reload(); }
+       else{ stat('не удалено: '+(r.error||''),'err');
+         if(r.pinned||r.resolved||r.by_version)
+           toast('на платформе есть базы: '+[].concat(r.pinned||[],r.resolved||[]).slice(0,8).join(', '),9000); }
+     }},{t:'Отмена'}]);
+}
+
 async function openCacheMenu(el){
   const box=$('ctxm');
   if(CTX_GUID==='__cache'&&box.style.display!=='none'){ctxClose();return}
