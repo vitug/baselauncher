@@ -1857,9 +1857,13 @@ async function mgLoad(){
   $('mg-repo').innerHTML='<option value="">хранилища: все</option>'
     +(dirs.length?'<option value="__none__">без хранилища</option>':'')
     +dirs.map(d=>{
-      const tail=d.replace(/[\\/]+$/,'').split(/[\\/]/).filter(Boolean).slice(-2).join('/');
       const ver=(MG_DATA.bases.find(b=>b.storage_dir===d&&b.storage_ver)||{}).storage_ver||'';
-      return `<option value="${esc(d)}">⛁ ${esc(tail||d)} (${byDir[d]}${ver?' · '+esc(ver):''})</option>`;
+      const n=byDir[d];
+      const nTxt=n===1?'1 база':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?n+' базы':n+' баз');
+      // длинный адрес сжимаем многоточием в середине: начало и конец остаются читаемыми
+      const MAXW=64;
+      const lbl=d.length>MAXW ? d.slice(0,32)+'…'+d.slice(-24) : d;
+      return `<option value="${esc(d)}" title="${esc(d)}">⛁ ${esc(lbl)} — ${nTxt}${ver?' · '+esc(ver):''}</option>`;
     }).join('');
   renderMigrate();
 }
