@@ -117,7 +117,32 @@ def load() -> dict:
     cfg.setdefault('default_family', '8.3')
     cfg.setdefault('families', {})
     cfg.setdefault('bases', {})
+    cfg.setdefault('dump_paths', [])
     return cfg
+
+
+DUMP_PATHS_MAX = 3
+
+
+def dump_paths(cfg: dict = None) -> list:
+    """Запомненные каталоги выгрузки XML (свежие первыми, не больше DUMP_PATHS_MAX)."""
+    if cfg is None:
+        cfg = load()
+    ps = [str(x) for x in (cfg.get('dump_paths') or []) if str(x).strip()]
+    return ps[:DUMP_PATHS_MAX]
+
+
+def add_dump_path(path: str) -> list:
+    """Запомнить каталог выгрузки: наверх, без дублей, максимум DUMP_PATHS_MAX."""
+    p = (path or '').strip()
+    if not p:
+        return dump_paths()
+    cfg = load()
+    ps = [x for x in dump_paths(cfg) if x.lower() != p.lower()]
+    ps.insert(0, p)
+    cfg['dump_paths'] = ps[:DUMP_PATHS_MAX]
+    save(cfg)
+    return cfg['dump_paths']
 
 
 def save(cfg: dict, touch: bool = True) -> dict:
