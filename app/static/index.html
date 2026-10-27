@@ -190,15 +190,15 @@ tr.base.running td.name{box-shadow:inset 3px 0 0 var(--green)}
 #cblist td.num{text-align:right;white-space:nowrap}
 #cblist tr.run td{opacity:.75}
 #cblist input[type=checkbox]{transform:scale(1.25)}
-#pdovl,#mgovl{position:fixed;inset:0;background:#000a;display:none;z-index:13}
-#pdovl.on,#mgovl.on{display:flex;align-items:center;justify-content:center}
-#pdmodal,#mgmodal{background:var(--card);border:1px solid var(--border);border-radius:10px;
+#pdovl,#mgovl,#dcovl{position:fixed;inset:0;background:#000a;display:none;z-index:13}
+#pdovl.on,#mgovl.on,#dcovl.on{display:flex;align-items:center;justify-content:center}
+#pdmodal,#mgmodal,#dcmodal{background:var(--card);border:1px solid var(--border);border-radius:10px;
   padding:16px;width:min(780px,94vw);max-height:88vh;overflow:auto}
-#pdlist table,#mglist table{width:100%;border-collapse:collapse;font-size:12px}
-#pdlist td,#pdlist th,#mglist td,#mglist th{padding:4px 6px;border-bottom:1px solid var(--border);text-align:left}
-#pdlist td.num,#mglist td.num{text-align:right;white-space:nowrap}
+#pdlist table,#mglist table,#dclist table{width:100%;border-collapse:collapse;font-size:12px}
+#pdlist td,#pdlist th,#mglist td,#mglist th,#dclist td,#dclist th{padding:4px 6px;border-bottom:1px solid var(--border);text-align:left}
+#pdlist td.num,#mglist td.num,#dclist td.num{text-align:right;white-space:nowrap}
 #pdlist tr.used td{opacity:.6}
-#pdlist input[type=checkbox],#mglist input[type=checkbox]{transform:scale(1.25)}
+#pdlist input[type=checkbox],#mglist input[type=checkbox],#dclist input[type=checkbox]{transform:scale(1.25)}
 #ptovl{position:fixed;inset:0;background:#000a;display:none;z-index:13}
 #ptovl.on{display:flex;align-items:center;justify-content:center}
 #ptmodal{background:var(--card);border:1px solid var(--border);border-radius:10px;
@@ -222,7 +222,7 @@ tr.base.running td.name{box-shadow:inset 3px 0 0 var(--green)}
 #dtlog{font-family:ui-monospace,Consolas,monospace;font-size:11px;white-space:pre-wrap;
   max-height:22vh;overflow:auto;background:var(--card);border:1px solid var(--border);
   border-radius:8px;padding:8px;margin-top:8px}
-#askovl{position:fixed;inset:0;background:#000a;display:none;z-index:12}
+#askovl{position:fixed;inset:0;background:#000c;display:none;z-index:20}
 #askovl.on{display:flex;align-items:center;justify-content:center}
 #amodal{width:480px;max-width:92vw;background:var(--panel);border:1px solid var(--border);
   border-radius:12px;padding:18px 20px;box-shadow:0 12px 40px #000c}
@@ -574,6 +574,23 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <div class="btns" style="display:flex;gap:8px;margin-top:12px">
     <button class="save" id="mg-go" onclick="mgMigrateSelected()">Перевести выбранные</button>
     <button onclick="closeMigrate()">Закрыть</button>
+  </div>
+</div></div>
+
+<div id="dcovl"><div id="dcmodal">
+  <h2>Мёртвые кэши (не привязаны к базам)</h2>
+  <div class="hint" style="margin-bottom:8px">Кэш-каталоги 1С, у которых нет базы с таким ID в ibases.v8i
+    (база удалена давно, кэш остался). Данные баз не затрагиваются.</div>
+  <div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
+    <input id="dc-search" placeholder="поиск по GUID…" style="flex:1;min-width:160px" oninput="renderDeadCaches()">
+    <button class="add" onclick="dcToggleAll()" id="dc-all">выбрать всё</button>
+    <button class="add" onclick="dcInvert()" title="переключить выбор в рамках текущего фильтра">переключить выбор</button>
+  </div>
+  <div id="dclist" style="max-height:46vh;overflow:auto"></div>
+  <div class="hint" id="dc-sum" style="margin-top:6px"></div>
+  <div class="btns" style="display:flex;gap:8px;margin-top:12px">
+    <button class="del" id="dc-go" onclick="dcClearSelected()">Удалить выбранные</button>
+    <button onclick="closeDeadCaches()">Закрыть</button>
   </div>
 </div></div>
 
@@ -1508,21 +1525,79 @@ function openAppMenu(el){
   box.style.left=Math.max(8,Math.min(rr.left, innerWidth-r.width-8))+'px';
   box.style.top=Math.max(8,Math.min(rr.bottom+4, innerHeight-r.height-8))+'px';
 }
-/* ---------- мёртвые кэши ---------- */
+/* ---------- мёртвые кэши: чекбоксы + поиск ---------- */
+let DC_DATA=null, DC_SEL=new Set();
 async function openDeadCaches(){
+  $('dcovl').classList.add('on');
+  $('dc-search').value=''; DC_SEL=new Set();
+  $('dclist').innerHTML='<div class="hint">ищу мёртвые кэши…</div>';
   stat('ищу мёртвые кэши…','');
-  let d=null;
-  try{ d=await (await fetch('/api/cache/dead')).json(); }catch(e){}
-  if(!d||typeof d.count!=='number'){ stat('не удалось получить мёртвые кэши','err'); return }
-  if(!d.count){ stat('мёртвых кэшей нет'); toast('мёртвых кэшей нет — все каталоги привязаны к базам'); return }
-  const top=d.items.slice(0,12).map(i=>`• ${i.human} · ${i.mtime} · ${i.guid}`).join('\n');
-  askBox(`Мёртвые кэши: ${d.count} шт · ${d.human}`,
-    'Кэш-каталоги 1С, у которых нет базы с таким ID в ibases.v8i (база удалена давно, кэш остался):\n\n'
-    +top+(d.count>12?`\n… и ещё ${d.count-12}`:'')
-    +'\n\nКаталоги: %LOCALAPPDATA%\\1C\\1cv8, %APPDATA%\\1C\\1cv8, %PROGRAMDATA%\\1C\\1cv8.\n'
+  try{ DC_DATA=await (await fetch('/api/cache/dead')).json(); }catch(e){ DC_DATA=null }
+  if(!DC_DATA||typeof DC_DATA.count!=='number'){
+    $('dclist').innerHTML='<div class="hint">не удалось получить мёртвые кэши</div>'; stat('не удалось получить мёртвые кэши','err'); return }
+  if(!DC_DATA.count){
+    $('dclist').innerHTML='<div class="hint">мёртвых кэшей нет — все каталоги привязаны к базам</div>';
+    $('dc-go').disabled=true; $('dc-sum').textContent=''; stat('мёртвых кэшей нет'); return }
+  $('dc-go').disabled=false;
+  renderDeadCaches();
+}
+function closeDeadCaches(){ $('dcovl').classList.remove('on') }
+function renderDeadCaches(){
+  if(!DC_DATA||!DC_DATA.items) return;
+  const q=($('dc-search').value||'').toLowerCase().trim();
+  const rows=DC_DATA.items.filter(i=>!q||i.guid.toLowerCase().includes(q));
+  if(!rows.length){ $('dclist').innerHTML='<div class="hint">ничего не найдено</div>'; dcSum(rows); return }
+  let h='<table><tr><th></th><th class="num">Размер</th><th>Дата</th><th>GUID</th><th>Где</th></tr>';
+  rows.slice(0,300).forEach(i=>{
+    h+=`<tr>`
+      +`<td><input type="checkbox" ${DC_SEL.has(i.guid)?'checked':''} onchange="dcSel('${i.guid}',this.checked)"></td>`
+      +`<td class="num">${esc(i.human)}</td><td class="hint">${esc(i.mtime)}</td>`
+      +`<td class="hint" style="font-family:ui-monospace,Consolas,monospace">${esc(i.guid)}</td>`
+      +`<td class="hint">${esc((i.path||'').replace(/^.*1cv8/i,''))}</td></tr>`;
+  });
+  h+='</table>';
+  if(rows.length>300) h+=`<div class="hint" style="padding:6px">показаны первые 300 из ${rows.length} — уточните поиск</div>`;
+  $('dclist').innerHTML=h;
+  const allSel=rows.length>0&&rows.slice(0,300).every(i=>DC_SEL.has(i.guid));
+  $('dc-all').textContent=allSel?'снять всё':'выбрать всё';
+  dcSum(rows);
+}
+function dcSel(guid,on){ on?DC_SEL.add(guid):DC_SEL.delete(guid); renderDeadCaches() }
+function dcToggleAll(){
+  if(!DC_DATA||!DC_DATA.items) return;
+  const q=($('dc-search').value||'').toLowerCase().trim();
+  const rows=DC_DATA.items.filter(i=>!q||i.guid.toLowerCase().includes(q)).slice(0,300);
+  const all=rows.length>0&&rows.every(i=>DC_SEL.has(i.guid));
+  rows.forEach(i=>all?DC_SEL.delete(i.guid):DC_SEL.add(i.guid));
+  renderDeadCaches();
+}
+function dcInvert(){
+  if(!DC_DATA||!DC_DATA.items) return;
+  const q=($('dc-search').value||'').toLowerCase().trim();
+  const guids=[...new Set(DC_DATA.items.filter(i=>!q||i.guid.toLowerCase().includes(q)).slice(0,300).map(i=>i.guid))];
+  guids.forEach(g=>DC_SEL.has(g)?DC_SEL.delete(g):DC_SEL.add(g));
+  renderDeadCaches();
+}
+function dcSum(rows){
+  const items=DC_DATA&&DC_DATA.items||[];
+  const sel=items.filter(i=>DC_SEL.has(i.guid));
+  const freed=sel.reduce((s,i)=>s+i.bytes,0);
+  $('dc-sum').textContent=sel.length
+    ?`выбрано ${sel.length} · ${humanBytes(freed)}`
+    :(rows?`всего мёртвых кэшей: ${DC_DATA.count} · ${DC_DATA.human}`:'');
+}
+async function dcClearSelected(){
+  const guids=[...DC_SEL];
+  if(!guids.length){ toast('ничего не выбрано'); return }
+  const sel=(DC_DATA.items||[]).filter(i=>DC_SEL.has(i.guid));
+  const freed=sel.reduce((s,i)=>s+i.bytes,0);
+  closeDeadCaches();
+  askBox(`Удалить ${guids.length} мёртвых кэшей (${humanBytes(freed)})?`,
+    'Выбрано кэш-каталогов: '+guids.length+' · '+humanBytes(freed)+'.\n'
     +'Данные баз не затрагиваются. Сеансы 1С лучше закрыть — иначе занятые файлы останутся.',
-    [{t:'Удалить все мёртвые',cls:'del',primary:true,f:async()=>{
-       const r=await postJSON('/api/cache/dead/clear',{}).catch(e=>({error:String(e)}));
+    [{t:'Удалить',cls:'del',primary:true,f:async()=>{
+       stat('чищу мёртвые кэши…');
+       const r=await postJSON('/api/cache/dead/clear',{guids}).catch(e=>({error:String(e)}));
        if(r.ok){ stat(`удалено мёртвых кэшей: ${r.removed}, освобождено ${r.freed_human}`,'ok');
          toast(`мёртвые кэши: удалено ${r.removed}, освобождено ${r.freed_human}`,9000); }
        else{ stat('ошибка: '+(r.error||JSON.stringify(r.errors||[])),'err'); toast('ОШИБКА очистки мёртвых кэшей'); }
@@ -1632,7 +1707,7 @@ function renderPlatUsage(){
       +`<td class="hint" title="${esc((p.components||[]).join(', '))}">${esc(comps)}</td>`
       +`<td class="hint">${cnt}</td>`
       +`<td><div class="ptb">`
-      +`<button onclick="platMigrateDlg('${esc(p.key)}','${esc(p.family)}')">перевести базы…</button>`
+      +`<button onclick="openMigrate('${esc(p.key)}')">перевести базы…</button>`
       +`<button onclick="platOpenDir('${esc(p.key)}')">папка</button>`
       +`<button class="del" onclick="platDelete('${esc(p.key)}')">удалить</button>`
       +`</div></td></tr>`;
@@ -1644,30 +1719,7 @@ async function platOpenDir(key){
   const r=await postJSON('/api/platform/open',{version:key}).catch(e=>({error:String(e)}));
   if(!r.ok)toast('не удалось открыть папку: '+(r.error||''));
 }
-function platMigrateDlg(key,family){
-  const ps=(PLAT_USAGE&&PLAT_USAGE.platforms)||[];
-  const opts=ps.filter(p=>p.key!==key).map(p=>`<option value="${esc(p.key)}">${esc(p.key)} · ${esc(p.family)}</option>`).join('');
-  askBox(`Перевод баз с ${key}`,
-    `Перевести все базы платформы ${key} (семейство ${family}) на другую версию:\n`
-    +`<select id="mg-to" style="width:100%;margin:8px 0">${opts}</select>\n`
-    +'Для каждой базы: exe закрепляется в настройках лаунчера и пишется Version= в ibases.v8i '
-    +'(1С-лаунчер тоже будет открывать её новой платформой). Сначала покажем список баз.',
-    [{t:'Показать базы и перевести',primary:true,f:async()=>{
-       const to=$('mg-to')&&$('mg-to').value; if(!to){toast('не выбрана целевая платформа');return}
-       const dry=await postJSON('/api/platforms/migrate',{from:key,to_version:to,dry_run:true}).catch(e=>({error:String(e)}));
-       if(dry.error){toast('ОШИБКА: '+dry.error);return}
-       if(!dry.count){toast('на платформе '+key+' баз не найдено');return}
-       const names=dry.names.slice(0,15).join('\n')+(dry.count>15?'\n… и ещё '+(dry.count-15):'');
-       askBox(`Перевести ${dry.count} баз на ${to}?`,
-         'Базы, которые попадут в перевод:\n'+names,
-         [{t:'Перевести',primary:true,f:async()=>{
-            const r=await postJSON('/api/platforms/migrate',{from:key,to_version:to}).catch(e=>({error:String(e)}));
-            if(r.ok){ stat(`переведено баз: ${r.count} → ${to}`,'ok'); toast(`переведено ${r.count} баз на ${to}`,9000);
-              loadPlatUsage(true); reload(); }
-            else{ stat('ошибка перевода: '+(r.errors||[]).join('; '),'err'); toast('ОШИБКА перевода'); }
-          }},{t:'Отмена'}]);
-     }},{t:'Отмена'}]);
-}
+function platMigrateDlg(key){ openMigrate(key) }
 async function platDelete(key){
   const dry=await fetch('/api/platforms/usage').then(x=>x.json()).catch(()=>null);
   const u=dry&&dry.platforms&&dry.platforms.find(p=>p.key===key);
@@ -1773,7 +1825,7 @@ async function pdDeleteSelected(){
 
 /* ---------- перевод баз на другую платформу: чекбоксы + фильтры ---------- */
 let MG_DATA=null, MG_SEL=new Set();
-async function openMigrate(){
+async function openMigrate(presetFrom){
   $('mgovl').classList.add('on');
   $('mg-search').value=''; $('mg-storage').checked=false; MG_SEL=new Set();
   if(!PLAT_USAGE||!PLAT_USAGE.platforms) await loadPlatUsage();
@@ -1783,8 +1835,9 @@ async function openMigrate(){
     +fams.map(f=>`<option value="${esc(f)}">семейство ${esc(f)}</option>`).join('')
     +ps.map(p=>`<option value="${esc(p.key)}">${esc(p.key)} · ${esc(p.family)}</option>`).join('');
   $('mg-to').innerHTML=ps.map(p=>`<option value="${esc(p.key)}">${esc(p.key)} · ${esc(p.family)}${p.components&&p.components.some(c=>c.includes('конфигуратор'))?'':' (тонкий)'}</option>`).join('');
-  $('mglist').innerHTML='<div class="hint">выберите платформу, базы которой показать</div>';
-  $('mg-sum').textContent='';
+  if(presetFrom){ $('mg-from').value=presetFrom; }
+  if($('mg-from').value){ mgLoad(); }
+  else { $('mglist').innerHTML='<div class="hint">выберите платформу, базы которой показать</div>'; $('mg-sum').textContent=''; }
 }
 function closeMigrate(){ $('mgovl').classList.remove('on') }
 async function mgLoad(){
