@@ -1847,9 +1847,12 @@ async function mgLoad(){
   try{ MG_DATA=await (await fetch('/api/platforms/bases?from_src='+encodeURIComponent(from))).json(); }
   catch(e){ MG_DATA=null }
   if(!MG_DATA||!MG_DATA.ok){ $('mglist').innerHTML='<div class="hint">не удалось загрузить</div>'; return }
-  // хранилища из данных этих баз (может быть несколько баз на одном хранилище)
+  // хранилища из данных этих баз (может быть несколько баз на одном хранилище);
+  // только хранилища разработки — реальные пути (диск/UNC), tcp://-депо и мусор не показывать
+  const BS=String.fromCharCode(92); // два бэкслэша
+  const isRepo=d=>{d=d||'';return /^[a-zA-Z]:/.test(d)||d.startsWith(BS+BS)||d.startsWith('//')||d.toLowerCase().startsWith('tcp://')};
   const byDir={};
-  (MG_DATA.bases||[]).forEach(b=>{ if(b.storage_dir) byDir[b.storage_dir]=(byDir[b.storage_dir]||0)+1 });
+  (MG_DATA.bases||[]).forEach(b=>{ if(b.storage_dir&&isRepo(b.storage_dir)) byDir[b.storage_dir]=(byDir[b.storage_dir]||0)+1 });
   const dirs=Object.keys(byDir).sort();
   $('mg-repo').innerHTML='<option value="">хранилища: все</option>'
     +(dirs.length?'<option value="__none__">без хранилища</option>':'')
