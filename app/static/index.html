@@ -559,8 +559,7 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <h2>Перевести базы на другую платформу</h2>
   <div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
     <select id="mg-from" onchange="mgLoad()" style="min-width:170px" title="показать базы этой платформы (семейство или версия)"></select>
-    <label style="white-space:nowrap;font-size:12px" title="показать только базы, подключённые к хранилищу конфигурации">
-      <input type="checkbox" id="mg-storage" onchange="renderMigrate()"> только с хранилищем</label>
+    <select id="mg-repo" onchange="renderMigrate()" style="min-width:150px" title="хранилища конфигурации из этих баз: выбрать базы одного хранилища"></select>
     <input id="mg-search" placeholder="поиск по имени базы…" style="flex:1;min-width:150px" oninput="renderMigrate()">
   </div>
   <div style="display:flex;gap:8px;align-items:center;margin:4px 0;flex-wrap:wrap">
@@ -1827,7 +1826,7 @@ async function pdDeleteSelected(){
 let MG_DATA=null, MG_SEL=new Set();
 async function openMigrate(presetFrom){
   $('mgovl').classList.add('on');
-  $('mg-search').value=''; $('mg-storage').checked=false; MG_SEL=new Set();
+  $('mg-search').value=''; MG_SEL=new Set();
   if(!PLAT_USAGE||!PLAT_USAGE.platforms) await loadPlatUsage();
   const ps=(PLAT_USAGE&&PLAT_USAGE.platforms)||[];
   const fams=[...new Set(ps.map(p=>p.family).filter(Boolean))];
@@ -1848,21 +1847,34 @@ async function mgLoad(){
   try{ MG_DATA=await (await fetch('/api/platforms/bases?from_src='+encodeURIComponent(from))).json(); }
   catch(e){ MG_DATA=null }
   if(!MG_DATA||!MG_DATA.ok){ $('mglist').innerHTML='<div class="hint">не удалось загрузить</div>'; return }
+  // хранилища из данных этих баз (может быть несколько баз на одном хранилище)
+  const byDir={};
+  (MG_DATA.bases||[]).forEach(b=>{ if(b.storage_dir) byDir[b.storage_dir]=(byDir[b.storage_dir]||0)+1 });
+  const dirs=Object.keys(byDir).sort();
+  $('mg-repo').innerHTML='<option value="">хранилища: все</option>'
+    +(dirs.length?'<option value="__none__">без хранилища</option>':'')
+    +dirs.map(d=>{
+      const tail=d.replace(/[\\/]+$/,'').split(/[\\/]/).filter(Boolean).slice(-2).join('/');
+      const ver=(MG_DATA.bases.find(b=>b.storage_dir===d&&b.storage_ver)||{}).storage_ver||'';
+      return `<option value="${esc(d)}">⛁ ${esc(tail||d)} (${byDir[d]}${ver?' · '+esc(ver):''})</option>`;
+    }).join('');
   renderMigrate();
 }
 function renderMigrate(){
   if(!MG_DATA||!MG_DATA.bases) return;
   const q=($('mg-search').value||'').toLowerCase().trim();
-  const onlySt=$('mg-storage').checked;
-  const rows=MG_DATA.bases.filter(b=>(!q||(b.name||'').toLowerCase().includes(q))&&(!onlySt||b.has_storage));
+  const repo=($('mg-repo')||{}).value||'';
+  const rows=MG_DATA.bases.filter(b=>(!q||(b.name||'').toLowerCase().includes(q))
+    &&(!repo?true:(repo==='__none__'?!b.has_storage:b.storage_dir===repo)));
   if(!rows.length){ $('mglist').innerHTML='<div class="hint">ничего не найдено</div>'; mgSum(rows); return }
-  let h='<table><tr><th></th><th>База</th><th>Version=</th><th></th></tr>';
+  let h='<table><tr><th></th><th>База</th><th>Version=</th><th title="версия платформы по ver-файлу хранилища конфигурации">по хранилищу</th><th></th></tr>';
   rows.forEach(b=>{
     h+=`<tr${b.running?' class="used"':''}>`
       +`<td><input type="checkbox" ${MG_SEL.has(b.guid)?'checked':''} onchange="mgSel('${b.guid}',this.checked)"></td>`
       +`<td>${esc(b.name)}${b.running?' <span class="hint">(открыта)</span>':''}</td>`
       +`<td class="hint">${esc(b.ver||'—')}</td>`
-      +`<td class="hint">${b.has_storage?'⛁ хранилище':''}</td></tr>`;
+      +`<td class="hint" title="${esc(b.storage_dir||'')}">${b.storage_ver?esc(b.storage_ver):(b.has_storage?'<span class="hint">не читается</span>':'—')}</td>`
+      +`<td class="hint" title="${esc(b.storage_dir||'')}">${b.has_storage?'⛁':''}</td></tr>`;
   });
   h+='</table>';
   $('mglist').innerHTML=h;
@@ -1870,22 +1882,22 @@ function renderMigrate(){
   $('mg-all').textContent=allSel?'снять всё':'выбрать всё';
   mgSum(rows);
 }
+function mgFilterRows(){
+  if(!MG_DATA||!MG_DATA.bases) return [];
+  const q=($('mg-search').value||'').toLowerCase().trim();
+  const repo=($('mg-repo')||{}).value||'';
+  return MG_DATA.bases.filter(b=>(!q||(b.name||'').toLowerCase().includes(q))
+    &&(!repo?true:(repo==='__none__'?!b.has_storage:b.storage_dir===repo)));
+}
 function mgSel(guid,on){ on?MG_SEL.add(guid):MG_SEL.delete(guid); renderMigrate() }
 function mgToggleAll(){
-  if(!MG_DATA||!MG_DATA.bases) return;
-  const q=($('mg-search').value||'').toLowerCase().trim();
-  const onlySt=$('mg-storage').checked;
-  const rows=MG_DATA.bases.filter(b=>(!q||(b.name||'').toLowerCase().includes(q))&&(!onlySt||b.has_storage));
+  const rows=mgFilterRows();
   const all=rows.length>0&&rows.every(b=>MG_SEL.has(b.guid));
   rows.forEach(b=>all?MG_SEL.delete(b.guid):MG_SEL.add(b.guid));
   renderMigrate();
 }
 function mgInvert(){
-  if(!MG_DATA||!MG_DATA.bases) return;
-  const q=($('mg-search').value||'').toLowerCase().trim();
-  const onlySt=$('mg-storage').checked;
-  MG_DATA.bases.filter(b=>(!q||(b.name||'').toLowerCase().includes(q))&&(!onlySt||b.has_storage))
-    .forEach(b=>MG_SEL.has(b.guid)?MG_SEL.delete(b.guid):MG_SEL.add(b.guid));
+  mgFilterRows().forEach(b=>MG_SEL.has(b.guid)?MG_SEL.delete(b.guid):MG_SEL.add(b.guid));
   renderMigrate();
 }
 function mgSum(rows){
