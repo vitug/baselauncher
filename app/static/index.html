@@ -694,12 +694,14 @@ function modeTag(b){
     :'по клику на строку: как переключатель в шапке';
   return `<span class="tag mode-tgl ${m==='enterprise'?'p':m==='designer'?'k':'auto'}"
     title="режим по умолчанию — ${hint}. Клик — сменить"
-    onclick="event.stopPropagation();cycleMode('${b.guid}')">${label}</span>`;
+    onclick="event.stopPropagation();cycleMode('${b.guid}')"
+    ondblclick="event.stopPropagation()">${label}</span>`;
 }
 async function cycleMode(guid){
   const b=(STATE.bases||[]).find(x=>x.guid===guid); if(!b)return;
   const cur=b.default_mode||'';
-  let next=cur===''?'enterprise':cur==='enterprise'?'designer':'';
+  /* после «⇢» сначала Конфигуратор (самый частый), затем Предприятие, затем снова «⇢» */
+  let next=cur===''?'designer':cur==='designer'?'enterprise':'';
   if(next==='designer'&&b.has_designer===false){        // конфигуратора нет — пропускаем К
     toast('у «'+b.name+'» конфигуратора нет ('+(b.ws?'веб-база':'только тонкий клиент')+')');
     next='';
@@ -2540,7 +2542,7 @@ let PAGE_VER=null;   // версия, с которой загружена эт�
   });
   document.querySelector('main table').addEventListener('dblclick',e=>{
     const tr=e.target.closest('tr.base'); if(!tr) return;
-    if(e.target.closest('button,.star')) return;      // клики по кнопкам строки не считаем
+    if(e.target.closest('button,.star,.mode-tgl')) return;      // клики по кнопкам строки и переключателю режима не считаем
     const g=tr.dataset.g; selectBase(g,false);
     if(Date.now()-(LAUNCH_TS[g]||0)<900) return;      // защита от повторного срабатывания
     LAUNCH_TS[g]=Date.now(); clickBase(g);
