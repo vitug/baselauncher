@@ -1196,8 +1196,9 @@ async function deleteBaseNow(guid){
 }
 /* ---------- кэш базы 1С: у пользователя Windows и общий (для всех пользователей ПК) ----------
    Данные ИБ не затрагиваются; кэш самой программы-стартера не чистится (это не нужно). */
-const CACHE_TITLES={user:'кэш пользователя',program:'общий кэш (для всех пользователей ПК)'};
-const CACHE_PATHS={user:'%LOCALAPPDATA%\\1C\\1cv8\\<guid> и %APPDATA%\\1C\\1cv8\\<guid>',
+const CACHE_TITLES={config:'кэш программы (конфигурации)',user:'настройки пользователя',program:'общий кэш (для всех пользователей ПК)'};
+const CACHE_PATHS={config:'%LOCALAPPDATA%\\1C\\1cv8\\<guid> — Config, ConfigSave, SICache, cgf-cache, cfgrepo',
+                   user:'%APPDATA%\\1C\\1cv8\\<guid> — 1cv8.pfl, def.usr, положения окон и форм',
                    program:'%PROGRAMDATA%\\1C\\1cv8\\<guid>'};
 async function askBaseCache(guid,what){
   const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
@@ -1214,8 +1215,11 @@ async function askBaseCache(guid,what){
     'Будет удалено:',
     where,
     '',
-    'Данные базы (файл базы или сервер 1С), настройки базы в стартере и ibases.v8i не затрагиваются. '
-    +'Первый запуск после очистки будет дольше — 1С заново загружает конфигурацию.',
+    'Данные базы (файл базы или сервер 1С), настройки базы в стартере и ibases.v8i не затрагиваются.',
+    '',
+    what==='config' ? 'Кэш программы: 1С скачает конфигурацию заново при следующем запуске — он будет дольше открываться.'
+      : what==='user' ? 'Настройки пользователя: сбросятся сохранённые настройки интерфейса 1С (положения окон, панелей, отборов).'
+      : 'Общий кэш: пересоздастся при следующем запуске.',
   ];
   if(!part||!part.dirs) lines.push('', 'Каталога кэша для этой базы сейчас нет — чистить нечего.');
   if(b.running) lines.push('', 'Сеансы этой базы открыты: занятые файлы останутся. Закройте 1С и повторите.');
@@ -1403,15 +1407,6 @@ async function comInfo(guid){
     +(!users&&r.users_error?('\n\nСправочник пользователей недоступен: '+String(r.users_error).slice(0,140)):'');
   stat((b.name||guid)+': конфигурация '+(c.name||'?'),'ok');
   askBox('Сведения из базы (COM)', text, [{t:'Понятно',primary:true}]);
-}
-function askClearBaseCache(guid){
-  const b=(STATE.bases||[]).find(x=>x.guid===guid)||{};
-  askBox('Очистить кэш базы?',
-    `Будет удалён кэш конфигурации для «${b.name||guid}»:\n`
-    +'%LOCALAPPDATA%\\1C\\1cv8\\<guid> и %APPDATA%\\1C\\1cv8\\<guid>.\n\n'
-    +'База и её данные не затрагиваются, но при следующем запуске 1С будет дольше грузить конфигурацию.'
-    +(b.running?'\n\nСеансы этой базы открыты — сначала закрой их, иначе часть файлов останется.':''),
-    [{t:'Очистить',primary:true,f:()=>clearCacheNow('one_c_base',guid)},{t:'Отмена'}]);
 }
 /* кэш пользователя 1С и кэш программы — отдельные команды, каждая со своим подтверждением */
 let CACHE_INFO=null;
@@ -1631,10 +1626,16 @@ function ctxShow(x,y,guid){
   const sep=document.createElement('div'); sep.className='sep'; box.appendChild(sep);
   const cU=document.createElement('div');
   cU.className='ci';
-  cU.textContent='Очистить кэш этой базы — пользователя (1С)…';
-  cU.title='удаляется %LOCALAPPDATA%\\1C\\1cv8\\<guid> и %APPDATA%\\1C\\1cv8\\<guid>: кэш конфигурации текущего пользователя Windows';
-  cU.onclick=()=>{ctxClose();askBaseCache(guid,'user')};
+  cU.textContent='Очистить кэш программы (конфигурации) этой базы…';
+  cU.title='%LOCALAPPDATA%\\1C\\1cv8\\<guid>: Config, ConfigSave, SICache, cgf-cache, cfgrepo — кэш конфигурации, пересоздаётся при следующем запуске';
+  cU.onclick=()=>{ctxClose();askBaseCache(guid,'config')};
   box.appendChild(cU);
+  const cN=document.createElement('div');
+  cN.className='ci';
+  cN.textContent='Сбросить настройки пользователя 1С этой базы…';
+  cN.title='%APPDATA%\\1C\\1cv8\\<guid>: 1cv8.pfl, def.usr — интерфейсные настройки (окна, панели, отборы)';
+  cN.onclick=()=>{ctxClose();askBaseCache(guid,'user')};
+  box.appendChild(cN);
   const cP=document.createElement('div');
   cP.className='ci';
   cP.textContent='Очистить кэш этой базы — общий, для всех пользователей ПК…';
