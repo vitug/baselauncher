@@ -598,8 +598,10 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <div class="hint" style="margin-bottom:8px">Конфигурация каждой выбранной файловой базы выгружается
     в свой подкаталог (ibcmd, формат платформы базы). Открытые базы пропускаются — закройте их сеансы.</div>
   <div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
-    <input id="xm-root" placeholder="каталог для выгрузки, например D:\xml_out" style="flex:1;min-width:220px">
+    <input id="xm-root" list="bl-paths" placeholder="каталог для выгрузки, например D:\xml_out" style="flex:1;min-width:220px">
   </div>
+  <datalist id="bl-paths"></datalist>
+  <div id="xm-one" class="hint" style="display:none;margin-bottom:6px"></div>
   <div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
     <input id="xm-search" placeholder="поиск по имени базы… (только файловые)" style="flex:1;min-width:160px" oninput="renderDumpXml()">
     <button class="add" onclick="xmToggleAll()" id="xm-all">выбрать всё</button>
@@ -618,7 +620,7 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <div class="hint" style="margin-bottom:8px">Исходники каждой базы ищутся в root\<имя базы&gt; (как раскладывает
     «Выгрузить конфигурации в XML…»), иначе грузится сам root. Полная загрузка ЗАМЕНЯЕТ всю конфигурацию базы.</div>
   <div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
-    <input id="xil-root" placeholder="каталог XML-исходников, например D:\xml_out" style="flex:1;min-width:220px">
+    <input id="xil-root" list="bl-paths" placeholder="каталог XML-исходников, например D:\xml_out" style="flex:1;min-width:220px">
     <select id="xil-mode" title="режим загрузки">
       <option value="changed">только изменённое (после прошлой выгрузки)</option>
       <option value="files">заданные объекты / файлы</option>
@@ -627,6 +629,7 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
     <label style="font-size:11px;white-space:nowrap" title="после загрузки применить конфигурацию к БД (ibcmd config apply)">
       <input type="checkbox" id="xil-updb"> обновить БД</label>
   </div>
+  <div id="xil-one" class="hint" style="display:none;margin-bottom:6px"></div>
   <textarea id="xil-files" placeholder="Справочник.Номенклатура, Документ.Заказ — или относительные пути:&#10;Catalogs/Номенклатура.xml&#10;Documents/Заказ/Forms/ФормаДокумента.xml"
     style="width:100%;min-height:56px;font-size:12px;display:none"></textarea>
   <div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
@@ -1730,18 +1733,44 @@ async function cbClearSelected(){
        else{ stat('ошибка: '+(r.error||''),'err'); toast('ОШИБКА очистки кэша'); }
      }},{t:'Отмена'}]);
 }
-/* ---------- пакетная выгрузка конфигураций в XML ---------- */
-let XM_DATA=null, XM_SEL=new Set(), XM_TIMER=null;
+/* ---------- выгрузка/загрузка XML: запомненные пути (до 3, общие) ---------- */
+function dumpPaths(){ try{ return JSON.parse(localStorage.getItem('BL_DUMP_PATHS')||'[]') }catch(e){ return [] } }
+function saveDumpPath(p){
+  p=(p||'').trim(); if(!p) return;
+  let ps=dumpPaths().filter(x=>x.toLowerCase()!==p.toLowerCase());
+  ps.unshift(p); ps=ps.slice(0,3);
+  localStorage.setItem('BL_DUMP_PATHS',JSON.stringify(ps));
+}
+function fillPathHints(){
+  const dl=$('bl-paths'); if(!dl) return;
+  dl.innerHTML=dumpPaths().map(p=>`<option value="${esc(p)}">`).join('');
+}
+/* ---------- выгрузка конфигурации в XML ---------- */
+let XM_DATA=null, XM_SEL=new Set(), XM_TIMER=null, XM_ONE=null;
 function openDumpXml(preset){
   $('xmovl').classList.add('on'); $('xm-search').value='';
-  if(!$('xm-root').value) $('xm-root').value='D:\\xml_out';
+  fillPathHints();
+  const ps=dumpPaths();
+  $('xm-root').value=ps[0]||'D:\\xml_out';
   XM_SEL=new Set();
   const pre=preset||null;
+  XM_ONE=pre;
+  $('xmlist').innerHTML='<div class="hint">загрузка…</div>';
+  if(pre){                                    /* из контекстного меню: одна база, без общего списка */
+    const b=(STATE.bases||[]).find(v=>v.guid===pre);
+    if(b&&b.path){
+      XM_DATA=[{guid:b.guid,name:b.name,path:b.path,running:!!b.running}];
+      XM_SEL=new Set([pre]);
+      $('xm-one').style.display='block';
+      $('xm-one').innerHTML=`выгрузка одной базы: <b>${esc(b.name)}</b> — каталог: ${esc(b.path)}`;
+      renderDumpXml(); xmPoll(); return;
+    }
+  }
+  $('xm-one').style.display='none';
   $('xmlist').innerHTML='<div class="hint">загрузка…</div>';
   fetch('/api/state').then(r=>r.json()).then(st=>{
     XM_DATA=(st.bases||[]).filter(b=>b.path&&b.file!==false)
       .map(b=>({guid:b.guid,name:b.name,path:b.path,running:!!b.running}));
-    if(pre&&XM_DATA.some(b=>b.guid===pre)) XM_SEL=new Set([pre]);
     renderDumpXml();
   }).catch(()=>{ $('xmlist').innerHTML='<div class="hint">не удалось загрузить список</div>' });
   xmPoll();
@@ -1749,6 +1778,10 @@ function openDumpXml(preset){
 function closeDumpXml(){ $('xmovl').classList.remove('on') }
 function renderDumpXml(){
   if(!XM_DATA) return;
+  const one=!!XM_ONE;
+  $('xm-search').parentElement.style.display=one?'none':'flex';
+  $('xmlist').style.display=one?'none':'block';
+  if(one){ xmSum(); return }
   const q=($('xm-search').value||'').toLowerCase().trim();
   const rows=XM_DATA.filter(b=>!q||(b.name||'').toLowerCase().includes(q));
   if(!rows.length){ $('xmlist').innerHTML='<div class="hint">ничего не найдено</div>'; xmSum(); return }
@@ -1774,8 +1807,10 @@ function xmToggleAll(){ const rows=xmFilterRows(); const all=rows.every(b=>XM_SE
   rows.forEach(b=>all?XM_SEL.delete(b.guid):XM_SEL.add(b.guid)); renderDumpXml() }
 function xmSum(){
   const n=XM_SEL.size;
-  $('xm-sum').textContent=n?`выбрано ${n} файловых баз — каждая выгрузится в свой подкаталог`
-    :`файловых баз: ${XM_DATA?XM_DATA.length:0} — отметьте нужные`;
+  $('xm-sum').textContent=XM_ONE
+    ?`выгрузится в подкаталог «${esc((XM_DATA[0]&&XM_DATA[0].name)||'')}» внутри указанного каталога`
+    :(n?`выбрано ${n} файловых баз — каждая выгрузится в свой подкаталог`
+    :`файловых баз: ${XM_DATA?XM_DATA.length:0} — отметьте нужные`);
 }
 async function xmRun(){
   const guids=[...XM_SEL];
@@ -1784,6 +1819,7 @@ async function xmRun(){
   if(!root){ toast('укажите каталог для выгрузки'); return }
   const r=await postJSON('/api/dump/start',{root,guids}).catch(e=>({error:String(e)}));
   if(!r.ok){ stat('ошибка: '+(r.error||''),'err'); toast('ОШИБКА: '+(r.error||'запуск не удался'),6000); return }
+  saveDumpPath(root);
   stat(`выгрузка идёт: баз ${r.total}, каталог ${r.root}`,'ok');
   toast(`Выгрузка в XML запущена: ${r.total} баз`);
   xmPoll(true);
@@ -1806,18 +1842,32 @@ function xmPoll(force){
   if(force) tick();
   else if($('xmovl').classList.contains('on')) tick();
 }
-/* ---------- пакетная загрузка конфигураций из XML ---------- */
-let XIL_DATA=null, XIL_SEL=new Set(), XIL_TIMER=null;
+/* ---------- загрузка конфигурации из XML ---------- */
+let XIL_DATA=null, XIL_SEL=new Set(), XIL_TIMER=null, XIL_ONE=null;
 function openLoadXml(preset){
   $('xilovl').classList.add('on'); $('xil-search').value='';
-  if(!$('xil-root').value) $('xil-root').value='D:\\xml_out';
+  fillPathHints();
+  /* предлагаем оттуда, куда в последний раз выгружали */
+  $('xil-root').value=dumpPaths()[0]||'D:\\xml_out';
   XIL_SEL=new Set(); xilMode();
   const pre=preset||null;
+  XIL_ONE=pre;
+  $('xillist').innerHTML='<div class="hint">загрузка…</div>';
+  if(pre){                                    /* из контекстного меню: одна база */
+    const b=(STATE.bases||[]).find(v=>v.guid===pre);
+    if(b&&b.path){
+      XIL_DATA=[{guid:b.guid,name:b.name,path:b.path,running:!!b.running}];
+      XIL_SEL=new Set([pre]);
+      $('xil-one').style.display='block';
+      $('xil-one').innerHTML=`загрузка в одну базу: <b>${esc(b.name)}</b> — исходники ищутся в подкаталоге «${esc(b.name)}» указанного каталога (как при выгрузке), иначе в самом каталоге`;
+      renderLoadXml(); xilPoll(); return;
+    }
+  }
+  $('xil-one').style.display='none';
   $('xillist').innerHTML='<div class="hint">загрузка…</div>';
   fetch('/api/state').then(r=>r.json()).then(st=>{
     XIL_DATA=(st.bases||[]).filter(b=>b.path)
       .map(b=>({guid:b.guid,name:b.name,path:b.path,running:!!b.running}));
-    if(pre&&XIL_DATA.some(b=>b.guid===pre)) XIL_SEL=new Set([pre]);
     renderLoadXml();
   }).catch(()=>{ $('xillist').innerHTML='<div class="hint">не удалось загрузить список</div>' });
   xilPoll();
@@ -1826,6 +1876,10 @@ function closeLoadXml(){ $('xilovl').classList.remove('on') }
 function xilMode(){ $('xil-files').style.display=$('xil-mode').value==='files'?'block':'none' }
 function renderLoadXml(){
   if(!XIL_DATA) return;
+  const one=!!XIL_ONE;
+  $('xil-search').parentElement.style.display=one?'none':'flex';
+  $('xillist').style.display=one?'none':'block';
+  if(one){ xilSum(); return }
   const q=($('xil-search').value||'').toLowerCase().trim();
   const rows=XIL_DATA.filter(b=>!q||(b.name||'').toLowerCase().includes(q));
   if(!rows.length){ $('xillist').innerHTML='<div class="hint">ничего не найдено</div>'; xilSum(); return }
@@ -1852,7 +1906,9 @@ function xilToggleAll(){ const rows=xilFilterRows(); const all=rows.every(b=>XIL
 function xilSum(){
   const n=XIL_SEL.size;
   const m={changed:'только изменённое',files:'заданные объекты',full:'ПОЛНАЯ (замена конфигурации)'}[$('xil-mode').value];
-  $('xil-sum').textContent=n?`выбрано ${n} баз · режим: ${m}`:`файловых баз: ${XIL_DATA?XIL_DATA.length:0} — отметьте нужные · режим: ${m}`;
+  $('xil-sum').textContent=XIL_ONE
+    ?`режим: ${m}${XIL_DATA[0]&&XIL_DATA[0].running?' · база открыта — закройте сеансы':''}`
+    :(n?`выбрано ${n} баз · режим: ${m}`:`файловых баз: ${XIL_DATA?XIL_DATA.length:0} — отметьте нужные · режим: ${m}`);
 }
 async function xilRun(){
   const guids=[...XIL_SEL];
