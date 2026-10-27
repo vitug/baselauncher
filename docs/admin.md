@@ -56,6 +56,11 @@ core/              СДК-логика, только stdlib:
 | POST | `/api/platform/probe` / `install` | дистрибутивы на шаре `\\Chicago\v81mcint\...`, установка с UAC |
 | POST | `/api/base/{guid}/restore-dt` | восстановление из .dt через `ibcmd infobase restore` |
 | POST | `/api/base/{guid}/check-db` | запустить chdbfl (оконная утилита) |
+| POST | `/api/dump/start` `{root, guids[]}` | пакетная выгрузка конфигураций в XML (ibcmd config export); открытые базы пропускаются, манифест пишется при успехе |
+| GET | `/api/dump/state` | статус фоновой выгрузки |
+| POST | `/api/load/start` `{root, guids[], mode: full\|changed\|files, files[]?, update_db?}` | загрузка конфигураций из XML (ibcmd config import + apply --force) |
+| GET | `/api/load/state` | статус фоновой загрузки |
+| GET/POST | `/api/dump/paths` | запомненные каталоги выгрузки (до 3, в config.json → `dump_paths`); POST `{path}` добавляет |
 | GET | `/api/precheck/{guid}`, `/api/launch/events` | предпроверка; события сторожа запуска |
 | POST | `/api/shutdown`, `/api/restart`, `/api/quit` | управление |
 
