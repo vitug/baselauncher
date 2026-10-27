@@ -190,6 +190,15 @@ tr.base.running td.name{box-shadow:inset 3px 0 0 var(--green)}
 #cblist td.num{text-align:right;white-space:nowrap}
 #cblist tr.run td{opacity:.75}
 #cblist input[type=checkbox]{transform:scale(1.25)}
+#pdovl,#mgovl{position:fixed;inset:0;background:#000a;display:none;z-index:13}
+#pdovl.on,#mgovl.on{display:flex;align-items:center;justify-content:center}
+#pdmodal,#mgmodal{background:var(--card);border:1px solid var(--border);border-radius:10px;
+  padding:16px;width:min(780px,94vw);max-height:88vh;overflow:auto}
+#pdlist table,#mglist table{width:100%;border-collapse:collapse;font-size:12px}
+#pdlist td,#pdlist th,#mglist td,#mglist th{padding:4px 6px;border-bottom:1px solid var(--border);text-align:left}
+#pdlist td.num,#mglist td.num{text-align:right;white-space:nowrap}
+#pdlist tr.used td{opacity:.6}
+#pdlist input[type=checkbox],#mglist input[type=checkbox]{transform:scale(1.25)}
 #ptovl{position:fixed;inset:0;background:#000a;display:none;z-index:13}
 #ptovl.on{display:flex;align-items:center;justify-content:center}
 #ptmodal{background:var(--card);border:1px solid var(--border);border-radius:10px;
@@ -521,12 +530,50 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
       <option value="both">всё</option>
     </select>
     <button class="add" onclick="cbToggleAll()" id="cb-all">выбрать всё</button>
+    <button class="add" onclick="cbInvert()" title="переключить выбор в рамках текущего фильтра">переключить выбор</button>
   </div>
   <div id="cblist" style="max-height:50vh;overflow:auto"></div>
   <div class="hint" id="cb-sum" style="margin-top:6px"></div>
   <div class="btns" style="display:flex;gap:8px;margin-top:12px">
     <button class="del" id="cb-go" onclick="cbClearSelected()">Очистить выбранные</button>
     <button onclick="closeCacheBases()">Закрыть</button>
+  </div>
+</div></div>
+
+<div id="pdovl"><div id="pdmodal">
+  <h2>Удалить ненужные платформы</h2>
+  <div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
+    <input id="pd-search" placeholder="поиск по версии…" style="flex:1;min-width:160px" oninput="renderPlatDel()">
+    <button class="add" onclick="pdToggleAll()" id="pd-all">выбрать всё</button>
+    <button class="add" onclick="pdInvert()" title="переключить выбор в рамках текущего фильтра">переключить выбор</button>
+  </div>
+  <div id="pdlist" style="max-height:50vh;overflow:auto"></div>
+  <div class="hint" id="pd-sum" style="margin-top:6px"></div>
+  <div class="btns" style="display:flex;gap:8px;margin-top:12px">
+    <button class="del" id="pd-go" onclick="pdDeleteSelected()">Удалить выбранные</button>
+    <button onclick="closePlatDel()">Закрыть</button>
+  </div>
+</div></div>
+
+<div id="mgovl"><div id="mgmodal">
+  <h2>Перевести базы на другую платформу</h2>
+  <div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
+    <select id="mg-from" onchange="mgLoad()" style="min-width:170px" title="показать базы этой платформы (семейство или версия)"></select>
+    <label style="white-space:nowrap;font-size:12px" title="показать только базы, подключённые к хранилищу конфигурации">
+      <input type="checkbox" id="mg-storage" onchange="renderMigrate()"> только с хранилищем</label>
+    <input id="mg-search" placeholder="поиск по имени базы…" style="flex:1;min-width:150px" oninput="renderMigrate()">
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;margin:4px 0;flex-wrap:wrap">
+    <button class="add" onclick="mgToggleAll()" id="mg-all">выбрать всё</button>
+    <button class="add" onclick="mgInvert()" title="переключить выбор в рамках текущего фильтра">переключить выбор</button>
+    <span class="hint" style="font-size:11px">на какую платформу:</span>
+    <select id="mg-to" style="min-width:170px"></select>
+  </div>
+  <div id="mglist" style="max-height:44vh;overflow:auto"></div>
+  <div class="hint" id="mg-sum" style="margin-top:6px"></div>
+  <div class="btns" style="display:flex;gap:8px;margin-top:12px">
+    <button class="save" id="mg-go" onclick="mgMigrateSelected()">Перевести выбранные</button>
+    <button onclick="closeMigrate()">Закрыть</button>
   </div>
 </div></div>
 
@@ -1450,6 +1497,8 @@ function openAppMenu(el){
     d.textContent=t; d.onclick=()=>{ctxClose();fn()}; box.appendChild(d);
   };
   mk('Платформы: список, перевод баз, удаление…',openPlat);
+  mk('Удалить ненужные платформы (выбрать)…',openPlatDel);
+  mk('Перевести базы на другую платформу…',openMigrate);
   mk('Мёртвые кэши (не привязаны к базам)…',openDeadCaches);
   mk('Очистить кэш по базам (выбрать)…',openCacheBases);
   mk('Кэш пользователя 1С (все базы)…',askClearUserCache);
@@ -1511,6 +1560,13 @@ function renderCacheBases(){
   cbSum();
 }
 function cbSel(guid,on){ on?CB_SEL.add(guid):CB_SEL.delete(guid); renderCacheBases() }
+function cbInvert(){
+  if(!CB_DATA||!CB_DATA.bases) return;
+  const q=($('cb-search').value||'').toLowerCase().trim();
+  CB_DATA.bases.filter(b=>!q||(b.name||'').toLowerCase().includes(q))
+    .forEach(b=>CB_SEL.has(b.guid)?CB_SEL.delete(b.guid):CB_SEL.add(b.guid));
+  renderCacheBases();
+}
 function cbToggleAll(){
   if(!CB_DATA||!CB_DATA.bases) return;
   const q=($('cb-search').value||'').toLowerCase().trim();
@@ -1565,12 +1621,16 @@ async function loadPlatUsage(force){
 }
 function renderPlatUsage(){
   const ps=PLAT_USAGE.platforms||[];
-  let h='<table><tr><th>Версия</th><th>Где</th><th>Баз</th><th></th></tr>';
+  let h='<table><tr><th>Версия</th><th>Где</th><th>Размер</th><th>Компоненты</th><th>Баз</th><th></th></tr>';
   ps.forEach(p=>{
     const nP=p.pinned.length,nR=p.resolved.length,nV=p.by_version.length;
     const cnt=(nP||nR||nV)?`закреплено ${nP} · подобрано ${nR} · Version= ${nV}`:'— не используется';
+    const comps=(p.components||[]).map(c=>c.replace(/ \(.*\)/,'')).join(', ')||'—';
     h+=`<tr><td><b>${esc(p.key)}</b> · ${esc(p.family)} · ${esc(p.bitness)}</td>`
-      +`<td class="hint">${esc(p.source)}</td><td class="hint">${cnt}</td>`
+      +`<td class="hint">${esc(p.source)}</td>`
+      +`<td class="num">${esc(p.size_human||'—')}${p.size_partial?'+':''}</td>`
+      +`<td class="hint" title="${esc((p.components||[]).join(', '))}">${esc(comps)}</td>`
+      +`<td class="hint">${cnt}</td>`
       +`<td><div class="ptb">`
       +`<button onclick="platMigrateDlg('${esc(p.key)}','${esc(p.family)}')">перевести базы…</button>`
       +`<button onclick="platOpenDir('${esc(p.key)}')">папка</button>`
@@ -1624,6 +1684,177 @@ async function platDelete(key){
        else{ stat('не удалено: '+(r.error||''),'err');
          if(r.pinned||r.resolved||r.by_version)
            toast('на платформе есть базы: '+[].concat(r.pinned||[],r.resolved||[]).slice(0,8).join(', '),9000); }
+     }},{t:'Отмена'}]);
+}
+
+/* ---------- удаление платформ чекбоксами ---------- */
+let PD_SEL=new Set();
+async function openPlatDel(){
+  $('pdovl').classList.add('on');
+  $('pd-search').value=''; PD_SEL=new Set();
+  await loadPlatUsage(true);
+  renderPlatDel();
+}
+function closePlatDel(){ $('pdovl').classList.remove('on') }
+function renderPlatDel(){
+  if(!PLAT_USAGE||!PLAT_USAGE.platforms) return;
+  const q=($('pd-search').value||'').toLowerCase().trim();
+  const rows=PLAT_USAGE.platforms.filter(p=>!q||(p.key||'').toLowerCase().includes(q));
+  if(!rows.length){ $('pdlist').innerHTML='<div class="hint">ничего не найдено</div>'; pdSum(rows); return }
+  let h='<table><tr><th></th><th>Версия</th><th>Размер</th><th>Компоненты</th><th>Баз</th></tr>';
+  rows.forEach(p=>{
+    const nP=p.pinned.length,nR=p.resolved.length,nV=p.by_version.length;
+    const used=!!(nP||nR||nV);
+    const cnt=(nP||nR||nV)?`закреплено ${nP} · подобрано ${nR} · Version= ${nV}`:'—';
+    const comps=(p.components||[]).map(c=>c.replace(/ \(.*\)/,'')).join(', ')||'—';
+    h+=`<tr${used?' class="used"':''}>`
+      +`<td><input type="checkbox" ${PD_SEL.has(p.key)?'checked':''} ${used?'disabled':''}`
+      +` ${used?'title="на платформе есть базы — сначала переведите их на другую"':''}`
+      +` onchange="pdSel('${esc(p.key)}',this.checked)"></td>`
+      +`<td><b>${esc(p.key)}</b> · ${esc(p.family)} · ${esc(p.bitness)}<div class="hint">${esc(p.source)}</div></td>`
+      +`<td class="num">${esc(p.size_human||'—')}${p.size_partial?'+':''}</td>`
+      +`<td class="hint">${esc(comps)}</td>`
+      +`<td class="hint">${cnt}</td></tr>`;
+  });
+  h+='</table>';
+  $('pdlist').innerHTML=h;
+  const all=rows.filter(p=>!(p.pinned.length||p.resolved.length||p.by_version.length));
+  const allSel=all.every(p=>PD_SEL.has(p.key))&&all.length>0;
+  $('pd-all').textContent=allSel?'снять всё':'выбрать всё';
+  pdSum(rows);
+}
+function pdSel(key,on){ on?PD_SEL.add(key):PD_SEL.delete(key); renderPlatDel() }
+function pdToggleAll(){
+  if(!PLAT_USAGE||!PLAT_USAGE.platforms) return;
+  const q=($('pd-search').value||'').toLowerCase().trim();
+  const rows=PLAT_USAGE.platforms.filter(p=>!q||(p.key||'').toLowerCase().includes(q))
+    .filter(p=>!(p.pinned.length||p.resolved.length||p.by_version.length));
+  const all=rows.every(p=>PD_SEL.has(p.key))&&rows.length>0;
+  rows.forEach(p=>all?PD_SEL.delete(p.key):PD_SEL.add(p.key));
+  renderPlatDel();
+}
+function pdInvert(){
+  if(!PLAT_USAGE||!PLAT_USAGE.platforms) return;
+  const q=($('pd-search').value||'').toLowerCase().trim();
+  PLAT_USAGE.platforms.filter(p=>!q||(p.key||'').toLowerCase().includes(q))
+    .filter(p=>!(p.pinned.length||p.resolved.length||p.by_version.length))
+    .forEach(p=>PD_SEL.has(p.key)?PD_SEL.delete(p.key):PD_SEL.add(p.key));
+  renderPlatDel();
+}
+function pdSum(rows){
+  const ps=(PLAT_USAGE.platforms||[]);
+  const sel=ps.filter(p=>PD_SEL.has(p.key));
+  $('pd-sum').textContent=sel.length
+    ?`выбрано ${sel.length} неиспользуемых платформ`
+    :`платформ: ${rows.length} в списке (с базами нельзя удалить)`;
+}
+async function pdDeleteSelected(){
+  const keys=[...PD_SEL];
+  if(!keys.length){ toast('ничего не выбрано'); return }
+  closePlatDel();
+  askBox(`Удалить ${keys.length} платформ?`,
+    'Версии: '+keys.join(', ')+'\n\nКаталоги версий будут удалены с диска '
+    +'(для Program Files — с подтверждением UAC). Сервер проверит, что на платформах нет баз и сеансов.',
+    [{t:'Удалить',cls:'del',primary:true,f:async()=>{
+       stat('удаляю платформы…');
+       const done=[],failed=[];
+       for(const k of keys){
+         const r=await postJSON('/api/platforms/delete',{version:k}).catch(e=>({error:String(e)}));
+         if(r.ok)done.push(k); else failed.push(k+': '+(r.error||'?'));
+         PD_SEL.delete(k);
+       }
+       if(done.length){ stat('удалено платформ: '+done.length+' ('+done.join(', ')+')','ok');
+         toast('Удалены платформы: '+done.join(', '),9000); }
+       if(failed.length){ stat('не удалены: '+failed.join('; '),'err');
+         toast('НЕ удалены:\n'+failed.slice(0,5).join('\n'),12000); }
+       loadPlatUsage(true); reload();
+     }},{t:'Отмена'}]);
+}
+
+/* ---------- перевод баз на другую платформу: чекбоксы + фильтры ---------- */
+let MG_DATA=null, MG_SEL=new Set();
+async function openMigrate(){
+  $('mgovl').classList.add('on');
+  $('mg-search').value=''; $('mg-storage').checked=false; MG_SEL=new Set();
+  if(!PLAT_USAGE||!PLAT_USAGE.platforms) await loadPlatUsage();
+  const ps=(PLAT_USAGE&&PLAT_USAGE.platforms)||[];
+  const fams=[...new Set(ps.map(p=>p.family).filter(Boolean))];
+  $('mg-from').innerHTML='<option value="">— выберите платформу —</option>'
+    +fams.map(f=>`<option value="${esc(f)}">семейство ${esc(f)}</option>`).join('')
+    +ps.map(p=>`<option value="${esc(p.key)}">${esc(p.key)} · ${esc(p.family)}</option>`).join('');
+  $('mg-to').innerHTML=ps.map(p=>`<option value="${esc(p.key)}">${esc(p.key)} · ${esc(p.family)}${p.components&&p.components.some(c=>c.includes('конфигуратор'))?'':' (тонкий)'}</option>`).join('');
+  $('mglist').innerHTML='<div class="hint">выберите платформу, базы которой показать</div>';
+  $('mg-sum').textContent='';
+}
+function closeMigrate(){ $('mgovl').classList.remove('on') }
+async function mgLoad(){
+  const from=$('mg-from').value;
+  MG_SEL=new Set();
+  if(!from){ MG_DATA=null; $('mglist').innerHTML='<div class="hint">выберите платформу, базы которой показать</div>'; $('mg-sum').textContent=''; return }
+  $('mglist').innerHTML='<div class="hint">загрузка…</div>';
+  try{ MG_DATA=await (await fetch('/api/platforms/bases?from_src='+encodeURIComponent(from))).json(); }
+  catch(e){ MG_DATA=null }
+  if(!MG_DATA||!MG_DATA.ok){ $('mglist').innerHTML='<div class="hint">не удалось загрузить</div>'; return }
+  renderMigrate();
+}
+function renderMigrate(){
+  if(!MG_DATA||!MG_DATA.bases) return;
+  const q=($('mg-search').value||'').toLowerCase().trim();
+  const onlySt=$('mg-storage').checked;
+  const rows=MG_DATA.bases.filter(b=>(!q||(b.name||'').toLowerCase().includes(q))&&(!onlySt||b.has_storage));
+  if(!rows.length){ $('mglist').innerHTML='<div class="hint">ничего не найдено</div>'; mgSum(rows); return }
+  let h='<table><tr><th></th><th>База</th><th>Version=</th><th></th></tr>';
+  rows.forEach(b=>{
+    h+=`<tr${b.running?' class="used"':''}>`
+      +`<td><input type="checkbox" ${MG_SEL.has(b.guid)?'checked':''} onchange="mgSel('${b.guid}',this.checked)"></td>`
+      +`<td>${esc(b.name)}${b.running?' <span class="hint">(открыта)</span>':''}</td>`
+      +`<td class="hint">${esc(b.ver||'—')}</td>`
+      +`<td class="hint">${b.has_storage?'⛁ хранилище':''}</td></tr>`;
+  });
+  h+='</table>';
+  $('mglist').innerHTML=h;
+  const allSel=rows.length>0&&rows.every(b=>MG_SEL.has(b.guid));
+  $('mg-all').textContent=allSel?'снять всё':'выбрать всё';
+  mgSum(rows);
+}
+function mgSel(guid,on){ on?MG_SEL.add(guid):MG_SEL.delete(guid); renderMigrate() }
+function mgToggleAll(){
+  if(!MG_DATA||!MG_DATA.bases) return;
+  const q=($('mg-search').value||'').toLowerCase().trim();
+  const onlySt=$('mg-storage').checked;
+  const rows=MG_DATA.bases.filter(b=>(!q||(b.name||'').toLowerCase().includes(q))&&(!onlySt||b.has_storage));
+  const all=rows.length>0&&rows.every(b=>MG_SEL.has(b.guid));
+  rows.forEach(b=>all?MG_SEL.delete(b.guid):MG_SEL.add(b.guid));
+  renderMigrate();
+}
+function mgInvert(){
+  if(!MG_DATA||!MG_DATA.bases) return;
+  const q=($('mg-search').value||'').toLowerCase().trim();
+  const onlySt=$('mg-storage').checked;
+  MG_DATA.bases.filter(b=>(!q||(b.name||'').toLowerCase().includes(q))&&(!onlySt||b.has_storage))
+    .forEach(b=>MG_SEL.has(b.guid)?MG_SEL.delete(b.guid):MG_SEL.add(b.guid));
+  renderMigrate();
+}
+function mgSum(rows){
+  $('mg-sum').textContent=MG_SEL.size
+    ?`выбрано баз: ${MG_SEL.size}`:(rows?`баз в списке: ${rows.length}`:'');
+}
+async function mgMigrateSelected(){
+  const guids=[...MG_SEL];
+  if(!guids.length){ toast('ничего не выбрано'); return }
+  const to=$('mg-to').value;
+  if(!to){ toast('не выбрана целевая платформа'); return }
+  const from=$('mg-from').value;
+  closeMigrate();
+  askBox(`Перевести ${guids.length} баз на ${to}?`,
+    `Выбрано баз: ${guids.length}${from?(' (с платформы '+from+')'):''} → ${to}.\n\n`
+    +'Для каждой базы: exe закрепляется в настройках лаунчера и пишется Version= в ibases.v8i.',
+    [{t:'Перевести',primary:true,f:async()=>{
+       stat('перевожу базы…');
+       const r=await postJSON('/api/platforms/migrate_bases',{guids,to_version:to}).catch(e=>({error:String(e)}));
+       if(r.ok){ stat(`переведено баз: ${r.count} → ${to}`,'ok');
+         toast(`Переведено ${r.count} баз на ${to}`,9000); reload(); }
+       else{ stat('ошибка перевода: '+(r.error||(r.errors||[]).join('; ')),'err'); toast('ОШИБКА перевода'); }
      }},{t:'Отмена'}]);
 }
 

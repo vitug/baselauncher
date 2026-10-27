@@ -1280,9 +1280,62 @@ def _v8i_versions() -> dict[str, str]:
     return out
 
 
+def _base_versions(b: dict, ver_by_guid: dict[str, str]) -> set[str]:
+    """Все версии платформы, относящиеся к базе: закреплённый exe, подобранный exe, Version= из v8i."""
+    vers = set()
+    for exe in (b.get('exe') or '', ((b.get('our') or {}).get('exe') or '')):
+        for part in Path(exe.replace('\\', '/')).parts:
+            if re.match(r'^\d+\.\d+\.\d+\.\d+$', part):
+                vers.add(part)
+    v8i_ver = ver_by_guid.get(b['guid']) or ''
+    if v8i_ver:
+        vers.add(v8i_ver)
+    return vers
+
+
+def _bases_on(st: dict, src: str) -> list[dict]:
+    """Базы платформы src: семейство ('8.3') или точная версия ('8.3.27.2325')."""
+    ver_by_guid = _v8i_versions()
+    hits = []
+    for b in st.get('bases') or []:
+        if src == (b.get('family') or '') or src in _base_versions(b, ver_by_guid):
+            hits.append(b)
+    return hits
+
+
+def _platform_extras(p: dict) -> dict:
+    """Размер каталога версии и компоненты платформы (по файлам в bin)."""
+    out = {'size_human': '—', 'size_partial': False, 'components': {}}
+    exe = p.get('exe') or p.get('exe_thin') or ''
+    if not exe:
+        return out
+    bin_dir = Path(exe).parent
+    ver_dir = bin_dir.parent
+    from core import cache as _cache
+    s = _cache.size_of(ver_dir, budget=0.8)
+    out['size_human'] = s['human']
+    out['size_partial'] = s['partial']
+    checks = {
+        'конфигуратор (1cv8.exe)': '1cv8.exe',
+        'тонкий клиент (1cv8c.exe)': '1cv8c.exe',
+        'сервер (ragent.exe)': 'ragent.exe',
+        'COM (comcntr.dll)': 'comcntr.dll',
+    }
+    comps = []
+    for label, fname in checks.items():
+        try:
+            if (bin_dir / fname).is_file():
+                comps.append(label)
+        except OSError:
+            continue
+    out['components'] = comps
+    return out
+
+
 @app.get('/api/platforms/usage')
 def platforms_usage():
-    """По каждой установленной платформе — сколько баз на ней (закреплено / подобрано / Version=)."""
+    """По каждой установленной платформе — сколько баз на ней (закреплено / подобрано / Version=),
+    размер каталога версии и компоненты (конфигуратор, тонкий клиент, сервер, COM)."""
     st = importer.build_state()
     ver_by_guid = _v8i_versions()
     out = []
@@ -1303,7 +1356,8 @@ def platforms_usage():
         out.append({'key': p.get('key'), 'family': p.get('family'), 'bitness': p.get('bitness'),
                     'source': p.get('source'), 'exe': p.get('exe'), 'exe_thin': p.get('exe_thin'),
                     'pinned': pinned, 'resolved': resolved, 'by_version': by_version,
-                    'used': bool(pinned or resolved or by_version)})
+                    'used': bool(pinned or resolved or by_version),
+                    **_platform_extras(p)})
     out.sort(key=lambda x: ((x.get('family') or ''), x.get('key') or ''), reverse=True)
     return {'platforms': out}
 
@@ -1326,24 +1380,7 @@ async def platforms_migrate(req: Request):
     if not target:
         return JSONResponse({'error': 'платформа %s не установлена' % to_version}, status_code=400)
     to_exe = target.get('exe') or target.get('exe_thin') or ''
-    ver_by_guid = _v8i_versions()
-    hits = []
-    for b in st.get('bases') or []:
-        fam = b.get('family') or ''
-        if src == fam:
-            hits.append(b)
-            continue
-        # версия: в закреплённом exe, в подобранном exe или в Version= из ibases.v8i
-        vers = set()
-        for exe in (b.get('exe') or '', ((b.get('our') or {}).get('exe') or '')):
-            for part in Path(exe.replace('\\', '/')).parts:
-                if re.match(r'^\d+\.\d+\.\d+\.\d+$', part):
-                    vers.add(part)
-        v8i_ver = ver_by_guid.get(b['guid']) or ''
-        if v8i_ver:
-            vers.add(v8i_ver)
-        if src in vers:
-            hits.append(b)
+    hits = _bases_on(st, src)
     if dry:
         return {'ok': True, 'dry_run': True, 'count': len(hits),
                 'names': [b['name'] for b in hits][:100]}
@@ -1359,6 +1396,58 @@ async def platforms_migrate(req: Request):
     importer._BASES_CACHE.clear()
     return {'ok': not errors, 'count': len(done), 'names': done[:100],
             'to_version': to_version, 'to_exe': to_exe, 'errors': errors[:10]}
+
+
+@app.get('/api/platforms/bases')
+def platforms_bases(from_src: str = ''):
+    """Базы одной платформы (from=семейство или версия) — для окна перевода с чекбоксами."""
+    src = (from_src or '').strip()
+    if not src:
+        return {'ok': True, 'bases': []}
+    st = importer.build_state()
+    ver_by_guid = _v8i_versions()
+    out = []
+    for b in _bases_on(st, src):
+        storage = b.get('storage') or {}
+        out.append({'guid': b['guid'], 'name': b.get('name') or b['guid'],
+                    'family': b.get('family') or '',
+                    'ver': ver_by_guid.get(b['guid']) or '',
+                    'has_storage': bool(storage.get('dir')),
+                    'running': bool(b.get('running'))})
+    out.sort(key=lambda x: x['name'])
+    return {'ok': True, 'count': len(out), 'bases': out}
+
+
+@app.post('/api/platforms/migrate_bases')
+async def platforms_migrate_bases(req: Request):
+    """Перевести выбранные базы на платформу to_version (закрепление exe + Version= в ibases.v8i)."""
+    body = await req.json()
+    guids = [str(g).strip().lower() for g in (body.get('guids') or []) if str(g).strip()]
+    to_version = (body.get('to_version') or '').strip()
+    if not guids:
+        return JSONResponse({'error': 'не переданы guids'}, status_code=400)
+    st = importer.build_state()
+    target = next((p for p in st.get('platforms') or [] if p.get('key') == to_version), None)
+    if not target:
+        return JSONResponse({'error': 'платформа %s не установлена' % to_version}, status_code=400)
+    to_exe = target.get('exe') or target.get('exe_thin') or ''
+    by_guid = {b['guid']: b for b in (st.get('bases') or []) if b.get('guid')}
+    done = []
+    errors = []
+    for g in guids:
+        b = by_guid.get(g)
+        if not b:
+            errors.append('%s: база не найдена' % g)
+            continue
+        try:
+            config.set_base(g, {'exe': to_exe, 'family': target.get('family') or '', 'learnt': ''})
+            v8i_writer.set_version(g, to_version)
+            done.append(b['name'])
+        except Exception as e:                   # noqa: BLE001
+            errors.append('%s: %s' % (b.get('name') or g, e))
+    importer._BASES_CACHE.clear()
+    return {'ok': not errors, 'count': len(done), 'names': done[:100],
+            'to_version': to_version, 'errors': errors[:10]}
 
 
 @app.post('/api/platforms/delete')
