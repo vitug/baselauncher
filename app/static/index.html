@@ -1733,25 +1733,22 @@ async function cbClearSelected(){
        else{ stat('ошибка: '+(r.error||''),'err'); toast('ОШИБКА очистки кэша'); }
      }},{t:'Отмена'}]);
 }
-/* ---------- выгрузка/загрузка XML: запомненные пути (до 3, общие) ---------- */
-function dumpPaths(){ try{ return JSON.parse(localStorage.getItem('BL_DUMP_PATHS')||'[]') }catch(e){ return [] } }
-function saveDumpPath(p){
-  p=(p||'').trim(); if(!p) return;
-  let ps=dumpPaths().filter(x=>x.toLowerCase()!==p.toLowerCase());
-  ps.unshift(p); ps=ps.slice(0,3);
-  localStorage.setItem('BL_DUMP_PATHS',JSON.stringify(ps));
+/* ---------- выгрузка/загрузка XML: запомненные пути (до 3, в config.json) ---------- */
+let DUMP_PATHS=[];
+async function loadDumpPaths(){
+  try{ DUMP_PATHS=(await (await fetch('/api/dump/paths')).json()).paths||[] }catch(e){ DUMP_PATHS=[] }
+  return DUMP_PATHS;
 }
 function fillPathHints(){
   const dl=$('bl-paths'); if(!dl) return;
-  dl.innerHTML=dumpPaths().map(p=>`<option value="${esc(p)}">`).join('');
+  dl.innerHTML=DUMP_PATHS.map(p=>`<option value="${esc(p)}">`).join('');
 }
 /* ---------- выгрузка конфигурации в XML ---------- */
 let XM_DATA=null, XM_SEL=new Set(), XM_TIMER=null, XM_ONE=null;
-function openDumpXml(preset){
+async function openDumpXml(preset){
   $('xmovl').classList.add('on'); $('xm-search').value='';
-  fillPathHints();
-  const ps=dumpPaths();
-  $('xm-root').value=ps[0]||'D:\\xml_out';
+  await loadDumpPaths(); fillPathHints();
+  $('xm-root').value=DUMP_PATHS[0]||'D:\\xml_out';
   XM_SEL=new Set();
   const pre=preset||null;
   XM_ONE=pre;
@@ -1820,7 +1817,7 @@ async function xmRun(){
   if(!root){ toast('укажите каталог для выгрузки'); return }
   const r=await postJSON('/api/dump/start',{root,guids}).catch(e=>({error:String(e)}));
   if(!r.ok){ stat('ошибка: '+(r.error||''),'err'); toast('ОШИБКА: '+(r.error||'запуск не удался'),6000); return }
-  saveDumpPath(root);
+  loadDumpPaths();
   stat(`выгрузка идёт: баз ${r.total}, каталог ${r.root}`,'ok');
   toast(`Выгрузка в XML запущена: ${r.total} баз`);
   xmPoll(true);
@@ -1845,11 +1842,11 @@ function xmPoll(force){
 }
 /* ---------- загрузка конфигурации из XML ---------- */
 let XIL_DATA=null, XIL_SEL=new Set(), XIL_TIMER=null, XIL_ONE=null;
-function openLoadXml(preset){
+async function openLoadXml(preset){
   $('xilovl').classList.add('on'); $('xil-search').value='';
-  fillPathHints();
+  await loadDumpPaths(); fillPathHints();
   /* предлагаем оттуда, куда в последний раз выгружали */
-  $('xil-root').value=dumpPaths()[0]||'D:\\xml_out';
+  $('xil-root').value=DUMP_PATHS[0]||'D:\\xml_out';
   XIL_SEL=new Set(); xilMode();
   const pre=preset||null;
   XIL_ONE=pre;
