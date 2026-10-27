@@ -190,12 +190,12 @@ tr.base.running td.name{box-shadow:inset 3px 0 0 var(--green)}
 #cblist td.num{text-align:right;white-space:nowrap}
 #cblist tr.run td{opacity:.75}
 #cblist input[type=checkbox]{transform:scale(1.25)}
-#pdovl,#mgovl,#dcovl{position:fixed;inset:0;background:#000a;display:none;z-index:13}
-#pdovl.on,#mgovl.on,#dcovl.on{display:flex;align-items:center;justify-content:center}
-#pdmodal,#mgmodal,#dcmodal{background:var(--card);border:1px solid var(--border);border-radius:10px;
+#pdovl,#mgovl,#dcovl,#xmovl,#xilovl{position:fixed;inset:0;background:#000a;display:none;z-index:13}
+#pdovl.on,#mgovl.on,#dcovl.on,#xmovl.on,#xilovl.on{display:flex;align-items:center;justify-content:center}
+#pdmodal,#mgmodal,#dcmodal,#xmmodal,#xilmodal{background:var(--card);border:1px solid var(--border);border-radius:10px;
   padding:16px;width:min(780px,94vw);max-height:88vh;overflow:auto}
-#pdlist table,#mglist table,#dclist table{width:100%;border-collapse:collapse;font-size:12px}
-#pdlist td,#pdlist th,#mglist td,#mglist th,#dclist td,#dclist th{padding:4px 6px;border-bottom:1px solid var(--border);text-align:left}
+#pdlist table,#mglist table,#dclist table,#xmlist table,#xillist table{width:100%;border-collapse:collapse;font-size:12px}
+#pdlist td,#pdlist th,#mglist td,#mglist th,#dclist td,#dclist th,#xmlist td,#xmlist th,#xillist td,#xillist th{padding:4px 6px;border-bottom:1px solid var(--border);text-align:left}
 #pdlist td.num,#mglist td.num,#dclist td.num{text-align:right;white-space:nowrap}
 #pdlist tr.used td{opacity:.6}
 #pdlist input[type=checkbox],#mglist input[type=checkbox],#dclist input[type=checkbox]{transform:scale(1.25)}
@@ -593,11 +593,59 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   </div>
 </div></div>
 
+<div id="xmovl"><div id="xmmodal">
+  <h2>Выгрузить конфигурации в XML</h2>
+  <div class="hint" style="margin-bottom:8px">Конфигурация каждой выбранной файловой базы выгружается
+    в свой подкаталог (ibcmd, формат платформы базы). Открытые базы пропускаются — закройте их сеансы.</div>
+  <div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
+    <input id="xm-root" placeholder="каталог для выгрузки, например D:\xml_out" style="flex:1;min-width:220px">
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
+    <input id="xm-search" placeholder="поиск по имени базы… (только файловые)" style="flex:1;min-width:160px" oninput="renderDumpXml()">
+    <button class="add" onclick="xmToggleAll()" id="xm-all">выбрать всё</button>
+    <button class="add" onclick="xmInvert()" title="переключить выбор в рамках текущего фильтра">переключить выбор</button>
+  </div>
+  <div id="xmlist" style="max-height:44vh;overflow:auto"></div>
+  <div class="hint" id="xm-sum" style="margin-top:6px"></div>
+  <div class="btns" style="display:flex;gap:8px;margin-top:12px">
+    <button class="save" id="xm-go" onclick="xmRun()">Выгрузить выбранные</button>
+    <button onclick="closeDumpXml()">Закрыть</button>
+  </div>
+</div></div>
+
+<div id="xilovl"><div id="xilmodal">
+  <h2>Загрузить конфигурации из XML</h2>
+  <div class="hint" style="margin-bottom:8px">Исходники каждой базы ищутся в root\<имя базы&gt; (как раскладывает
+    «Выгрузить конфигурации в XML…»), иначе грузится сам root. Полная загрузка ЗАМЕНЯЕТ всю конфигурацию базы.</div>
+  <div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
+    <input id="xil-root" placeholder="каталог XML-исходников, например D:\xml_out" style="flex:1;min-width:220px">
+    <select id="xil-mode" title="режим загрузки">
+      <option value="changed">только изменённое (после прошлой выгрузки)</option>
+      <option value="files">заданные объекты / файлы</option>
+      <option value="full">полная загрузка (замена конфигурации)</option>
+    </select>
+    <label style="font-size:11px;white-space:nowrap" title="после загрузки применить конфигурацию к БД (ibcmd config apply)">
+      <input type="checkbox" id="xil-updb"> обновить БД</label>
+  </div>
+  <textarea id="xil-files" placeholder="Справочник.Номенклатура, Документ.Заказ — или относительные пути:&#10;Catalogs/Номенклатура.xml&#10;Documents/Заказ/Forms/ФормаДокумента.xml"
+    style="width:100%;min-height:56px;font-size:12px;display:none"></textarea>
+  <div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
+    <input id="xil-search" placeholder="поиск по имени базы… (только файловые)" style="flex:1;min-width:160px" oninput="renderLoadXml()">
+    <button class="add" onclick="xilToggleAll()" id="xil-all">выбрать всё</button>
+    <button class="add" onclick="xilInvert()" title="переключить выбор в рамках текущего фильтра">переключить выбор</button>
+  </div>
+  <div id="xillist" style="max-height:40vh;overflow:auto"></div>
+  <div class="hint" id="xil-sum" style="margin-top:6px"></div>
+  <div class="btns" style="display:flex;gap:8px;margin-top:12px">
+    <button class="save" id="xil-go" onclick="xilRun()">Загрузить в выбранные</button>
+    <button onclick="closeLoadXml()">Закрыть</button>
+  </div>
+</div></div>
+
 <div id="ovl"><div id="modal">
   <h2 id="md-title">Настройки базы</h2>
   <div class="eff" id="md-eff"></div>
   <div class="eff" id="md-conn"></div>
-
   <label>Имя <span class="hint">имя базы в списке 1С (ibases.v8i)</span></label>
   <input type="text" id="s-name">
 
@@ -1517,6 +1565,8 @@ function openAppMenu(el){
   mk('Перевести базы на другую платформу…',openMigrate);
   mk('Мёртвые кэши (не привязаны к базам)…',openDeadCaches);
   mk('Очистить кэш по базам (выбрать)…',openCacheBases);
+  mk('Выгрузить конфигурации в XML…',openDumpXml);
+  mk('Загрузить конфигурации из XML…',openLoadXml);
   mk('Кэш пользователя 1С (все базы)…',askClearUserCache);
   box.style.display='block'; box.style.left='0px'; box.style.top='0px';
   const r=box.getBoundingClientRect();
@@ -1681,6 +1731,168 @@ async function cbClearSelected(){
          reload(); }
        else{ stat('ошибка: '+(r.error||''),'err'); toast('ОШИБКА очистки кэша'); }
      }},{t:'Отмена'}]);
+}
+/* ---------- пакетная выгрузка конфигураций в XML ---------- */
+let XM_DATA=null, XM_SEL=new Set(), XM_TIMER=null;
+function openDumpXml(){
+  $('xmovl').classList.add('on'); $('xm-search').value='';
+  if(!$('xm-root').value) $('xm-root').value='D:\\xml_out';
+  XM_SEL=new Set();
+  $('xmlist').innerHTML='<div class="hint">загрузка…</div>';
+  fetch('/api/state').then(r=>r.json()).then(st=>{
+    XM_DATA=(st.bases||[]).filter(b=>b.path&&b.file!==false)
+      .map(b=>({guid:b.guid,name:b.name,path:b.path,running:!!b.running}));
+    renderDumpXml();
+  }).catch(()=>{ $('xmlist').innerHTML='<div class="hint">не удалось загрузить список</div>' });
+  xmPoll();
+}
+function closeDumpXml(){ $('xmovl').classList.remove('on') }
+function renderDumpXml(){
+  if(!XM_DATA) return;
+  const q=($('xm-search').value||'').toLowerCase().trim();
+  const rows=XM_DATA.filter(b=>!q||(b.name||'').toLowerCase().includes(q));
+  if(!rows.length){ $('xmlist').innerHTML='<div class="hint">ничего не найдено</div>'; xmSum(); return }
+  let h='<table><tr><th></th><th>База</th><th class="hint">каталог</th></tr>';
+  rows.forEach(b=>{
+    h+=`<tr${b.running?' class="used"':''}>`
+      +`<td><input type="checkbox" ${XM_SEL.has(b.guid)?'checked':''} onchange="xmSel('${b.guid}',this.checked)"></td>`
+      +`<td>${esc(b.name)}${b.running?' <span class="chip warn-chip" style="font-size:10px;padding:0 4px" title="выгрузка не пойдёт, пока открыты сеансы">открыта</span>':''}</td>`
+      +`<td class="hint" style="font-size:11px">${esc(b.path||'')}</td></tr>`;
+  });
+  $('xmlist').innerHTML=h+'</table>';
+  const vis=rows.some(b=>XM_SEL.has(b.guid));
+  $('xm-all').textContent=(vis&&rows.every(b=>XM_SEL.has(b.guid)))?'снять всё':'выбрать всё';
+  xmSum();
+}
+function xmSel(guid,on){ on?XM_SEL.add(guid):XM_SEL.delete(guid); renderDumpXml() }
+function xmFilterRows(){
+  const q=($('xm-search').value||'').toLowerCase().trim();
+  return XM_DATA.filter(b=>!q||(b.name||'').toLowerCase().includes(q));
+}
+function xmInvert(){ xmFilterRows().forEach(b=>XM_SEL.has(b.guid)?XM_SEL.delete(b.guid):XM_SEL.add(b.guid)); renderDumpXml() }
+function xmToggleAll(){ const rows=xmFilterRows(); const all=rows.every(b=>XM_SEL.has(b.guid));
+  rows.forEach(b=>all?XM_SEL.delete(b.guid):XM_SEL.add(b.guid)); renderDumpXml() }
+function xmSum(){
+  const n=XM_SEL.size;
+  $('xm-sum').textContent=n?`выбрано ${n} файловых баз — каждая выгрузится в свой подкаталог`
+    :`файловых баз: ${XM_DATA?XM_DATA.length:0} — отметьте нужные`;
+}
+async function xmRun(){
+  const guids=[...XM_SEL];
+  if(!guids.length){ toast('ничего не выбрано'); return }
+  const root=($('xm-root').value||'').trim();
+  if(!root){ toast('укажите каталог для выгрузки'); return }
+  const r=await postJSON('/api/dump/start',{root,guids}).catch(e=>({error:String(e)}));
+  if(!r.ok){ stat('ошибка: '+(r.error||''),'err'); toast('ОШИБКА: '+(r.error||'запуск не удался'),6000); return }
+  stat(`выгрузка идёт: баз ${r.total}, каталог ${r.root}`,'ok');
+  toast(`Выгрузка в XML запущена: ${r.total} баз`);
+  xmPoll(true);
+}
+function xmPoll(force){
+  if(XM_TIMER){ clearInterval(XM_TIMER); XM_TIMER=null }
+  const tick=async()=>{
+    let s; try{ s=await (await fetch('/api/dump/state')).json() }catch(e){ return }
+    if(s.state==='running'){
+      stat(`выгрузка XML: ${s.done}/${s.total} (${s.current||''})`);
+      XM_TIMER=XM_TIMER||setInterval(tick,1500);
+    }else if(s.state==='done'){
+      if(XM_TIMER){ clearInterval(XM_TIMER); XM_TIMER=null }
+      const ok=s.ok||0, skip=s.skip||0, fail=s.fail||0;
+      stat(`выгрузка XML: готово — ok ${ok}, пропущено ${skip}, ошибок ${fail}`,(fail||skip)?'':'ok');
+      let lines=(s.results||[]).map(r=>`[${r.state}] ${r.name}${r.out?' → '+r.out:''}${r.error?' — '+r.error:''}`).join('\n');
+      toast(`Выгрузка XML: ok ${ok} · пропущено ${skip} · ошибок ${fail}\n${lines}`,15000);
+    }
+  };
+  if(force) tick();
+  else if($('xmovl').classList.contains('on')) tick();
+}
+/* ---------- пакетная загрузка конфигураций из XML ---------- */
+let XIL_DATA=null, XIL_SEL=new Set(), XIL_TIMER=null;
+function openLoadXml(){
+  $('xilovl').classList.add('on'); $('xil-search').value='';
+  if(!$('xil-root').value) $('xil-root').value='D:\\xml_out';
+  XIL_SEL=new Set(); xilMode();
+  $('xillist').innerHTML='<div class="hint">загрузка…</div>';
+  fetch('/api/state').then(r=>r.json()).then(st=>{
+    XIL_DATA=(st.bases||[]).filter(b=>b.path)
+      .map(b=>({guid:b.guid,name:b.name,path:b.path,running:!!b.running}));
+    renderLoadXml();
+  }).catch(()=>{ $('xillist').innerHTML='<div class="hint">не удалось загрузить список</div>' });
+  xilPoll();
+}
+function closeLoadXml(){ $('xilovl').classList.remove('on') }
+function xilMode(){ $('xil-files').style.display=$('xil-mode').value==='files'?'block':'none' }
+function renderLoadXml(){
+  if(!XIL_DATA) return;
+  const q=($('xil-search').value||'').toLowerCase().trim();
+  const rows=XIL_DATA.filter(b=>!q||(b.name||'').toLowerCase().includes(q));
+  if(!rows.length){ $('xillist').innerHTML='<div class="hint">ничего не найдено</div>'; xilSum(); return }
+  let h='<table><tr><th></th><th>База</th><th class="hint">каталог</th></tr>';
+  rows.forEach(b=>{
+    h+=`<tr${b.running?' class="used"':''}>`
+      +`<td><input type="checkbox" ${XIL_SEL.has(b.guid)?'checked':''} onchange="xilSel('${b.guid}',this.checked)"></td>`
+      +`<td>${esc(b.name)}${b.running?' <span class="chip warn-chip" style="font-size:10px;padding:0 4px" title="загрузка не пойдёт, пока открыты сеансы">открыта</span>':''}</td>`
+      +`<td class="hint" style="font-size:11px">${esc(b.path||'')}</td></tr>`;
+  });
+  $('xillist').innerHTML=h+'</table>';
+  const vis=rows.some(b=>XIL_SEL.has(b.guid));
+  $('xil-all').textContent=(vis&&rows.every(b=>XIL_SEL.has(b.guid)))?'снять всё':'выбрать всё';
+  xilSum();
+}
+function xilSel(guid,on){ on?XIL_SEL.add(guid):XIL_SEL.delete(guid); renderLoadXml() }
+function xilFilterRows(){
+  const q=($('xil-search').value||'').toLowerCase().trim();
+  return XIL_DATA.filter(b=>!q||(b.name||'').toLowerCase().includes(q));
+}
+function xilInvert(){ xilFilterRows().forEach(b=>XIL_SEL.has(b.guid)?XIL_SEL.delete(b.guid):XIL_SEL.add(b.guid)); renderLoadXml() }
+function xilToggleAll(){ const rows=xilFilterRows(); const all=rows.every(b=>XIL_SEL.has(b.guid));
+  rows.forEach(b=>all?XIL_SEL.delete(b.guid):XIL_SEL.add(b.guid)); renderLoadXml() }
+function xilSum(){
+  const n=XIL_SEL.size;
+  const m={changed:'только изменённое',files:'заданные объекты',full:'ПОЛНАЯ (замена конфигурации)'}[$('xil-mode').value];
+  $('xil-sum').textContent=n?`выбрано ${n} баз · режим: ${m}`:`файловых баз: ${XIL_DATA?XIL_DATA.length:0} — отметьте нужные · режим: ${m}`;
+}
+async function xilRun(){
+  const guids=[...XIL_SEL];
+  if(!guids.length){ toast('ничего не выбрано'); return }
+  const root=($('xil-root').value||'').trim();
+  if(!root){ toast('укажите каталог XML-исходников'); return }
+  const mode=$('xil-mode').value;
+  const files=($('xil-files').value||'').split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);
+  if(mode==='files'&&!files.length){ toast('перечислите объекты или файлы'); return }
+  const upd=$('xil-updb').checked;
+  const body={root,guids,mode,files,update_db:upd};
+  const run=async()=>{
+    const r=await postJSON('/api/load/start',body).catch(e=>({error:String(e)}));
+    if(!r.ok){ stat('ошибка: '+(r.error||''),'err'); toast('ОШИБКА: '+(r.error||'запуск не удался'),7000); return }
+    stat(`загрузка идёт: баз ${r.total}, режим ${mode}, каталог ${r.root}`,'ok');
+    toast(`Загрузка XML запущена: ${r.total} баз`);
+    xilPoll(true);
+  };
+  if(mode==='full'){
+    askBox(`Полная загрузка в ${guids.length} баз?`,
+      'Полная загрузка ЗАМЕНЯЕТ всю конфигурацию каждой выбранной базы содержимым XML-каталога.\nДействие необратимо — убедитесь, что у баз есть выгрузка или бэкап.',
+      [{t:'Загрузить',cls:'del',primary:true,f:run},{t:'Отмена'}]);
+  }else run();
+}
+function xilPoll(force){
+  if(XIL_TIMER){ clearInterval(XIL_TIMER); XIL_TIMER=null }
+  const tick=async()=>{
+    let s; try{ s=await (await fetch('/api/load/state')).json() }catch(e){ return }
+    if(s.state==='running'){
+      stat(`загрузка XML: ${s.done}/${s.total} (${s.current||''})`);
+      XIL_TIMER=XIL_TIMER||setInterval(tick,1500);
+    }else if(s.state==='done'){
+      if(XIL_TIMER){ clearInterval(XIL_TIMER); XIL_TIMER=null }
+      const ok=s.ok||0, skip=s.skip||0, fail=s.fail||0;
+      stat(`загрузка XML: готово — ok ${ok}, пропущено ${skip}, ошибок ${fail}`,(fail||skip)?'':'ok');
+      let lines=(s.results||[]).map(r=>`[${r.state}] ${r.name}${r.note?' — '+r.note:''}${r.error?' — '+r.error:''}`).join('\n');
+      toast(`Загрузка XML: ok ${ok} · пропущено ${skip} · ошибок ${fail}\n${lines}`,15000);
+      reload();
+    }
+  };
+  if(force) tick();
+  else if($('xilovl').classList.contains('on')) tick();
 }
 /* ---------- платформы: список, перевод, удаление ---------- */
 let PLAT_USAGE=null;
