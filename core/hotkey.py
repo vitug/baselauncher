@@ -12,6 +12,7 @@ import ctypes.wintypes as wt
 import json
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 from . import procs
@@ -313,8 +314,19 @@ def _raise(hwnd: int, title: str, pid: int, port: int | None = None) -> dict:
     cur_tid = k32.GetCurrentThreadId()
     if fg_tid and fg_tid != cur_tid:
         u32.AttachThreadInput(cur_tid, fg_tid, True)
-    u32.SetForegroundWindow(hwnd)
-    u32.BringWindowToTop(hwnd)
+    # Windows без фокуса у нашего процесса игнорирует SetForegroundWindow — из-за этого
+    # окно «выходит» только со второго нажатия горячей клавиши. Обход: нажатие Alt
+    # (keybd_event) делает нас «последним вводившим» и снимает foreground-lock.
+    VK_MENU, KEYEVENTF_KEYUP = 0x12, 0x0002
+    ok = False
+    for _attempt in range(2):                     # до двух попыток: Alt-обход + контрольный повтор
+        u32.keybd_event(VK_MENU, 0, 0, 0)         # Alt down
+        u32.SetForegroundWindow(hwnd)
+        u32.BringWindowToTop(hwnd)
+        u32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)   # Alt up
+        if u32.GetForegroundWindow() == hwnd:
+            ok = True; break
+        time.sleep(0.15)
     if fg_tid and fg_tid != cur_tid:
         u32.AttachThreadInput(cur_tid, fg_tid, False)
     ok = u32.GetForegroundWindow() == hwnd
