@@ -598,6 +598,8 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <div class="hint" style="margin-bottom:8px">Конфигурация каждой выбранной файловой базы выгружается
     в свой подкаталог (ibcmd, формат платформы базы). Открытые базы пропускаются — закройте их сеансы.</div>
   <div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
+    <select id="xm-hist" onchange="$('xm-root').value=this.value" style="display:none;min-width:140px"
+      title="недавние каталоги выгрузки"></select>
     <input id="xm-root" list="bl-paths" placeholder="каталог для выгрузки, например D:\xml_out" style="flex:1;min-width:220px">
   </div>
   <datalist id="bl-paths"></datalist>
@@ -620,6 +622,8 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <div class="hint" style="margin-bottom:8px">Исходники каждой базы ищутся в root\<имя базы&gt; (как раскладывает
     «Выгрузить конфигурации в XML…»), иначе грузится сам root. Полная загрузка ЗАМЕНЯЕТ всю конфигурацию базы.</div>
   <div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
+    <select id="xil-hist" onchange="$('xil-root').value=this.value" style="display:none;min-width:140px"
+      title="недавние каталоги выгрузки"></select>
     <input id="xil-root" list="bl-paths" placeholder="каталог XML-исходников, например D:\xml_out" style="flex:1;min-width:220px">
     <select id="xil-mode" title="режим загрузки">
       <option value="changed">только изменённое (после прошлой выгрузки)</option>
@@ -1742,13 +1746,23 @@ async function loadDumpPaths(){
 function fillPathHints(){
   const dl=$('bl-paths'); if(!dl) return;
   dl.innerHTML=DUMP_PATHS.map(p=>`<option value="${esc(p)}">`).join('');
+  /* явный выбор из недавних, если их несколько */
+  [['xm-hist','xm-root'],['xil-hist','xil-root']].forEach(([sid,iid])=>{
+    const sel=$(sid); if(!sel) return;
+    if(DUMP_PATHS.length>1){
+      sel.innerHTML=DUMP_PATHS.map((p,i)=>`<option value="${esc(p)}">${i?'':'последний: '}${esc(p.length>52?p.slice(0,26)+'…'+p.slice(-24):p)}</option>`).join('');
+      sel.value=$(iid).value;
+      sel.style.display='inline-block';
+    }else sel.style.display='none';
+  });
 }
 /* ---------- выгрузка конфигурации в XML ---------- */
 let XM_DATA=null, XM_SEL=new Set(), XM_TIMER=null, XM_ONE=null;
 async function openDumpXml(preset){
   $('xmovl').classList.add('on'); $('xm-search').value='';
-  await loadDumpPaths(); fillPathHints();
+  await loadDumpPaths();
   $('xm-root').value=DUMP_PATHS[0]||'D:\\xml_out';
+  fillPathHints();
   XM_SEL=new Set();
   const pre=preset||null;
   XM_ONE=pre;
@@ -1844,9 +1858,10 @@ function xmPoll(force){
 let XIL_DATA=null, XIL_SEL=new Set(), XIL_TIMER=null, XIL_ONE=null;
 async function openLoadXml(preset){
   $('xilovl').classList.add('on'); $('xil-search').value='';
-  await loadDumpPaths(); fillPathHints();
+  await loadDumpPaths();
   /* предлагаем оттуда, куда в последний раз выгружали */
   $('xil-root').value=DUMP_PATHS[0]||'D:\\xml_out';
+  fillPathHints();
   XIL_SEL=new Set(); xilMode();
   const pre=preset||null;
   XIL_ONE=pre;
