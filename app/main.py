@@ -1088,8 +1088,29 @@ async def dump_start(req: Request):
         if base:
             items.append({'guid': g, 'name': base.get('name'), 'path': base.get('path'),
                           'exe': base.get('exe'), 'running': bool(base.get('running'))})
-    res = dumpxml.start(items, str(body.get('root') or ''))
+    root = str(body.get('root') or '')
+    res = dumpxml.start(items, root)
+    if res.get('ok'):
+        try:
+            config.add_dump_path(root)
+        except Exception:                            # noqa: BLE001
+            pass
     return JSONResponse(res, status_code=200 if res.get('ok') else 400)
+
+
+@app.get('/api/dump/paths')
+def dump_paths_list():
+    """Запомненные каталоги выгрузки XML (до 3, свежие первыми)."""
+    return {'ok': True, 'paths': config.dump_paths()}
+
+
+@app.post('/api/dump/paths')
+async def dump_paths_add(req: Request):
+    try:
+        body = await req.json()
+    except Exception:                                # noqa: BLE001
+        body = {}
+    return {'ok': True, 'paths': config.add_dump_path(str(body.get('path') or ''))}
 
 
 @app.get('/api/dump/state')
