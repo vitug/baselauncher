@@ -1413,6 +1413,8 @@ def platforms_bases(from_src: str = ''):
                     'family': b.get('family') or '',
                     'ver': ver_by_guid.get(b['guid']) or '',
                     'has_storage': bool(storage.get('dir')),
+                    'storage_dir': storage.get('dir') or '',
+                    'storage_ver': storage.get('ver') or '',
                     'running': bool(b.get('running'))})
     out.sort(key=lambda x: x['name'])
     return {'ok': True, 'count': len(out), 'bases': out}
