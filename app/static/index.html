@@ -181,6 +181,15 @@ tr.base.running td.name{box-shadow:inset 3px 0 0 var(--green)}
 #dtovl{position:fixed;inset:0;background:#000a;display:none;z-index:13}
 #dtovl.on{display:flex;align-items:center;justify-content:center}
 #b-menu{margin-left:auto}
+#cbovl{position:fixed;inset:0;background:#000a;display:none;z-index:13}
+#cbovl.on{display:flex;align-items:center;justify-content:center}
+#cbmodal{background:var(--card);border:1px solid var(--border);border-radius:10px;
+  padding:16px;width:min(720px,94vw);max-height:88vh;overflow:auto}
+#cblist table{width:100%;border-collapse:collapse;font-size:12px}
+#cblist td,#cblist th{padding:4px 6px;border-bottom:1px solid var(--border);text-align:left}
+#cblist td.num{text-align:right;white-space:nowrap}
+#cblist tr.run td{opacity:.75}
+#cblist input[type=checkbox]{transform:scale(1.25)}
 #ptovl{position:fixed;inset:0;background:#000a;display:none;z-index:13}
 #ptovl.on{display:flex;align-items:center;justify-content:center}
 #ptmodal{background:var(--card);border:1px solid var(--border);border-radius:10px;
@@ -498,6 +507,26 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <div class="btns" style="display:flex;gap:8px;margin-top:12px">
     <button class="save" onclick="loadPlatUsage(true)">Обновить</button>
     <button id="pt-cancel" onclick="closePlat()">Закрыть</button>
+  </div>
+</div></div>
+
+<div id="cbovl"><div id="cbmodal">
+  <h2>Очистить кэш по базам</h2>
+  <div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
+    <input id="cb-search" placeholder="поиск по имени базы…" style="flex:1;min-width:180px"
+      oninput="renderCacheBases()">
+    <select id="cb-what" title="что удалять у выбранных баз">
+      <option value="config">кэш программы (конфигурации)</option>
+      <option value="user">настройки пользователя</option>
+      <option value="both">всё</option>
+    </select>
+    <button class="add" onclick="cbToggleAll()" id="cb-all">выбрать всё</button>
+  </div>
+  <div id="cblist" style="max-height:50vh;overflow:auto"></div>
+  <div class="hint" id="cb-sum" style="margin-top:6px"></div>
+  <div class="btns" style="display:flex;gap:8px;margin-top:12px">
+    <button class="del" id="cb-go" onclick="cbClearSelected()">Очистить выбранные</button>
+    <button onclick="closeCacheBases()">Закрыть</button>
   </div>
 </div></div>
 
@@ -1422,6 +1451,7 @@ function openAppMenu(el){
   };
   mk('Платформы: список, перевод баз, удаление…',openPlat);
   mk('Мёртвые кэши (не привязаны к базам)…',openDeadCaches);
+  mk('Очистить кэш по базам (выбрать)…',openCacheBases);
   mk('Кэш пользователя 1С (все базы)…',askClearUserCache);
   box.style.display='block'; box.style.left='0px'; box.style.top='0px';
   const r=box.getBoundingClientRect();
@@ -1447,6 +1477,79 @@ async function openDeadCaches(){
        if(r.ok){ stat(`удалено мёртвых кэшей: ${r.removed}, освобождено ${r.freed_human}`,'ok');
          toast(`мёртвые кэши: удалено ${r.removed}, освобождено ${r.freed_human}`,9000); }
        else{ stat('ошибка: '+(r.error||JSON.stringify(r.errors||[])),'err'); toast('ОШИБКА очистки мёртвых кэшей'); }
+     }},{t:'Отмена'}]);
+}
+/* ---------- очистка кэша по базам: чекбоксы + поиск ---------- */
+let CB_DATA=null, CB_SEL=new Set();
+async function openCacheBases(){
+  $('cbovl').classList.add('on');
+  $('cb-search').value=''; CB_SEL=new Set();
+  $('cblist').innerHTML='<div class="hint">считаю размеры кэшей по базам… (может занять до минуты)</div>';
+  try{ CB_DATA=await (await fetch('/api/cache/bases')).json(); }catch(e){ CB_DATA=null }
+  if(!CB_DATA||!CB_DATA.ok||typeof CB_DATA.count!=='number'){
+    $('cblist').innerHTML='<div class="hint">не удалось загрузить список</div>'; return }
+  renderCacheBases();
+}
+function closeCacheBases(){ $('cbovl').classList.remove('on') }
+function renderCacheBases(){
+  if(!CB_DATA||!CB_DATA.bases) return;
+  const q=($('cb-search').value||'').toLowerCase().trim();
+  const rows=CB_DATA.bases.filter(b=>!q||(b.name||'').toLowerCase().includes(q));
+  if(!rows.length){ $('cblist').innerHTML='<div class="hint">ничего не найдено</div>'; cbSum(); return }
+  let h='<table><tr><th></th><th>База</th><th class="num">кэш программы</th><th class="num">настройки</th></tr>';
+  rows.forEach(b=>{
+    h+=`<tr${b.running?' class="run"':''}>`
+      +`<td><input type="checkbox" ${CB_SEL.has(b.guid)?'checked':''} onchange="cbSel('${b.guid}',this.checked)"></td>`
+      +`<td>${esc(b.name)}${b.running?' <span class="chip warn-chip" style="font-size:10px;padding:0 4px" title="сеансы этой базы открыты — часть файлов останется занятой">открыта</span>':''}</td>`
+      +`<td class="num">${b.config_human}${b.config_partial?'<span title="размер посчитан не полностью (обход ограничен по времени)">+</span>':''}</td>`
+      +`<td class="num" style="opacity:.7">${b.user_human}</td></tr>`;
+  });
+  h+='</table>';
+  $('cblist').innerHTML=h;
+  const vis=rows.some(b=>CB_SEL.has(b.guid));
+  $('cb-all').textContent=(vis&&rows.every(b=>CB_SEL.has(b.guid)))?'снять всё':'выбрать всё';
+  cbSum();
+}
+function cbSel(guid,on){ on?CB_SEL.add(guid):CB_SEL.delete(guid); renderCacheBases() }
+function cbToggleAll(){
+  if(!CB_DATA||!CB_DATA.bases) return;
+  const q=($('cb-search').value||'').toLowerCase().trim();
+  const rows=CB_DATA.bases.filter(b=>!q||(b.name||'').toLowerCase().includes(q));
+  const all=rows.every(b=>CB_SEL.has(b.guid));
+  rows.forEach(b=>all?CB_SEL.delete(b.guid):CB_SEL.add(b.guid));
+  renderCacheBases();
+}
+function cbSum(){
+  if(!CB_DATA||!CB_DATA.bases){ $('cb-sum').textContent=''; return }
+  const sel=CB_DATA.bases.filter(b=>CB_SEL.has(b.guid));
+  const cfg=sel.reduce((s,b)=>s+b.config_bytes,0), usr=sel.reduce((s,b)=>s+b.user_bytes,0);
+  $('cb-sum').textContent=sel.length
+    ?`выбрано ${sel.length} · кэш программы ${humanBytes(cfg)} · настройки ${humanBytes(usr)}`
+    :`баз с кэшем: ${CB_DATA.count} — отметьте нужные`;
+}
+function humanBytes(n){
+  const u=['Б','КБ','МБ','ГБ']; let i=0; n=n||0;
+  while(n>=1024&&i<u.length-1){n/=1024;i++}
+  return i?n.toFixed(1)+' '+u[i]:n+' Б';
+}
+async function cbClearSelected(){
+  const guids=[...CB_SEL];
+  if(!guids.length){ toast('ничего не выбрано'); return }
+  const what=$('cb-what').value;
+  const sel=(CB_DATA.bases||[]).filter(b=>CB_SEL.has(b.guid));
+  const cfg=sel.reduce((s,b)=>s+b.config_bytes,0), usr=sel.reduce((s,b)=>s+b.user_bytes,0);
+  const whatT={config:'кэш программы (конфигурации)',user:'настройки пользователя',both:'весь кэш'}[what];
+  closeCacheBases();
+  askBox(`Очистить ${whatT} у ${guids.length} баз?`,
+    `Выбрано баз: ${guids.length} (кэш программы ${humanBytes(cfg)}, настройки ${humanBytes(usr)}).\n`
+    +'Данные баз и настройки в стартере не затрагиваются. Сеансы выбранных баз лучше закрыть.',
+    [{t:'Очистить',cls:'del',primary:true,f:async()=>{
+       stat('чищу кэш выбранных баз…');
+       const r=await postJSON('/api/cache/bases/clear',{guids,what}).catch(e=>({error:String(e)}));
+       if(r.ok){ stat(`очищено баз: ${r.count}, каталогов ${r.dirs_removed}, освобождено ${r.freed_human}`,'ok');
+         toast(`Кэш очищен: баз ${r.count} · освобождено ${r.freed_human}`+(r.errors&&r.errors.length?'\nчасть файлов занята сеансами':''),9000);
+         reload(); }
+       else{ stat('ошибка: '+(r.error||''),'err'); toast('ОШИБКА очистки кэша'); }
      }},{t:'Отмена'}]);
 }
 /* ---------- платформы: список, перевод, удаление ---------- */
