@@ -11,8 +11,8 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from core import (audit, cache, com, config, dbtools, hotkey, importer, launcher, netcheck,
-                  platforms_share, procs, tray, v8i_writer, watch)
+from core import (audit, cache, com, config, dbtools, dumpxml, hotkey, importer, launcher,
+                  loadxml, netcheck, platforms_share, procs, tray, v8i_writer, watch)
 
 app = FastAPI(title='BaseLauncher', version='0.35.0')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
@@ -1067,6 +1067,67 @@ def base_check_db(guid: str):
 def fs_list(dir: str = ''):
     """Каталоги и файлы .dt для выбора выгрузки в окне «Загрузить базу из .dt…». """
     return dbtools.list_dir(dir)
+
+
+@app.post('/api/dump/start')
+async def dump_start(req: Request):
+    """Пакетная выгрузка конфигураций файловых баз в XML (ibcmd infobase config export).
+
+    body: {root: 'каталог', guids: ['guid', …]} — по базе на подкаталог с её именем.
+    Открытые базы пропускаются (ibcmd не берёт исключительную блокировку).
+    """
+    st = importer.build_state()
+    try:
+        body = await req.json()
+    except Exception:                                # noqa: BLE001
+        body = {}
+    guids = [str(g) for g in (body.get('guids') or [])]
+    items = []
+    for g in guids:
+        base = importer.find_base(st, g)
+        if base:
+            items.append({'guid': g, 'name': base.get('name'), 'path': base.get('path'),
+                          'exe': base.get('exe'), 'running': bool(base.get('running'))})
+    res = dumpxml.start(items, str(body.get('root') or ''))
+    return JSONResponse(res, status_code=200 if res.get('ok') else 400)
+
+
+@app.get('/api/dump/state')
+def dump_state():
+    """Прогресс пакетной выгрузки: {state: idle|running|done, total, done, results[]}. """
+    return {'ok': True, **dumpxml.state()}
+
+
+@app.post('/api/load/start')
+async def load_start(req: Request):
+    """Пакетная загрузка конфигурации в файловые базы из XML (ibcmd infobase config import).
+
+    body: {root, guids[], mode: full|changed|files, files[] (rel-пути или
+    «Справочник.Номенклатура»), update_db}. Каталог исходников базы: root/<имя базы>
+    (как раскладывает наша выгрузка), иначе сам root.
+    """
+    st = importer.build_state()
+    try:
+        body = await req.json()
+    except Exception:                                # noqa: BLE001
+        body = {}
+    guids = [str(g) for g in (body.get('guids') or [])]
+    items = []
+    for g in guids:
+        base = importer.find_base(st, g)
+        if base:
+            items.append({'guid': g, 'name': base.get('name'), 'path': base.get('path'),
+                          'exe': base.get('exe'), 'running': bool(base.get('running'))})
+    res = loadxml.start(items, str(body.get('root') or ''), str(body.get('mode') or 'full'),
+                        [str(f) for f in (body.get('files') or [])],
+                        bool(body.get('update_db')), str(config.DATA_DIR))
+    return JSONResponse(res, status_code=200 if res.get('ok') else 400)
+
+
+@app.get('/api/load/state')
+def load_state():
+    """Прогресс пакетной загрузки: {state: idle|running|done, total, done, results[]}. """
+    return {'ok': True, **loadxml.state()}
 
 
 @app.get('/api/base/{guid}/cache')
