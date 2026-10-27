@@ -11,11 +11,39 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from core import (cache, com, config, dbtools, hotkey, importer, launcher, netcheck, platforms_share,
-                  procs, tray, v8i_writer, watch)
+from core import (audit, cache, com, config, dbtools, hotkey, importer, launcher, netcheck,
+                  platforms_share, procs, tray, v8i_writer, watch)
 
 app = FastAPI(title='BaseLauncher', version='0.34.1')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
+
+
+# ── аудит действий: каждое не-GET обращение к API пишется в data/audit.log ──
+# (запуски, настройки, удаления, чистки кэша, переводы платформ; пароли → '***')
+@app.middleware('http')
+async def audit_middleware(request: Request, call_next):
+    if request.method == 'GET':
+        return await call_next(request)                 # чтение — не действие
+    detail: dict = {}
+    try:
+        body = await request.body()
+        if body and len(body) < 64 * 1024:
+            try:
+                detail = json.loads(body)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                detail = {'body': body[:200].decode('utf-8', 'replace')}
+    except Exception:                              # noqa: BLE001
+        pass
+    if request.url.query:
+        detail['?query'] = request.url.query
+    try:
+        response = await call_next(request)
+        audit.log('%s %s' % (request.method, request.url.path),
+                  dict(detail, _status=response.status_code))
+        return response
+    except Exception:
+        audit.log('%s %s' % (request.method, request.url.path), detail)
+        raise
 
 INDEX = Path(__file__).parent / 'static' / 'index.html'
 ICON = Path(__file__).parent.parent / 'assets' / 'baselauncher.ico'
@@ -757,6 +785,12 @@ def _running_pid(base: dict, mode: str) -> int | None:
 @app.get('/api/log')
 def log(n: int = 50):
     return launcher.tail_log(n)
+
+
+@app.get('/api/audit')
+def audit_tail(n: int = 50):
+    """Последние записи аудита действий (data/audit.log, новые в конце)."""
+    return audit.tail(n)
 
 
 @app.post('/api/base/new')
