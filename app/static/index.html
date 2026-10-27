@@ -1428,7 +1428,6 @@ function openAppMenu(el){
   mk('Платформы: список, перевод баз, удаление…',openPlat);
   mk('Мёртвые кэши (не привязаны к базам)…',openDeadCaches);
   mk('Кэш пользователя 1С (все базы)…',askClearUserCache);
-  mk('Кэш программы…',askClearAppCache);
   box.style.display='block'; box.style.left='0px'; box.style.top='0px';
   const r=box.getBoundingClientRect();
   const rr=el?el.getBoundingClientRect():{left:innerWidth-r.width-20,bottom:innerHeight-60};
@@ -1543,7 +1542,6 @@ async function openCacheMenu(el){
     d.textContent=t; d.onclick=()=>{ctxClose();fn()}; box.appendChild(d);
   };
   mk(`Очистить кэш пользователя 1С (${one})…`,'',askClearUserCache);
-  mk(`Очистить кэш программы (${app})…`,'',askClearAppCache);
   box.style.display='block'; box.style.left='0px'; box.style.top='0px';
   const r=box.getBoundingClientRect();
   const rr=el?el.getBoundingClientRect():{left:innerWidth-r.width-20,bottom:innerHeight-60};
