@@ -205,6 +205,7 @@ tr.base.running td.name{box-shadow:inset 3px 0 0 var(--green)}
   padding:16px;width:min(760px,94vw);max-height:88vh;overflow:auto}
 #ptlist table{width:100%;border-collapse:collapse;font-size:12px}
 #ptlist td,#ptlist th{padding:4px 6px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+#ptlist tr.pt-fam td{font-weight:600;background:var(--card);color:var(--muted-foreground);padding-top:10px}
 #ptlist .ptb{display:flex;gap:4px;flex-wrap:wrap}
 #ptlist .ptb button{font-size:11px;padding:2px 8px}
 #dtmodal{width:620px;max-width:94vw;max-height:90vh;overflow:auto;background:var(--panel);
@@ -1979,8 +1980,23 @@ async function loadPlatUsage(force){
 }
 function renderPlatUsage(){
   const ps=PLAT_USAGE.platforms||[];
+  let _lastFam=null;
   let h='<table><tr><th>Версия</th><th>Где</th><th>Размер</th><th>Компоненты</th><th>Баз</th><th></th></tr>';
-  ps.forEach(p=>{
+  /* группировка по семейству, семейства и версии внутри — по возрастанию */
+  const famRank=f=>{const n=parseFloat(f);return isNaN(n)?99:n};
+  const verKey=k=>k.split('.').map(x=>parseInt(x,10)||0);
+  const groups={};
+  ps.forEach(p=>{ (groups[p.family]=groups[p.family]||[]).push(p) });
+  const fams=Object.keys(groups).sort((a,b)=>famRank(a)-famRank(b));
+  fams.forEach(f=>groups[f].sort((a,b)=>{
+    const A=verKey(a.key),B=verKey(b.key);
+    for(let i=0;i<Math.max(A.length,B.length);i++){
+      const d=(A[i]||0)-(B[i]||0); if(d)return d;
+    }
+    return a.bitness<b.bitness?-1:1;
+  }));
+  let flat=[]; fams.forEach(f=>flat=flat.concat(groups[f]));
+  flat.forEach(p=>{
     const nP=p.pinned.length,nR=p.resolved.length,nV=p.by_version.length;
     const cnt=(nP||nR||nV)?`закреплено ${nP} · подобрано ${nR} · Version= ${nV}`:'— не используется';
     const comps=(p.components||[]).map(c=>c.replace(/ \(.*\)/,'')).join(', ')||'—';
@@ -1994,6 +2010,10 @@ function renderPlatUsage(){
       +`<button onclick="platOpenDir('${esc(p.key)}')">папка</button>`
       +`<button class="del" onclick="platDelete('${esc(p.key)}')">удалить</button>`
       +`</div></td></tr>`;
+    if(p.family!==_lastFam){
+      _lastFam=p.family;
+      h+=`<tr class="pt-fam"><td colspan="6">${esc(p.family)} — ${groups[p.family].length} платф.</td></tr>`;
+    }
   });
   h+='</table>';
   $('ptlist').innerHTML=h;
