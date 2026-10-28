@@ -10,7 +10,20 @@ import os
 import subprocess
 from pathlib import Path
 
-SHARE = r'\\Chicago\v81mcint'
+
+def _share_root() -> str:
+    """Корень шары дистрибутивов: env BL_SHARE > config.json share_root > ''."""
+    root = os.environ.get('BL_SHARE', '')
+    if not root:
+        try:
+            from core import config
+            root = str((config.load() or {}).get('share_root') or '')
+        except Exception:                                # noqa: BLE001
+            root = ''
+    return root
+
+
+SHARE = _share_root()
 DATA = Path(__file__).resolve().parent.parent / 'data' / 'install'
 KINDS = {
     'setup64full': 'полный 64 бита (клиент + сервер + автономный сервер)',
