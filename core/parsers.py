@@ -106,6 +106,6 @@ def sanitize_path(p: str) -> str:
 def parse_connect(connect: str) -> tuple[str, str, str, str]:
     """'File="C:\\x";' -> (path, '', '', '');  'Srvr="s:port";Ref="db";' -> ('', srvr, ref, '');
     'ws="https://…"' (веб-база) -> ('', '', '', url)."""
-    parts = dict(re.findall(r'(\w+)="([^"]*)"', connect or ''))
-    return sanitize_path(parts.get('File', '')), parts.get('Srvr', ''), \
-        parts.get('Ref', ''), parts.get('ws', '')
+    parts = {k.lower(): v for k, v in re.findall(r'(\w+)="([^"]*)"', connect or '')}
+    return (sanitize_path(parts.get('file', '')), parts.get('srvr', ''),
+            parts.get('ref', ''), parts.get('ws', ''))
