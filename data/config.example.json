@@ -1,0 +1,39 @@
+{
+  "_comment": "Пример data/config.json — настроек BaseLauncher. Скопируйте в data/config.json и заполните. Пароли можно не заполнять: всё то же вводится в UI (Alt+Enter по базе) и запишется сюда в обфусцированном виде bl1:...",
+  "version": 1,
+  "default_family": "8.3",
+  "share_root": "\\\\server\\1c-distr",
+  "families": {
+    "8.3": "C:\\Program Files\\1cv8\\8.3.27.2342\\bin\\1cv8c.exe"
+  },
+  "dump_paths": [],
+  "bases": {
+    "00000000-0000-0000-0000-000000000001": {
+      "name": "Пример файловой базы",
+      "descr": "",
+      "user": "Администратор",
+      "pwd": "",
+      "pwd_cfg": "",
+      "exe": "",
+      "mode": "",
+      "fav": true,
+      "extra_keys": "",
+      "storage": {
+        "dir": "D:\\repos\\1c-storage",
+        "user": "",
+        "pwd": ""
+      }
+    },
+    "00000000-0000-0000-0000-000000000002": {
+      "name": "Пример серверной базы",
+      "descr": "",
+      "user": "",
+      "pwd": "",
+      "exe": "",
+      "mode": "designer",
+      "fav": false,
+      "extra_keys": "",
+      "storage": {}
+    }
+  }
+}

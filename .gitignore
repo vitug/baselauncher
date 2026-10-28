@@ -1,20 +1,12 @@
-__pycache__/
+# генерируемые данные и локальные настройки — НИЧЕГО из data/ в git
+data/*
+!data/config.example.json
+!data/README.txt
 
-# генерируемые данные и локальные настройки (не коммитить)
-data/bases.json
-data/overrides.json
-data/overrides.migrated.json
-data/config.json
-data/config.json.bak-*
-data/install/
-data/*.log
-data/errors/*.bmp
-data/launch-errors.json
-
-# сборка поставки
+# сборка поставки и песочница дев-инстанса
 dist/
+data_dev/
+data_dev_console*.log
 
 __pycache__/
 *.pyc
-data_dev/
-data_dev_console.log

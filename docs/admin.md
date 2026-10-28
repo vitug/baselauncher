@@ -53,7 +53,7 @@ core/              СДК-логика, только stdlib:
 | GET | `/api/platforms/bases?from_src=` | базы платформы (+storage_dir, storage_ver) |
 | POST | `/api/platforms/migrate` / `migrate_bases` | массовый перевод (dry_run поддерживается) |
 | POST | `/api/platforms/delete` | удаление платформы; 409 при базах/сеансах |
-| POST | `/api/platform/probe` / `install` | дистрибутивы на шаре `\\Chicago\v81mcint\...`, установка с UAC |
+| POST | `/api/platform/probe` / `install` | дистрибутивы на шаре (env `BL_SHARE` / `share_root` в data/config.json), установка с UAC |
 | POST | `/api/base/{guid}/restore-dt` | восстановление из .dt через `ibcmd infobase restore` |
 | POST | `/api/base/{guid}/check-db` | запустить chdbfl (оконная утилита) |
 | POST | `/api/dump/start` `{root, guids[]}` | пакетная выгрузка конфигураций в XML (ibcmd config export); открытые базы пропускаются, манифест пишется при успехе |
