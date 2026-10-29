@@ -83,8 +83,12 @@ u32.PostQuitMessage.argtypes = [ctypes.c_int]
 
 
 def _icon_path() -> str:
+    import sys
     from pathlib import Path
-    return str(Path(__file__).resolve().parent.parent / 'assets' / 'baselauncher.ico')
+    p = Path(__file__).resolve().parent.parent / 'assets' / 'baselauncher.ico'
+    if getattr(sys, '_MEIPASS', ''):                  # exe-сборка: иконка внутри распаковки
+        p = Path(sys._MEIPASS) / 'assets' / 'baselauncher.ico'
+    return str(p)
 
 
 def _notify(hwnd, add=False, modify=False, tip='BaseLauncher — баз 1С (Ctrl+Shift+S)'):
