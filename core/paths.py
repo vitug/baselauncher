@@ -14,9 +14,15 @@
 Импортируется из core/ и корневых скриптов; менять пути в модулях напрямую нельзя.
 """
 import os
+import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
+# Frozen (PyInstaller onefile): всё статическое распаковано в _MEIPASS,
+# данные и логи живут рядом с exe; из репозитория — как раньше.
+if getattr(sys, 'frozen', False):
+    REPO = Path(sys.executable).resolve().parent
+else:
+    REPO = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.environ.get('BL_DATA') or (REPO / 'data'))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 

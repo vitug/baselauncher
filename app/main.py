@@ -45,8 +45,14 @@ async def audit_middleware(request: Request, call_next):
         audit.log('%s %s' % (request.method, request.url.path), detail)
         raise
 
-INDEX = Path(__file__).parent / 'static' / 'index.html'
-ICON = Path(__file__).parent.parent / 'assets' / 'baselauncher.ico'
+import sys
+from pathlib import Path
+
+# PyInstaller onefile: static распакован в _MEIPASS/app/static
+_STATIC = Path(getattr(sys, '_MEIPASS', '')) / 'app' / 'static' if getattr(sys, '_MEIPASS', '') \
+    else Path(__file__).parent / 'static'
+INDEX = _STATIC / 'index.html'
+ICON = _STATIC.parent.parent / 'assets' / 'baselauncher.ico'
 ROOT = Path(__file__).parent.parent
 
 
@@ -1685,14 +1691,17 @@ def restart_app():
     root = Path(__file__).resolve().parent.parent     # корень репозитория, не app/
     boot = root / 'boot.py'
     pythonw = Path(sys.executable).with_name('pythonw.exe')
+    frozen = getattr(sys, 'frozen', False)            # exe-сборка: перезапуск самим собой
+    relaunch = [sys.executable, '--wait-down'] if frozen else \
+        [str(pythonw if pythonw.is_file() else sys.executable), str(boot), '--wait-down']
 
     def _bye():
         try:
             hotkey.close_starter(PORT)                  # окно закроем, новое откроет boot.py
             tray.remove_icon()
-            # boot.py --wait-down дождётся освобождения порта, поднимет сервер и окно
-            subprocess.Popen([str(pythonw if pythonw.is_file() else sys.executable),
-                              str(boot), '--wait-down'], cwd=str(root),
+            # boot.py --wait-down (или exe --wait-down) дождётся освобождения порта,
+            # поднимет сервер и окно
+            subprocess.Popen(relaunch, cwd=str(root if not frozen else Path(sys.executable).parent),
                              close_fds=True, creationflags=0x00000008)  # DETACHED_PROCESS
         finally:
             os._exit(0)
