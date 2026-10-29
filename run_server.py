@@ -29,6 +29,15 @@ if __name__ == '__main__':
     # 8791 — вотчер моделей; биндинг поверх занятого порта даёт 10048/10013.
     # Останавливать сервер — POST /api/shutdown (иначе остаётся воркер-ребёнок).
     # reload по умолчанию ВЫКЛ (стабильнее); для разработки: BL_RELOAD=1.
+    _port = int(os.environ.get('BL_PORT', '8797'))
+    if '--wait-down' in sys.argv:                      # exe-сборка: рестарт самим собой,
+        import socket, time                             # ждём освобождения порта старым процессом
+        for _ in range(600):
+            s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind(('127.0.0.1', _port)); s.close(); break
+            except OSError:
+                s.close(); time.sleep(0.5)
     uvicorn.run('app.main:app', host='127.0.0.1',
-                port=int(os.environ.get('BL_PORT', '8797')),
+                port=_port,
                 reload=os.environ.get('BL_RELOAD', '0') == '1')
