@@ -2,7 +2,9 @@
 """REST-слой BaseLauncher (FastAPI). Только 127.0.0.1."""
 import datetime
 import json
+import os
 import re
+import shlex
 import subprocess
 import time
 import threading
@@ -475,6 +477,79 @@ def _initial_dir(p: str | None) -> str:
     if q.is_file():
         return str(q.parent)
     return str(q) if q.is_dir() else ''
+
+
+@app.post('/api/pickdir')
+def pickdir(req: dict):
+    """Нативный диалог выбора папки (для закладки «Инструменты»)."""
+    try:
+        from core import filedlg
+        p = filedlg.pick_folder(title=req.get('title') or 'Выбрать папку')
+        return {'path': p, 'cancelled': p == ''}
+    except Exception as e:                     # noqa: BLE001
+        return JSONResponse({'error': f'{type(e).__name__}: {e}'}, status_code=500)
+
+
+# ---------------- инструменты: заданные папки и скрипты ----------------
+@app.get('/api/tools')
+def tools_get():
+    return {'tools': config.tools_list()}
+
+
+@app.post('/api/tools/save')
+def tools_save(req: dict):
+    item = {
+        'name': (req.get('name') or '').strip(),
+        'kind': 'folder' if req.get('kind') == 'folder' else 'script',
+        'target': (req.get('target') or '').strip(),
+        'args': (req.get('args') or '').strip(),
+        'note': (req.get('note') or '').strip(),
+    }
+    if not item['name']:
+        return JSONResponse({'error': 'задайте название'}, status_code=400)
+    if not item['target']:
+        return JSONResponse({'error': 'задайте путь (папку или файл скрипта)'}, status_code=400)
+    if req.get('id'):
+        item['id'] = req.get('id')
+    return {'ok': True, 'tools': config.tool_save(item)}
+
+
+@app.post('/api/tools/del')
+def tools_del(req: dict):
+    tid = (req.get('id') or '').strip()
+    if not tid:
+        return JSONResponse({'error': 'нет id'}, status_code=400)
+    return {'ok': True, 'tools': config.tool_del(tid)}
+
+
+@app.post('/api/tools/run')
+def tools_run(req: dict):
+    """Открыть заданную папку в Проводнике или запустить скрипт с параметрами."""
+    tid = (req.get('id') or '').strip()
+    t = next((x for x in config.tools_list() if x.get('id') == tid), None)
+    if not t:
+        return JSONResponse({'error': 'инструмент не найден'}, status_code=404)
+    target = (t.get('target') or '').strip()
+    kind = t.get('kind')
+    try:
+        if kind == 'folder':
+            if not Path(target).is_dir():
+                return JSONResponse({'error': f'папки нет на диске: {target}'}, status_code=400)
+            os.startfile(target)                     # Проводник
+            audit.log('tools: папка %s' % target)
+            return {'ok': True, 'opened': target}
+        # скрипт: .bat/.cmd — через cmd /c, остальное (exe/ps1-обёртки и т.п.) — напрямую
+        if not Path(target).is_file():
+            return JSONResponse({'error': f'файла нет на диске: {target}'}, status_code=400)
+        argv = [target] + shlex.split(t.get('args') or '', posix=False)
+        if target.lower().endswith(('.bat', '.cmd')):
+            argv = ['cmd', '/c'] + argv
+        subprocess.Popen(argv, cwd=str(Path(target).parent),
+                         creationflags=0x00000008)    # DETACHED_PROCESS — переживает сервер
+        audit.log('tools: скрипт %s %s' % (target, t.get('args') or ''))
+        return {'ok': True, 'cmd': ' '.join(argv)}
+    except Exception as e:                            # noqa: BLE001
+        return JSONResponse({'error': f'{type(e).__name__}: {e}'}, status_code=500)
 
 
 @app.post('/api/dryrun')
