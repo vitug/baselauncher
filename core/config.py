@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """Свой формат конфигурации BaseLauncher — data/config.json.
 
-SM больше не используется: всё, что раньше бралось из `v8config.smc`
-и `settings.cnf`, живёт здесь (ibases.v8i по-прежнему читаем — это формат 1С,
+Все настройки живут здесь (ibases.v8i по-прежнему читаем — это формат 1С,
 его понимает и штатный стартер).
 
 Пароли не хранятся открытым текстом: `seal()` — base64 + XOR с ключом от
@@ -36,7 +35,7 @@ import json
 import platform
 from pathlib import Path
 
-from . import parsers, smcrypt
+from . import parsers
 
 from .paths import DATA_DIR
 CONFIG_PATH = DATA_DIR / 'config.json'
@@ -297,13 +296,10 @@ def set_family_exe(family: str, exe: str) -> dict:
     return save(cfg)
 
 
-# ── миграция из SM (один раз) ──────────────────────────────────────
-
 def migrate() -> dict:
-    """Собрать config.json из overrides.json + v8config.smc + settings.cnf.
+    """Собрать стартовый config.json (первый запуск).
 
-    Вызывается автоматически, пока config.json нет. Старый overrides.json
-    переименовывается в overrides.migrated.json (бэкап, читать больше не нужно).
+    Если остался старый overrides.json — перенести из него настройки баз.
     """
     cfg = _empty()
     legacy = {}
@@ -314,18 +310,9 @@ def migrate() -> dict:
             legacy = {}
     cfg['default_family'] = legacy.get('default_family') or '8.3'
 
-    sm_cfg, slots = {}, {}
-    try:
-        sm_cfg = parsers.parse_v8config()
-        slots = parsers.parse_settings_slots()
-        cfg['families'] = {fam: exe for fam, exe in (slots or {}).items() if exe}
-    except Exception:
-        pass
-
     old_bases = legacy.get('bases') or {}
-    for guid in set(old_bases) | set(sm_cfg):
-        our = old_bases.get(guid, {}) or {}
-        sm = sm_cfg.get(guid, {}) or {}
+    for guid, our in old_bases.items():
+        our = our or {}
         ent = {}
         for fld in ('name', 'descr', 'user', 'exe'):
             if our.get(fld):
@@ -339,32 +326,16 @@ def migrate() -> dict:
             ent['fav'] = bool(our['fav'])
         if our.get('extra_keys'):
             ent['extra_keys'] = [k for k in our['extra_keys'] if k]
-        # пароли: наш (открытый) -> SM (расшифрованный crypto-module)
         pwd = (our.get('pwd') or '').strip()
         pwd_cfg = (our.get('pwd_cfg') or '').strip()
-        if not pwd and sm.get('EntPassword'):
-            pwd = smcrypt.decrypt(sm['EntPassword'])
-        if not pwd_cfg and sm.get('CfgPassword'):
-            pwd_cfg = smcrypt.decrypt(sm['CfgPassword'])
         if pwd:
             ent['pwd'] = seal(pwd)
         if pwd_cfg:
             ent['pwd_cfg'] = seal(pwd_cfg)
-        # прочее из SM
-        if not ent.get('descr') and sm.get('Description'):
-            ent['descr'] = sm['Description']
-        if not ent.get('user') and sm.get('UserLogin'):
-            ent['user'] = sm['UserLogin']
-        if not ent.get('exe') and str(sm.get('V8UseAppFile', '0')) == '1' and sm.get('V8AppFile'):
-            ent['exe'] = sm['V8AppFile']
         st = dict(our.get('storage') or {})
-        if not st.get('dir') and sm.get('StorageDir'):
-            st = {'dir': sm['StorageDir'], 'user': sm.get('StorageUser', '')}
         if st.get('dir'):
             st_out = {'dir': st['dir'], 'user': st.get('user', '')}
             spwd = (st.get('pwd') or st.get('password') or '').strip()
-            if not spwd and sm.get('StoragePassword'):
-                spwd = smcrypt.decrypt(sm['StoragePassword'])
             if spwd:
                 st_out['pwd'] = seal(spwd)
             ent['storage'] = st_out

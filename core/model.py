@@ -18,7 +18,7 @@ class Platform:
 
 @dataclass
 class BaseEntry:
-    guid: str           # ID из ibases.v8i (= секция v8config.smc)
+    guid: str           # ID из ibases.v8i
     name: str           # имя секции v8i (= что показывает стартер)
     folder: str         # Folder из v8i ('/Разработка')
     connect: str        # сырое значение Connect (File="..."; или Srvr="...";Ref="...")

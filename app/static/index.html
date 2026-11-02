@@ -2931,7 +2931,7 @@ async function openSettings(guid){
      в поле стоит имя из ibases.v8i — тогда при сохранении оно не пишется в config.json. */
   const ibName=b.ibname||b.name||'';
   $('s-name').value=our.name||ibName; $('s-name').placeholder=ibName;
-  /* Описание: у части баз из SM в описание было скопировано имя базы — такое не показываем */
+  /* Описание: если в описание скопировано имя базы — такое не показываем */
   const d=String(our.descr||'');
   $('s-descr').value=(d.trim()&&d.trim()!==ibName.trim())?d:'';
   $('s-descr').placeholder='свободный текст: что за база, чем отличается';
