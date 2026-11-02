@@ -10,3 +10,7 @@ data_dev_console*.log
 
 __pycache__/
 *.pyc
+build/
+dist_exe/
+__pycache__/
+*.log
