@@ -109,6 +109,12 @@ def load() -> dict:
         try:
             cfg = json.loads(CONFIG_PATH.read_text(encoding='utf-8'))
         except json.JSONDecodeError:
+            # битый конфиг не терять молча: копия рядом, миграция только как fallback
+            try:
+                CONFIG_PATH.replace(DATA_DIR / ('config.json.corrupt-%s' %
+                    datetime.datetime.now().strftime('%Y%m%d-%H%M%S')))
+            except Exception:
+                pass
             cfg = None
     if not isinstance(cfg, dict) or 'bases' not in cfg:
         cfg = migrate()
@@ -184,8 +190,21 @@ def save(cfg: dict, touch: bool = True) -> dict:
     if touch:
         cfg['updated'] = datetime.datetime.now().isoformat(timespec='seconds')
     cfg['version'] = VERSION
-    tmp = CONFIG_PATH.with_suffix('.json.tmp')
+    # уникальный tmp на поток: одновременные save() не портят друг друга (гонка на
+    # общем .tmp однажды дала битый config.json -> load() ушёл в migrate() и потерял fav)
+    import os, threading
+    tmp = CONFIG_PATH.with_suffix('.json.tmp-%d-%d' % (os.getpid(), threading.get_ident()))
     tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=1), encoding='utf-8')
+    # перед заменой — катящийся бэкап (5 последних), дешёвая страховка
+    try:
+        if CONFIG_PATH.is_file():
+            baks = sorted(DATA_DIR.glob('config.json.bak-auto-*'))
+            if len(baks) >= 5:
+                baks[0].unlink()
+            CONFIG_PATH.replace(DATA_DIR / ('config.json.bak-auto-%s' %
+                datetime.datetime.now().strftime('%Y%m%d-%H%M%S')))
+    except Exception:
+        pass
     tmp.replace(CONFIG_PATH)
     return cfg
 
