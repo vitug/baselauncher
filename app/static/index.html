@@ -538,7 +538,7 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
     </select>
   </div>
   <div class="dt-row">
-    <input type="text" id="tl-target" placeholder="путь: C:\folder или D:\scripts\backup.bat" style="flex:1">
+    <input type="text" id="tl-target" oninput="tlAutoKind()" placeholder="путь: C:\folder или D:\scripts\backup.bat" style="flex:1">
     <button class="add" onclick="tlPick()" title="выбрать на диске">…</button>
   </div>
   <div class="dt-row"><input type="text" id="tl-args" placeholder="параметры запуска (для скрипта), например -all 7"></div>
@@ -1043,7 +1043,7 @@ async function loadTools(){
 }
 function toolsRows(){
   const rows=TOOLS.map(t=>`<tr class="base">
-    <td class="name">📁</td>
+    <td class="name">${t.kind==='folder'?'📁':'⚙️'}</td>
     <td class="name">${esc(t.name)}</td>
     <td class="path" title="${esc(t.target+(t.args?' '+t.args:''))}">${esc(t.target)}${t.args?' <b>'+esc(t.args)+'</b>':''}</td>
     <td class="plat"><span class="tag">${t.kind==='folder'?'папка':'скрипт'}</span></td>
@@ -1064,6 +1064,14 @@ async function toolRun(id){
   if(j.ok){ stat((t.kind==='folder'?'папка открыта: ':'запущено: ')+t.name,'ok'); if(j.cmd)toast(j.cmd) }
   else{ stat('ошибка: '+(j.error||''),'err'); toast('ОШИБКА: '+(j.error||'')) }
 }
+function tlAutoKind(){
+  const v=($('tl-target').value||'').trim().toLowerCase();
+  if(/\.(bat|cmd|exe|ps1|py|vbs|js|msi|lnk|com|scr)$/.test(v)){
+    if($('tl-kind').value!=='script'){ $('tl-kind').value='script'; stat('тип: скрипт (по расширению)') }
+  } else if(v && /\.(zip|7z|rar|txt|pdf|docx?|xlsx?)$/.test(v)){
+    if($('tl-kind').value!=='folder'){ $('tl-kind').value='folder'; stat('тип: папка (по расширению)') }
+  }
+}
 function toolAdd(){ TL_EDIT=null; openTl() }
 function toolEdit(id){ TL_EDIT=TOOLS.find(x=>x.id===id)||null; openTl() }
 function openTl(){
@@ -1082,7 +1090,7 @@ async function tlPick(){
     body:JSON.stringify({title:kind==='folder'?'Выбрать папку':'Выбрать скрипт',
       initial:$('tl-target').value.trim()})});
   const j=await r.json();
-  if(j.path){ $('tl-target').value=j.path; stat('выбрано: '+j.path,'ok') }
+  if(j.path){ $('tl-target').value=j.path; tlAutoKind(); stat('выбрано: '+j.path,'ok') }
   else if(j.error) toast('не удалось выбрать: '+j.error);
 }
 async function tlSave(){
