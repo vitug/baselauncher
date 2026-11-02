@@ -43,7 +43,7 @@ core/              СДК-логика, только stdlib:
 | GET/PUT/DELETE | `/api/base/{guid}` | настройки базы в config.json; DELETE — секция из ibases.v8i |
 | POST | `/api/base/new`, `/api/folder/new`, DELETE `/api/folder/{guid}` | запись в ibases.v8i |
 | POST | `/api/base/{guid}/move` | перенос в папку (Folder=, OrderInTree) |
-| POST | `/api/launch` | запуск (mode, force, skip_check, extra_keys); 409 если открыта/предпроверка |
+| POST | `/api/launch (тело: guid, mode, force, skip_check, extra_keys; elevate:true — запуск от администратора через UAC)` | запуск (mode, force, skip_check, extra_keys); 409 если открыта/предпроверка |
 | POST | `/api/dryrun` | команда без запуска |
 | POST | `/api/activate` `{pid}` | поднять окно сеанса; `no_window:true` если окна нет |
 | GET/POST | `/api/base/{guid}/cache` `/clear` | кэш базы: info/config/user/program/both |

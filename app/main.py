@@ -534,6 +534,16 @@ async def launch(req: Request):
         return JSONResponse({'error': 'conn_check', 'check': chk,
                              'message': chk.get('error') or 'нет связи с базой',
                              'hint': chk.get('hint') or ''}, status_code=409)
+    if body.get('elevate'):
+        # разовый запуск от администратора (UAC): для публикации базы на веб-сервере
+        # и других действий 1С, требующих записи в системные каталоги
+        ok = launcher.launch_elevated(cmd)
+        launcher.log_launch(base['name'], mode + ' (админ)', 0, cmd, base['guid'])
+        if not ok:
+            return JSONResponse({'error': 'elevation_failed',
+                                 'message': 'не удалось запустить от администратора '
+                                            '(UAC отклонён или exe недоступен)'}, status_code=500)
+        return {'ok': True, 'pid': None, 'elevated': True, 'mode': mode + ' (админ)'}
     pid = launcher.launch(cmd)
     launcher.log_launch(base['name'], mode, pid, cmd, base['guid'])
     # сторож: если 1С не дойдёт до окна базы (например «Несоответствие версий клиента и сервера»),
