@@ -1,6 +1,6 @@
 @echo off
 rem === BaseLauncher: поднять сервер (если не запущен) и показать окно ===
-
+rem Вся логика запуска — в boot.py.
 set PY=D:\python\WPy64-31241\python-3.12.4.amd64
 set ROOT=D:\git_repos\baselauncher
 curl -s --noproxy "*" -o nul http://127.0.0.1:8797/api/state

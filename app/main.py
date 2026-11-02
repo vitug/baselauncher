@@ -1766,7 +1766,7 @@ def quit_app():
 
 @app.post('/api/restart')
 def restart_app():
-    """Перезапуск: закрыть окно, поднять сервер и окно заново (boot.py, )."""
+    """Перезапуск: закрыть окно, поднять сервер и окно заново (boot.py)."""
     import os
     import subprocess
     import sys

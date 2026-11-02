@@ -14,7 +14,7 @@
 ## Архитектура
 
 ```
-
+boot.py            старт сервера + окна
 run_server.py      uvicorn + FastAPI (app/main.py)
 app/main.py        REST API, всё поведение
 app/mcp.py         MCP-сервер (тот же порт, /mcp)

@@ -1,9 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Запуск и перезапуск BaseLauncher .
-
-
-
-
+"""Запуск и перезапуск BaseLauncher (pythonw + urllib).
 
 Режимы:
   pythonw boot.py               — поднять сервер (если не запущен) и показать окно

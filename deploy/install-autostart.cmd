@@ -1,5 +1,5 @@
 @echo off
-
+rem === BaseLauncher: ярлык в автозагрузку пользователя ===
 setlocal
 set "ROOT=%~dp0"
 set "LNK=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\BaseLauncher.lnk"

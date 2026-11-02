@@ -1,7 +1,6 @@
 # Ярлык BaseLauncher (ASCII-only, чтобы не зависеть от кодировки консоли).
 #   ... -File deploy\make-shortcut.ps1           -> меню "Пуск"
 #   ... -File deploy\make-shortcut.ps1 -Startup  -> автозапуск (папка Startup)
-
 # Запуск идёт через pythonw.exe boot.py (без окна консоли).
 param([switch]$Startup)
 $ErrorActionPreference = 'Stop'
