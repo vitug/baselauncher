@@ -1094,9 +1094,17 @@ async function tlPick(){
   else if(j.error) toast('не удалось выбрать: '+j.error);
 }
 async function tlSave(){
-  const body={name:$('tl-name').value.trim(),kind:$('tl-kind').value,
-    target:$('tl-target').value.trim(),args:$('tl-args').value.trim()};
-  if(!body.name){ stat('задайте название','err'); return }
+  let name=$('tl-name').value.trim();
+  const target=$('tl-target').value.trim();
+  if(!name && target){ // авто-имя из файла/папки
+    const parts=target.replace(/[\\/]+$/,'').split(/[\\/]/);
+    name=parts.pop()||target;
+    name=name.replace(/\.(bat|cmd|exe|ps1|py|vbs|js|msi|lnk|com|scr)$/i,'');
+    $('tl-name').value=name; stat('название: '+name+' (из имени файла)');
+  }
+  const body={name,kind:$('tl-kind').value,
+    target,args:$('tl-args').value.trim()};
+  if(!body.name){ stat('задайте название или путь','err'); return }
   if(!body.target){ stat('задайте путь','err'); return }
   if(TL_EDIT)body.id=TL_EDIT.id;
   const r=await fetch('/api/tools/save',{method:'POST',headers:{'Content-Type':'application/json'},
