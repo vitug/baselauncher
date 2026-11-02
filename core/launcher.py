@@ -84,6 +84,21 @@ def launch(cmd: str) -> int:
     return p.pid
 
 
+def launch_elevated(cmd: str) -> bool:
+    """Запустить команду-строку с повышением прав (UAC «runas»).
+
+    Нужно для разовых сценариев вроде публикации базы на веб-сервере из
+    конфигуратора: 1С должна писать в конфиг Apache/IIS, что требует админа.
+    PID недоступен (процесс создаёт UAC-брокер), поэтому возвращаем bool.
+    """
+    import ctypes
+    m = re.match(r'"([^"]+)"\s*(.*)$', cmd.strip(), re.S)
+    exe, params = (m.group(1), m.group(2)) if m else (cmd.strip().split(' ', 1) + [''])[:2]
+    # SW_SHOWNORMAL=1; ShellExecuteW возвращает >32 при успехе
+    rc = ctypes.windll.shell32.ShellExecuteW(None, 'runas', exe, params.strip(), None, 1)
+    return rc > 32
+
+
 def log_launch(base: str, mode: str, pid: int, cmd: str, guid: str | None = None):
     # пароли в командной строке в лог не пишем
     safe = re.sub(r'(/(?:P|ConfigurationRepositoryP))\s+"[^"]*"', r'\1 "***"', cmd or '')
