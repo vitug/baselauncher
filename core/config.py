@@ -145,6 +145,40 @@ def add_dump_path(path: str) -> list:
     return cfg['dump_paths']
 
 
+# ---------------- инструменты: папки и скрипты (закладка «Инструменты») ----------------
+def tools_list(cfg: dict | None = None) -> list:
+    """Заданные пользователем папки и скрипты: [{id, name, kind, target, args, note}]."""
+    cfg = cfg or load()
+    return cfg.setdefault('tools', []) if isinstance(cfg.get('tools'), list) else []
+
+
+def tool_save(item: dict) -> list:
+    """Добавить/обновить инструмент (по id); id генерируется при добавлении."""
+    import uuid
+    cfg = load()
+    ts = cfg.setdefault('tools', [])
+    tid = (item.get('id') or '').strip()
+    if tid:
+        for t in ts:
+            if t.get('id') == tid:
+                t.update(item)
+                break
+        else:
+            tid = ''
+    if not tid:
+        item['id'] = uuid.uuid4().hex[:10]
+        ts.append(item)
+    save(cfg)
+    return ts
+
+
+def tool_del(tid: str) -> list:
+    cfg = load()
+    cfg['tools'] = [t for t in tools_list(cfg) if t.get('id') != tid]
+    save(cfg)
+    return cfg['tools']
+
+
 def save(cfg: dict, touch: bool = True) -> dict:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if touch:
