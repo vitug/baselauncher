@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Сборка состояния BaseLauncher: ibases.v8i (список баз 1С) + свой конфиг (data/config.json).
 
-SM не используется. Приоритет эффективного exe платформы для базы:
+Приоритет эффективного exe платформы для базы:
   1. config.json: bases[guid].exe        (наш выбор для базы)
   2. config.json: families[семейство]     (закреплённый exe семейства)
   3. новейшая установленная платформа семейства по умолчанию (default_family)
@@ -17,8 +17,7 @@ from .model import BaseEntry
 from .paths import DATA_DIR
 STATE_PATH = DATA_DIR / 'bases.json'
 
-# семейство -> какие ключи слотов settings.cnf ему соответствуют
-_SLOT_FAMILIES = {'8.1': '8.1', '8.2': '8.2', '8.3': '8.3', '8.4': '8.4', '8.5': '8.5'}
+
 
 
 def _family_of_exe(exe: str, platforms: list) -> str:
@@ -417,6 +416,5 @@ if __name__ == '__main__':
     for p in st['platforms']:
         print(f"  {p['key']:14} {p['bitness']} {p['family']:5} {p['source']}")
     print("семейства:", fams)
-    print("слоты settings.cnf:", st['slots'])
-    pinned = sum(1 for b in st['bases'] if b['exe_src'] in ('sm', 'our'))
+    pinned = sum(1 for b in st['bases'] if b['exe_src'] == 'our')
     print(f"с явным exe (sm/our): {pinned}")
