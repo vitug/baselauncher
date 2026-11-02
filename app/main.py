@@ -504,6 +504,7 @@ def tools_save(req: dict):
         'target': (req.get('target') or '').strip(),
         'args': (req.get('args') or '').strip(),
         'note': (req.get('note') or '').strip(),
+        'group': (req.get('group') or '').strip().replace('\\','/').strip('/'),
     }
     if not item['name']:
         return JSONResponse({'error': 'задайте название'}, status_code=400)
