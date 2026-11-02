@@ -2331,6 +2331,22 @@ function ctxShow(x,y,guid){
     box.style.top=Math.min(y, innerHeight-rf.height-8)+'px';
     return;
   }
+  /* разовый запуск от администратора (UAC): для публикации базы на веб-сервере
+     и других действий 1С, которым нужны права на системные каталоги */
+  const admD=document.createElement('div');
+  admD.className='ci';
+  admD.textContent='Запустить конфигуратор от администратора';
+  admD.title='разовый запуск с повышением прав (UAC): нужен для публикации базы на веб-сервере и подобных действий';
+  admD.onclick=()=>{ctxClose();launch(guid,'designer',false,false,true)};
+  if(b.has_designer===false)admD.classList.add('off');
+  else box.appendChild(admD);
+  const admE=document.createElement('div');
+  admE.className='ci';
+  admE.textContent='Запустить предприятие от администратора';
+  admE.title='разовый запуск с повышением прав (UAC)';
+  admE.onclick=()=>{ctxClose();launch(guid,'enterprise',false,false,true)};
+  box.appendChild(admE);
+  const sepA=document.createElement('div'); sepA.className='sep'; box.appendChild(sepA);
   copyItemsInto(box,b);
   /* удаление базы из ibases.v8i — отдельным блоком внизу */
   const sep=document.createElement('div'); sep.className='sep'; box.appendChild(sep);
@@ -2433,7 +2449,7 @@ function clearFilter(){
   stat(was?'фильтр сброшен':'фильтра нет');
 }
 
-async function launch(guid,mode,force,skipCheck){
+async function launch(guid,mode,force,skipCheck,elevate){
   try{LAUNCH_TS[guid]=Date.now()}catch(e){}
   if(q.trim()) histAdd(q);              // запрос, по которому нашли базу, — в историю поиска
   const b=STATE.bases.find(x=>x.guid===guid); if(!b)return;
@@ -2445,7 +2461,7 @@ async function launch(guid,mode,force,skipCheck){
   if(!b.exe){stat(`у «${b.name}» не определён exe платформы`,'err');await platformMissing(guid,mode);return}
   stat(`запуск «${b.name}» (${mode==='designer'?'конфигуратор':'предприятие'})…`);
   const r=await fetch('/api/launch',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({guid,mode,extra_keys:adhocKeys(),force:!!force,skip_check:!!skipCheck})});
+    body:JSON.stringify({guid,mode,extra_keys:adhocKeys(),force:!!force,skip_check:!!skipCheck,elevate:!!elevate})});
   const j=await r.json();
   if(r.status===409 && j.error==='conn_check'){    // «Сервер не обнаружен» и битые пути ловим до 1С
     const c=j.check||{};
@@ -2467,6 +2483,9 @@ async function launch(guid,mode,force,skipCheck){
     await platformMissing(guid,mode);
     return;
   }
+  if(j.ok&&j.elevated){stat(`запущено от администратора: ${b.name} (UAC)`,'ok');toast('запуск от администратора: '+b.name);
+    const tr=$('r-'+guid); if(tr){tr.classList.remove('flash');void tr.offsetWidth;tr.classList.add('flash')}
+    touchRecent(b,mode);return}
   if(j.ok){stat(`запущено: ${b.name} → PID ${j.pid}`,'ok');toast(j.cmd);
     const tr=$('r-'+guid); if(tr){tr.classList.remove('flash');void tr.offsetWidth;tr.classList.add('flash')}
     touchRecent(b,mode);          // «Недавние» сразу, не дожидаясь ответа /api/state
