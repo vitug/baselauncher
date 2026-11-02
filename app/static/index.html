@@ -280,6 +280,10 @@ td.act{white-space:nowrap;text-align:right}
 button.ln{padding:5px 10px;margin-left:5px;border-radius:6px;border:1px solid var(--border);
   background:var(--row);color:var(--fg);cursor:pointer;font-size:12.5px}
 button.ln:hover{border-color:var(--blue)}
+/* кнопка «добавить» в Инструментах — акцентная, заметная */
+button.addbtn{margin:0;padding:6px 14px;font-weight:600;font-size:13px;
+  border-color:var(--blue);background:var(--blue);color:#fff}
+button.addbtn:hover{filter:brightness(1.1)}
 button.ln:disabled{opacity:.4;cursor:not-allowed;border-color:var(--border)}
 button.ln.designer:hover{border-color:var(--purple)}
 button.ln.cmd:hover{border-color:var(--amber)}
@@ -1055,8 +1059,8 @@ function toolsRows(){
       <button class="ln goto" onclick="toolEdit('${t.id}')" title="изменить">✎</button>
       <button class="ln copy" onclick="toolDel('${t.id}')" title="удалить из списка">✕</button>
     </td></tr>`;
-  const add=`<tr class="base"><td class="name">＋</td>
-    <td class="name" colspan="4"><a href="#" onclick="toolAdd();return false">добавить папку или скрипт…</a></td></tr>`;
+  const add=`<tr class="base"><td colspan="5" style="padding:8px 8px">
+    <button class="ln addbtn" onclick="toolAdd()">＋ добавить папку или скрипт…</button></td></tr>`;
   // две захардкоженные группы по типу: «Папки» (kind=folder) и «Скрипты» (остальное)
   const G=[['Папки','folder'],['Скрипты','other']];
   const by=t=>t.kind==='folder'?'folder':'other';
@@ -1065,10 +1069,9 @@ function toolsRows(){
     const items=TOOLS.filter(t=>by(t)===k&&okT(t)).sort((a,b)=>a.name.localeCompare(b.name));
     if(!items.length && !TOOLS.some(t=>by(t)===k)) return; // раздела вообще нет — не рисуем
     const open=TOPEN.has(g);
-    html+=`<tr class="folder" data-tp="${g}"><td class="noarrow"></td>
-      <td class="name" style="padding-left:4px"><span class="pt-arrow" onclick="tglT('${g}')">${open?'▼':'▶'}</span>
-      <b onclick="tglT('${g}')">${g}</b> <span class="cnt">${items.length}</span></td>
-      <td class="path"></td><td class="plat"></td><td class="act"></td></tr>`;
+    html+=`<tr class="folder" data-tp="${g}"><td colspan="5" class="name" style="padding:7px 8px">
+      <span class="pt-arrow" onclick="tglT('${g}')">${open?'▼':'▶'}</span>
+      <b style="margin-left:6px" onclick="tglT('${g}')">${g}</b> <span class="cnt">${items.length}</span></td></tr>`;
     if(open||ql) items.forEach(t=>{ html+=toolRow(t) });
   });
   return add+html;
