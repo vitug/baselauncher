@@ -192,8 +192,13 @@ tr.base.running td.name{box-shadow:inset 3px 0 0 var(--green)}
 #cblist input[type=checkbox]{transform:scale(1.25)}
 #pdovl,#mgovl,#dcovl,#xmovl,#xilovl,#tlovl{position:fixed;inset:0;background:#000a;display:none;z-index:13}
 #pdovl.on,#mgovl.on,#dcovl.on,#xmovl.on,#xilovl.on,#tlovl.on{display:flex;align-items:center;justify-content:center}
-#pdmodal,#mgmodal,#dcmodal,#xmmodal,#xilmodal,#tlmodal{background:var(--card);border:1px solid var(--border);border-radius:10px;
-  padding:16px;width:min(640px,94vw);max-height:88vh;overflow:auto}
+#pdmodal,#mgmodal,#dcmodal,#xmmodal,#xilmodal{background:var(--card);border:1px solid var(--border);border-radius:10px;
+  padding:16px;width:min(780px,94vw);max-height:88vh;overflow:auto}
+#tlmodal{background:var(--card);border:1px solid var(--border);border-radius:10px;
+  padding:16px;width:min(880px,94vw);max-height:88vh;overflow:auto}
+#tlmodal .dt-row{display:flex;gap:6px;margin:6px 0}
+#tlmodal input[type=text],#tlmodal select{flex:1;min-width:0;box-sizing:border-box}
+#tlmodal input#tl-args,#tlmodal input#tl-target{flex:1;min-width:0}
 #pdlist table,#mglist table,#dclist table,#xmlist table,#xillist table{width:100%;border-collapse:collapse;font-size:12px}
 #pdlist td,#pdlist th,#mglist td,#mglist th,#dclist td,#dclist th,#xmlist td,#xmlist th,#xillist td,#xillist th{padding:4px 6px;border-bottom:1px solid var(--border);text-align:left}
 #pdlist td.num,#mglist td.num,#dclist td.num{text-align:right;white-space:nowrap}
