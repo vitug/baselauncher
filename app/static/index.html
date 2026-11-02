@@ -542,8 +542,6 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
     <button class="add" onclick="tlPick()" title="выбрать на диске">…</button>
   </div>
   <div class="dt-row"><input type="text" id="tl-args" placeholder="параметры запуска (для скрипта), например -all 7"></div>
-  <div class="dt-row"><input type="text" id="tl-group" list="tl-groups" placeholder="группа (необязательно), например «Обслуживание»; вложенность через /" style="flex:1">
-    <datalist id="tl-groups"></datalist></div>
   <div class="btns" style="display:flex;gap:8px;margin-top:12px">
     <button class="save" onclick="tlSave()">Сохранить</button>
     <button class="danger" id="tl-del" onclick="tlDel()" style="display:none">Удалить</button>
@@ -1059,32 +1057,21 @@ function toolsRows(){
     </td></tr>`;
   const add=`<tr class="base"><td class="name">＋</td>
     <td class="name" colspan="4"><a href="#" onclick="toolAdd();return false">добавить папку или скрипт…</a></td></tr>`;
-  // без группы — плоско сверху
-  const free=TOOLS.filter(t=>!(t.group||'').trim()&&okT(t)).sort((a,b)=>a.name.localeCompare(b.name)).map(toolRow).join('');
-  // группы: путь через /, вложенность
-  const groups={};
-  TOOLS.filter(okT).forEach(t=>{ const g=(t.group||'').trim(); if(g){ (groups[g]=groups[g]||[]).push(t) } });
-  const gpaths=Object.keys(groups).sort((a,b)=>a.localeCompare(b));
-  // родители совпавших вложенных групп тоже показываем (иначе при поиске пусто)
-  const paths=new Set(gpaths);
-  gpaths.forEach(g=>{const parts=g.split('/');for(let i=1;i<parts.length;i++)paths.add(parts.slice(0,i).join('/'))});
-  const plist=[...paths].sort((a,b)=>a.localeCompare(b));
-  const cnt=p=>plist.filter(g=>groups[g]&&(g===p||g.startsWith(p+'/'))).reduce((n,g)=>n+groups[g].length,0);
+  // две захардкоженные группы по типу: «Папки» (kind=folder) и «Скрипты» (остальное)
+  const G=[['Папки','folder'],['Скрипты','other']];
+  const by=t=>t.kind==='folder'?'folder':'other';
   let html='';
-  const renderG=(path,depth)=>{
-    const open=TOPEN.has(path);
-    html+=`<tr class="folder" data-tp="${esc(path)}"><td class="noarrow"></td>
-      <td class="name" style="padding-left:${4+depth*16}px"><span class="pt-arrow" onclick="tglT('${esc(path)}')">${open?'▼':'▶'}</span>
-      <b onclick="tglT('${esc(path)}')">${esc(path.split('/').pop())}</b> <span class="cnt">${cnt(path)}</span></td>
+  G.forEach(([g,k])=>{
+    const items=TOOLS.filter(t=>by(t)===k&&okT(t)).sort((a,b)=>a.name.localeCompare(b.name));
+    if(!items.length && !TOOLS.some(t=>by(t)===k)) return; // раздела вообще нет — не рисуем
+    const open=TOPEN.has(g);
+    html+=`<tr class="folder" data-tp="${g}"><td class="noarrow"></td>
+      <td class="name" style="padding-left:4px"><span class="pt-arrow" onclick="tglT('${g}')">${open?'▼':'▶'}</span>
+      <b onclick="tglT('${g}')">${g}</b> <span class="cnt">${items.length}</span></td>
       <td class="path"></td><td class="plat"></td><td class="act"></td></tr>`;
-    if(open){
-      plist.filter(g=>g.split('/').length===depth+1&&(depth===0?g.split('/').length===1:g.startsWith(path+'/')&&g.slice(path.length+1).indexOf('/')<0))
-        .forEach(g=>renderG(g,depth+1));
-      (groups[path]||[]).sort((a,b)=>a.name.localeCompare(b.name)).forEach(t=>{ html+=toolRow(t) });
-    }
-  };
-  plist.filter(g=>!g.includes('/')).forEach(g=>renderG(g,0));
-  return add+free+html;
+    if(open||ql) items.forEach(t=>{ html+=toolRow(t) });
+  });
+  return add+html;
 }
 function tglT(p){ if(TOPEN.has(p))TOPEN.delete(p); else TOPEN.add(p);
   localStorage.setItem('bl_topen',JSON.stringify([...TOPEN])); render(); }
@@ -1137,7 +1124,7 @@ async function tlSave(){
     name=name.replace(/\.(bat|cmd|exe|ps1|py|vbs|js|msi|lnk|com|scr)$/i,'');
     $('tl-name').value=name; stat('название: '+name+' (из имени файла)');
   }
-  const body={name,kind:$('tl-kind').value,group:$('tl-group').value.trim().replace(/\\/g,'/').replace(/^\/+|\/+$/g,''),
+  const body={name,kind:$('tl-kind').value,
     target,args:$('tl-args').value.trim()};
   if(!body.name){ stat('задайте название или путь','err'); return }
   if(!body.target){ stat('задайте путь','err'); return }
