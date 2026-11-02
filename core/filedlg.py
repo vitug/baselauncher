@@ -80,3 +80,48 @@ def pick_file(title: str = 'Выбрать файл', filters: list[tuple[str, s
             _co.CoUninitialize()
         except Exception:
             pass
+
+
+def pick_folder(title: str = 'Выбрать папку', initial: str = '') -> str:
+    """Нативный диалог выбора папки (SHBrowseForFolderW). Возвращает путь или ''.
+
+    initial игнорируется Win-диалогом без колбэка — просто открываем «Рабочий стол».
+    """
+    _shell = ctypes.windll.shell32
+    BIF_RETURNONLYFSDIRS = 0x1
+    BIF_NEWDIALOGSTYLE = 0x40
+
+    class BROWSEINFOW(ctypes.Structure):
+        _fields_ = [('hwndOwner', wintypes.HWND), ('pidlRoot', ctypes.c_void_p),
+                    ('pszDisplayName', wintypes.LPWSTR), ('lpszTitle', wintypes.LPCWSTR),
+                    ('ulFlags', ctypes.c_uint), ('lpfn', ctypes.c_void_p),
+                    ('lParam', ctypes.c_void_p), ('iImage', ctypes.c_int)]
+
+    buf = ctypes.create_unicode_buffer(260)
+    bi = BROWSEINFOW()
+    bi.hwndOwner = None
+    bi.pidlRoot = None
+    bi.pszDisplayName = ctypes.cast(buf, wintypes.LPWSTR)
+    bi.lpszTitle = title
+    bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE
+    try:
+        _co.CoInitialize(None)
+    except Exception:
+        pass
+    try:
+        pidl = _shell.SHBrowseForFolderW(ctypes.byref(bi))
+        if not pidl:
+            return ''
+        path = ctypes.create_unicode_buffer(260)
+        if not _shell.SHGetPathFromIDListW(pidl, path):
+            return ''
+        try:
+            ctypes.windll.ole32.CoTaskMemFree(pidl)
+        except Exception:
+            pass
+        return path.value
+    finally:
+        try:
+            _co.CoUninitialize()
+        except Exception:
+            pass

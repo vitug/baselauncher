@@ -190,10 +190,10 @@ tr.base.running td.name{box-shadow:inset 3px 0 0 var(--green)}
 #cblist td.num{text-align:right;white-space:nowrap}
 #cblist tr.run td{opacity:.75}
 #cblist input[type=checkbox]{transform:scale(1.25)}
-#pdovl,#mgovl,#dcovl,#xmovl,#xilovl{position:fixed;inset:0;background:#000a;display:none;z-index:13}
-#pdovl.on,#mgovl.on,#dcovl.on,#xmovl.on,#xilovl.on{display:flex;align-items:center;justify-content:center}
-#pdmodal,#mgmodal,#dcmodal,#xmmodal,#xilmodal{background:var(--card);border:1px solid var(--border);border-radius:10px;
-  padding:16px;width:min(780px,94vw);max-height:88vh;overflow:auto}
+#pdovl,#mgovl,#dcovl,#xmovl,#xilovl,#tlovl{position:fixed;inset:0;background:#000a;display:none;z-index:13}
+#pdovl.on,#mgovl.on,#dcovl.on,#xmovl.on,#xilovl.on,#tlovl.on{display:flex;align-items:center;justify-content:center}
+#pdmodal,#mgmodal,#dcmodal,#xmmodal,#xilmodal,#tlmodal{background:var(--card);border:1px solid var(--border);border-radius:10px;
+  padding:16px;width:min(640px,94vw);max-height:88vh;overflow:auto}
 #pdlist table,#mglist table,#dclist table,#xmlist table,#xillist table{width:100%;border-collapse:collapse;font-size:12px}
 #pdlist td,#pdlist th,#mglist td,#mglist th,#dclist td,#dclist th,#xmlist td,#xmlist th,#xillist td,#xillist th{padding:4px 6px;border-bottom:1px solid var(--border);text-align:left}
 #pdlist td.num,#mglist td.num,#dclist td.num{text-align:right;white-space:nowrap}
@@ -518,6 +518,29 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <div class="btns" style="display:flex;gap:8px;margin-top:12px">
     <button class="save" onclick="loadPlatUsage(true)">Обновить</button>
     <button id="pt-cancel" onclick="closePlat()">Закрыть</button>
+  </div>
+</div></div>
+
+<div id="tlovl"><div id="tlmodal">
+  <h2 id="tl-title">Инструмент: папка или скрипт</h2>
+  <div class="hint" style="margin-bottom:8px">Папка открывается в Проводнике. Скрипт (.bat/.cmd/.exe) запускается
+    с заданными параметрами; путь можно выбрать кнопкой «…» (диалог открывается на сервере — он на этой же машине).</div>
+  <div class="dt-row"><input type="text" id="tl-name" placeholder="название, например «Дистрибутивы» или «Бэкап баз»" style="flex:1"></div>
+  <div class="dt-row">
+    <select id="tl-kind">
+      <option value="folder">папка (открыть в Проводнике)</option>
+      <option value="script">скрипт (запустить с параметрами)</option>
+    </select>
+  </div>
+  <div class="dt-row">
+    <input type="text" id="tl-target" placeholder="путь: C:\folder или D:\scripts\backup.bat" style="flex:1">
+    <button class="add" onclick="tlPick()" title="выбрать на диске">…</button>
+  </div>
+  <div class="dt-row"><input type="text" id="tl-args" placeholder="параметры запуска (для скрипта), например -all 7"></div>
+  <div class="btns" style="display:flex;gap:8px;margin-top:12px">
+    <button class="save" onclick="tlSave()">Сохранить</button>
+    <button class="danger" id="tl-del" onclick="tlDel()" style="display:none">Удалить</button>
+    <button id="tl-cancel" onclick="closeTl()">Отмена</button>
   </div>
 </div></div>
 
@@ -917,7 +940,7 @@ function baseRow(b,depth){
 /* «Открытые» / «Недавние» / «Избранное» — вкладки-закладки вверху, а не блоки в дереве */
 /* порядок = порядок горячих клавиш: Ctrl+1 Все, Ctrl+2 Избранное, Ctrl+3 Открытые, Ctrl+4 Недавние */
 const TABS=[['all','Все'],['fav','★ Избранное','fav-tab'],
-            ['open','● Открытые','open-tab'],['recent','⟲ Недавние']];
+            ['open','● Открытые','open-tab'],['recent','⟲ Недавние'],['tools','🧰 Инструменты']];
 /* положение прокрутки запоминается для каждой закладки отдельно */
 let TAB_SCROLL={};
 /* вкладки прилипают под шапкой: считаем её фактическую высоту (шапка переносится по ширине окна) */
@@ -947,11 +970,12 @@ function setTab(t){
 function tabsHtml(){
   const bs=STATE.bases||[], rec=STATE.recent||[];
   const cnt={all:bs.length, open:bs.filter(b=>b.running).length,
-             recent:rec.length, fav:bs.filter(b=>b.fav).length};
+             recent:rec.length, fav:bs.filter(b=>b.fav).length, tools:TOOLS.length};
   const tip={all:'дерево баз (папки) — Ctrl+1',
              fav:'избранные базы — Ctrl+2',
              open:'базы, у которых сейчас открыт сеанс — переключение вместо нового запуска — Ctrl+3',
-             recent:'быстрый запуск того, что запускали последним — Ctrl+4'};
+             recent:'быстрый запуск того, что запускали последним — Ctrl+4',
+             tools:'заданные папки и скрипты: открыть папку или запустить скрипт с параметрами'};
   return TABS.map(([k,label,cls])=>
     `<button class="tb ${cls||''}${TAB===k?' on':''}" data-tab="${k}" onclick="setTab('${k}')" title="${tip[k]}">`
     +`${label}<span class="n">${cnt[k]}</span></button>`).join('');
@@ -992,6 +1016,8 @@ function recentRows(rec){
 }
 /* содержимое активной вкладки с учётом поиска и фильтра по платформе */
 function tabView(){
+  if(TAB==='tools') return {html:toolsRows(), n:TOOLS.length,
+    empty:'пусто — добавьте папку или скрипт кнопкой «＋ добавить»'};
   const ql=q.toLowerCase();
   const okText=b=>(b.name+' '+(b.path||'')+' '+(b.ws||'')+' '+(b.server||'')+' '+(b.ref||'')+' '+(b.descr||'')).toLowerCase().includes(ql);
   const okFam=b=>(fam==='all'||fam==='__bad'||b.family===fam);
@@ -1005,6 +1031,77 @@ function tabView(){
   return {html:TAB==='open'?openRows(bs):bs.map(b=>baseRow(b,0)).join(''), n:bs.length,
           empty:TAB==='open'?'нет открытых баз':'в избранном пусто — отметьте базу звёздочкой'};
 }
+/* ---------- Инструменты: заданные папки и скрипты ---------- */
+let TOOLS=[]; let TL_EDIT=null;
+async function loadTools(){
+  try{ const r=await fetch('/api/tools'); TOOLS=(await r.json()).tools||[] }catch(e){}
+}
+function toolsRows(){
+  const rows=TOOLS.map(t=>`<tr class="base">
+    <td class="name">📁</td>
+    <td class="name">${esc(t.name)}</td>
+    <td class="path" title="${esc(t.target+(t.args?' '+t.args:''))}">${esc(t.target)}${t.args?' <b>'+esc(t.args)+'</b>':''}</td>
+    <td class="plat"><span class="tag">${t.kind==='folder'?'папка':'скрипт'}</span></td>
+    <td class="act">
+      <button class="ln" onclick="toolRun('${t.id}')" title="${t.kind==='folder'?'открыть в Проводнике':'запустить скрипт'}">${t.kind==='folder'?'Открыть':'Запустить'}</button>
+      <button class="ln goto" onclick="toolEdit('${t.id}')" title="изменить">✎</button>
+      <button class="ln copy" onclick="toolDel('${t.id}')" title="удалить из списка">✕</button>
+    </td></tr>`).join('');
+  return `<tr class="base"><td class="name">＋</td>
+    <td class="name" colspan="4"><a href="#" onclick="toolAdd();return false">добавить папку или скрипт…</a></td></tr>`+rows;
+}
+async function toolRun(id){
+  const t=TOOLS.find(x=>x.id===id); if(!t)return;
+  stat((t.kind==='folder'?'открываю папку: ':'запускаю: ')+t.name+'…');
+  const r=await fetch('/api/tools/run',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id})});
+  const j=await r.json();
+  if(j.ok){ stat((t.kind==='folder'?'папка открыта: ':'запущено: ')+t.name,'ok'); if(j.cmd)toast(j.cmd) }
+  else{ stat('ошибка: '+(j.error||''),'err'); toast('ОШИБКА: '+(j.error||'')) }
+}
+function toolAdd(){ TL_EDIT=null; openTl() }
+function toolEdit(id){ TL_EDIT=TOOLS.find(x=>x.id===id)||null; openTl() }
+function openTl(){
+  const t=TL_EDIT||{};
+  $('tl-title').textContent=TL_EDIT?'Изменить инструмент':'Инструмент: папка или скрипт';
+  $('tl-name').value=t.name||''; $('tl-kind').value=t.kind||'folder';
+  $('tl-target').value=t.target||''; $('tl-args').value=t.args||'';
+  $('tl-del').style.display=TL_EDIT?'':'none';
+  $('tlovl').classList.add('on'); $('tl-name').focus();
+}
+function closeTl(){ $('tlovl').classList.remove('on'); TL_EDIT=null }
+async function tlPick(){
+  const kind=$('tl-kind').value;
+  const r=await fetch(kind==='folder'?'/api/pickdir':'/api/pickfile',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({title:kind==='folder'?'Выбрать папку':'Выбрать скрипт',
+      initial:$('tl-target').value.trim()})});
+  const j=await r.json();
+  if(j.path){ $('tl-target').value=j.path; stat('выбрано: '+j.path,'ok') }
+  else if(j.error) toast('не удалось выбрать: '+j.error);
+}
+async function tlSave(){
+  const body={name:$('tl-name').value.trim(),kind:$('tl-kind').value,
+    target:$('tl-target').value.trim(),args:$('tl-args').value.trim()};
+  if(!body.name){ stat('задайте название','err'); return }
+  if(!body.target){ stat('задайте путь','err'); return }
+  if(TL_EDIT)body.id=TL_EDIT.id;
+  const r=await fetch('/api/tools/save',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body)});
+  const j=await r.json();
+  if(j.ok){ TOOLS=j.tools||[]; closeTl(); render(); stat('инструмент сохранён: '+body.name,'ok') }
+  else{ stat('ошибка: '+(j.error||''),'err') }
+}
+async function toolDel(id){
+  const t=TOOLS.find(x=>x.id===id); if(!t)return;
+  askBox('Удалить инструмент?','«'+t.name+'»\n'+t.target,
+    [{t:'Удалить',primary:true,f:async()=>{
+      const r=await fetch('/api/tools/del',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({id})});
+      const j=await r.json(); if(j.ok){TOOLS=j.tools||[];render();stat('удалено: '+t.name)}
+    }},{t:'Отмена'}]);
+}
+
 /* ---------- перетаскивание баз в папки (HTML5 drag & drop) ---------- */
 let DRAG_G=null;
 function dragStart(e,guid){
@@ -1210,7 +1307,8 @@ function render(){
   let shown=0;
   $('tabs').innerHTML=tabsHtml();
   const T=tabView();
-  if(TAB!=='all'&&!searching&&fam!=='__bad'){
+  if(TAB==='tools'){ $('rows').innerHTML=T.html; shown=T.n; }
+  else if(TAB!=='all'&&!searching&&fam!=='__bad'){
     $('rows').innerHTML=T.html; shown=T.n;
   } else if(searching||fam==='__bad'){
     const list=STATE.bases.filter(b=>{
@@ -3213,6 +3311,7 @@ async function hotkeyInfo(){
 
 async function reload(){
   const r=await fetch('/api/state'); STATE=await r.json();
+  await loadTools();
   if(STATE.dev){ const b=document.getElementById('dev-badge'); if(b) b.style.display='inline-block'; }
   $('st-sub').textContent=`${STATE.bases.length} баз · ${STATE.platforms.length} платформ`;
   render();

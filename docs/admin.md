@@ -60,7 +60,8 @@ core/              СДК-логика, только stdlib:
 | GET | `/api/dump/state` | статус фоновой выгрузки |
 | POST | `/api/load/start` `{root, guids[], mode: full\|changed\|files, files[]?, update_db?}` | загрузка конфигураций из XML (ibcmd config import + apply --force) |
 | GET | `/api/load/state` | статус фоновой загрузки |
-| GET/POST | `/api/dump/paths` | запомненные каталоги выгрузки (до 3, в config.json → `dump_paths`); POST `{path}` добавляет |
+| GET/POST | `/api/dump/paths
+| `/api/tools` GET, `/api/tools/save|del|run` POST | закладка «Инструменты»: заданные папки и скрипты (хранение в config.json, запуск Popen/os.startfile) |` | запомненные каталоги выгрузки (до 3, в config.json → `dump_paths`); POST `{path}` добавляет |
 | GET | `/api/precheck/{guid}`, `/api/launch/events` | предпроверка; события сторожа запуска |
 | POST | `/api/shutdown`, `/api/restart`, `/api/quit` | управление |
 
