@@ -404,6 +404,7 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
     title="меню приложения: платформы, кэши, обслуживание">☰</button>
 </header>
 <div id="adhoc">
+  <label title="разовый запуск с повышением прав (UAC-запрос Windows) — например, для публикации базы на веб-сервере"><input type="checkbox" id="a-admin" style="accent-color:var(--amber)"> от администратора (UAC)</label>
   <label><input type="checkbox" id="a-Debug"> /Debug</label>
   <label><input type="checkbox" id="a-DisableStartupMessages"> /DisableStartupMessages</label>
   <label><input type="checkbox" id="a-DisableStartupDialogs"> /DisableStartupDialogs</label>
@@ -754,6 +755,8 @@ function toggleAdhoc(){
 
 /* ---------- разовые ключи запуска (в моменте, не сохраняются) ---------- */
 const A_BOOL=['Debug','DisableStartupMessages','DisableStartupDialogs','RunModeOrdinaryApplication'];
+/* галочка «от администратора» из разовых ключей: как и ключи, действует на следующий запуск */
+function adhocAdmin(){ const c=$('a-admin'); return !!(c&&c.checked) }
 function adhocKeys(){
   const out=[];
   A_BOOL.forEach(k=>{if($('a-'+k).checked)out.push('/'+k)});
@@ -2461,7 +2464,8 @@ async function launch(guid,mode,force,skipCheck,elevate){
   if(!b.exe){stat(`у «${b.name}» не определён exe платформы`,'err');await platformMissing(guid,mode);return}
   stat(`запуск «${b.name}» (${mode==='designer'?'конфигуратор':'предприятие'})…`);
   const r=await fetch('/api/launch',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({guid,mode,extra_keys:adhocKeys(),force:!!force,skip_check:!!skipCheck,elevate:!!elevate})});
+    body:JSON.stringify({guid,mode,extra_keys:adhocKeys(),force:!!force,skip_check:!!skipCheck,
+                         elevate:!!elevate||adhocAdmin()})});
   const j=await r.json();
   if(r.status===409 && j.error==='conn_check'){    // «Сервер не обнаружен» и битые пути ловим до 1С
     const c=j.check||{};
