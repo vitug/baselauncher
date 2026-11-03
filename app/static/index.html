@@ -1118,9 +1118,7 @@ function openTl(){
   const t=TL_EDIT||{};
   $('tl-title').textContent=TL_EDIT?'Изменить инструмент':'Инструмент: папка или скрипт';
   $('tl-name').value=t.name||''; $('tl-kind').value=t.kind||'folder';
-  $('tl-target').value=t.target||''; $('tl-args').value=t.args||''; $('tl-group').value=t.group||'';
-  $('tl-groups').innerHTML=[...new Set(TOOLS.map(x=>x.group).filter(Boolean))].sort()
-    .map(g=>'<option value="'+esc(g)+'">').join('');
+  $('tl-target').value=t.target||''; $('tl-args').value=t.args||'';
   $('tl-del').style.display=TL_EDIT?'':'none';
   $('tlovl').classList.add('on'); $('tl-name').focus();
 }
