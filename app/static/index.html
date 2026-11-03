@@ -328,6 +328,12 @@ body{padding-bottom:46px}
 #ctxm .ci.danger{color:#ff7b72}
 #ctxm .ci.danger:hover{background:#3a1d1d}
 #ctxm .sep{height:1px;background:var(--border);margin:4px 6px}
+#ctxm .ci.has-sub{position:relative}
+#ctxm .ci.has-sub>.arr{margin-left:auto;color:var(--muted);font-size:11px}
+#ctxm .sub{display:none;position:absolute;left:calc(100% - 4px);top:-5px;min-width:300px;
+  padding:4px;border-radius:8px;background:var(--panel);border:1px solid var(--border);
+  box-shadow:0 10px 26px #0009;z-index:95}
+#ctxm .ci.has-sub:hover>.sub{display:block}
 /* ---- редактор настроек базы (как в SM) ---- */
 #ovl{position:fixed;inset:0;background:#000a;display:none;z-index:10}
 #ovl.on{display:flex;align-items:center;justify-content:center}
@@ -2474,18 +2480,32 @@ function ctxShow(x,y,guid){
   if(!b&&!fld)return;
   CTX_GUID=guid;
   const box=$('ctxm'); box.innerHTML='';
-  if(fld){                       /* папка: можно скопировать путь и удалить пустую папку */
-    /* полный путь папки, а не только имя: у вложенной папки родитель важен */
+  const mk=(t,fn,cls,tip)=>{                 /* обычный пункт */
+    const d=document.createElement('div'); d.className='ci'+(cls?' '+cls:'');
+    d.textContent=t; if(tip)d.title=tip; if(fn)d.onclick=fn;
+    box.appendChild(d); return d;
+  };
+  const mki=(parent,t,fn,cls,tip)=>{         /* пункт внутрь подменю */
+    const d=document.createElement('div'); d.className='ci'+(cls?' '+cls:'');
+    d.textContent=t; if(tip)d.title=tip; if(fn)d.onclick=fn;
+    parent.appendChild(d); return d;
+  };
+  const mkSub=(t,tip)=>{                     /* родитель подменю; возвращает .sub */
+    const d=document.createElement('div'); d.className='ci has-sub';
+    d.textContent=t; if(tip)d.title=tip;
+    const a=document.createElement('span'); a.className='arr'; a.textContent='▸';
+    d.appendChild(a);
+    const sub=document.createElement('div'); sub.className='sub';
+    d.appendChild(sub); box.appendChild(d); return sub;
+  };
+  const sep=()=>{const d=document.createElement('div');d.className='sep';box.appendChild(d)};
+  if(fld){                       /* папка: добавить внутрь, скопировать путь, удалить */
     const path=((fld.folder||'/')==='/'?'':fld.folder)+'/'+(fld.name||'');
-    const mk=(t,cls,fn)=>{
-      const d=document.createElement('div'); d.className='ci'+(cls?' '+cls:'');
-      d.textContent=t; d.onclick=fn; box.appendChild(d);
-    };
-    mk('Добавить базу сюда…', '', ()=>{ctxClose();openNew('base',path)});
-    mk('Добавить папку сюда…', '', ()=>{ctxClose();openNew('folder',path)});
-    mk('Копировать путь папки', '', ()=>{ctxClose();copyText(path,'путь папки')});
-    const sep0=document.createElement('div'); sep0.className='sep'; box.appendChild(sep0);
-    mk('Удалить папку из списка…','danger',()=>{ctxClose();askDeleteFolder(guid)});
+    mk('Добавить базу сюда…',()=>{ctxClose();openNew('base',path)});
+    mk('Добавить папку сюда…',()=>{ctxClose();openNew('folder',path)});
+    mk('Копировать путь папки',()=>{ctxClose();copyText(path,'путь папки')});
+    sep();
+    mk('Удалить папку из списка…',()=>{ctxClose();askDeleteFolder(guid)},'danger');
     box.style.display='block'; box.style.left='0px'; box.style.top='0px';
     const rf=box.getBoundingClientRect();
     box.style.left=Math.min(x, innerWidth-rf.width-8)+'px';
@@ -2494,107 +2514,67 @@ function ctxShow(x,y,guid){
   }
   /* добавление в папку, где лежит эта база */
   const bfolder=b.folder||'/';
-  const nba=document.createElement('div'); nba.className='ci';
-  nba.textContent='Добавить базу в папку «'+(bfolder==='/'?'(корень)':bfolder)+'»…';
-  nba.title='создать новую базу в ibases.v8i внутри той же папки дерева';
-  nba.onclick=()=>{ctxClose();openNew('base',bfolder)}; box.appendChild(nba);
-  const nfo=document.createElement('div'); nfo.className='ci';
-  nfo.textContent='Добавить папку в папку «'+(bfolder==='/'?'(корень)':bfolder)+'»…';
-  nfo.title='создать подпапку в той же папке дерева';
-  nfo.onclick=()=>{ctxClose();openNew('folder',bfolder)}; box.appendChild(nfo);
-  const sepN=document.createElement('div'); sepN.className='sep'; box.appendChild(sepN);
-  /* разовый запуск от администратора (UAC): для публикации базы на веб-сервере
-     и других действий 1С, которым нужны права на системные каталоги */
-  const admD=document.createElement('div');
-  admD.className='ci';
-  admD.textContent='Запустить конфигуратор от администратора';
-  admD.title='разовый запуск с повышением прав (UAC): нужен для публикации базы на веб-сервере и подобных действий';
-  admD.onclick=()=>{ctxClose();launch(guid,'designer',false,false,true)};
+  const fshow=bfolder==='/'?'(корень)':bfolder;
+  mk('Добавить базу в папку «'+fshow+'»…',()=>{ctxClose();openNew('base',bfolder)},
+    '','создать новую базу в ibases.v8i внутри той же папки дерева');
+  mk('Добавить папку в папку «'+fshow+'»…',()=>{ctxClose();openNew('folder',bfolder)},
+    '','создать подпапку в той же папке дерева');
+  sep();
+  /* разовый запуск от администратора (UAC) */
+  const admD=mk('Запустить конфигуратор от администратора',
+    ()=>{ctxClose();launch(guid,'designer',false,false,true)},'',
+    'разовый запуск с повышением прав (UAC): нужен для публикации базы на веб-сервере и подобных действий');
   if(b.has_designer===false)admD.classList.add('off');
-  else box.appendChild(admD);
-  const admE=document.createElement('div');
-  admE.className='ci';
-  admE.textContent='Запустить предприятие от администратора';
-  admE.title='разовый запуск с повышением прав (UAC)';
-  admE.onclick=()=>{ctxClose();launch(guid,'enterprise',false,false,true)};
-  box.appendChild(admE);
-  const sepA=document.createElement('div'); sepA.className='sep'; box.appendChild(sepA);
-  copyItemsInto(box,b);
-  /* удаление базы из ibases.v8i — отдельным блоком внизу */
-  const sep=document.createElement('div'); sep.className='sep'; box.appendChild(sep);
-  const cU=document.createElement('div');
-  cU.className='ci';
-  cU.textContent='Очистить кэш программы (конфигурации) этой базы…';
-  cU.title='%LOCALAPPDATA%\\1C\\1cv8\\<guid>: Config, ConfigSave, SICache, cgf-cache, cfgrepo — кэш конфигурации, пересоздаётся при следующем запуске';
-  cU.onclick=()=>{ctxClose();askBaseCache(guid,'config')};
-  box.appendChild(cU);
-  const cN=document.createElement('div');
-  cN.className='ci';
-  cN.textContent='Сбросить настройки пользователя 1С этой базы…';
-  cN.title='%APPDATA%\\1C\\1cv8\\<guid>: 1cv8.pfl, def.usr — интерфейсные настройки (окна, панели, отборы)';
-  cN.onclick=()=>{ctxClose();askBaseCache(guid,'user')};
-  box.appendChild(cN);
-  const cP=document.createElement('div');
-  cP.className='ci';
-  cP.textContent='Очистить кэш этой базы — общий, для всех пользователей ПК…';
-  cP.title='удаляется %PROGRAMDATA%\\1C\\1cv8\\<guid>: общий кэш базы на этом компьютере';
-  cP.onclick=()=>{ctxClose();askBaseCache(guid,'program')};
-  box.appendChild(cP);
-  /* серверные операции через COM (как в обновляторе) */
-  const det=document.createElement('div');
-  det.className='ci';
-  det.textContent='Определить платформу по версии сервера (COM)';
-  det.onclick=()=>{ctxClose();detectPlatform(guid)};
-  box.appendChild(det);
-  const cinfo=document.createElement('div');
-  cinfo.className='ci';
-  cinfo.textContent='Сведения из базы: конфигурация, пользователи (COM)';
-  cinfo.onclick=()=>{ctxClose();comInfo(guid)};
-  box.appendChild(cinfo);
-  const del=document.createElement('div');
-  del.className='ci danger';
-  del.textContent=b.running?'Удалить базу из списка… (открыта!)':'Удалить базу из списка…';
-  del.onclick=()=>{ctxClose();askDeleteBase(guid)};
-  box.appendChild(del);
-  /* файловые операции: загрузка выгрузки .dt и проверка базы данных (chdbfl) */
+  mk('Запустить предприятие от администратора',
+    ()=>{ctxClose();launch(guid,'enterprise',false,false,true)},'',
+    'разовый запуск с повышением прав (UAC)');
+  sep();
+  /* копирование — подменю */
+  const subC=mkSub('Копировать…');
+  (function(){                                /* те же пункты, что у кнопки ⧉ */
+    const i=baseCopyInfo(b);
+    const items=[
+      {t:'Копировать имя базы', k:'', v:i.name, lab:'имя'},
+      {t:'Копировать путь/адрес базы', k:'', v:i.baseAddr, lab:'адрес базы'},
+      {t:i.srvr?'Копировать адрес сервера':'Адрес сервера (файловая база)', k:'', v:i.srvAddr,
+        lab:'сервер', off:!i.srvr},
+      {t:i.ref?'Копировать имя базы на сервере':'Имя базы на сервере', k:'', v:i.ref, lab:'ref', off:!i.ref},
+      {t:'Копировать строку соединения', k:'', v:i.conn, lab:'строка соединения'},
+    ];
+    if(i.ws)items.push({t:'Копировать адрес сайта', k:'', v:i.ws, lab:'сайт'});
+    items.forEach(it=>mki(subC,it.t,it.off?null:()=>{ctxClose();copyText(it.v,it.lab)},it.off?' off':''));
+  })();
+  /* кэш и настройки 1С — подменю */
+  const subK=mkSub('Кэш и настройки 1С…','кэш-каталоги этой базы по уровням: программа / пользователь / общий');
+  mki(subK,'Очистить кэш программы (конфигурации)…',()=>{ctxClose();askBaseCache(guid,'config')},'',
+    '%LOCALAPPDATA%\\1C\\1cv8\\<guid>: Config, ConfigSave, SICache, cgf-cache, cfgrepo — кэш конфигурации, пересоздаётся при следующем запуске');
+  mki(subK,'Сбросить настройки пользователя 1С…',()=>{ctxClose();askBaseCache(guid,'user')},'',
+    '%APPDATA%\\1C\\1cv8\\<guid>: 1cv8.pfl, def.usr — интерфейсные настройки (окна, панели, отборы)');
+  mki(subK,'Очистить кэш — общий, для всех пользователей ПК…',()=>{ctxClose();askBaseCache(guid,'program')},'',
+    'удаляется %PROGRAMDATA%\\1C\\1cv8\\<guid>: общий кэш базы на этом компьютере');
+  /* выгрузка/загрузка — подменю (только файловые базы) */
   if(b.path&&!b.ws){
-    const sepF=document.createElement('div'); sepF.className='sep'; box.appendChild(sepF);
-    const rdt=document.createElement('div');
-    rdt.className='ci';
-    rdt.textContent='Загрузить базу из .dt…';
-    rdt.title='полная перезапись базы выгрузкой .dt: конфигурация и данные; старый каталог сохраняется рядом как *.restore-bak-*';
-    rdt.onclick=()=>{ctxClose();openRestoreDt(guid)};
-    box.appendChild(rdt);
-    const chk=document.createElement('div');
-    chk.className='ci';
-    chk.textContent='Проверить базу данных (chdbfl)…';
-    chk.title='утилита 1С «Проверка и исправление базы данных» для файловой базы: откроется её окно';
-    chk.onclick=()=>{ctxClose();checkDb(guid)};
-    box.appendChild(chk);
-    const dmp=document.createElement('div');
-    dmp.className='ci';
-    dmp.textContent='Выгрузить конфигурацию в XML…';
-    dmp.title='исходники конфигурации этой базы в XML (ibcmd config export)';
-    dmp.onclick=()=>{ctxClose();openDumpXml(guid)};
-    box.appendChild(dmp);
-    const ldx=document.createElement('div');
-    ldx.className='ci';
-    ldx.textContent='Загрузить конфигурацию из XML…';
-    ldx.title='загрузить конфигурацию в эту базу из XML (ibcmd config import: полная / изменённое / заданные объекты)';
-    ldx.onclick=()=>{ctxClose();openLoadXml(guid)};
-    box.appendChild(ldx);
+    const subD=mkSub('Выгрузка / загрузка…','.dt-архивы, проверка базы данных, конфигурация в XML и обратно');
+    mki(subD,'Загрузить базу из .dt…',()=>{ctxClose();openRestoreDt(guid)},'',
+      'полная перезапись базы выгрузкой .dt: конфигурация и данные; старый каталог сохраняется рядом как *.restore-bak-*');
+    mki(subD,'Проверить базу данных (chdbfl)…',()=>{ctxClose();checkDb(guid)},'',
+      'утилита 1С «Проверка и исправление базы данных» для файловой базы: откроется её окно');
+    mki(subD,'Выгрузить конфигурацию в XML…',()=>{ctxClose();openDumpXml(guid)},'',
+      'исходники конфигурации этой базы в XML (ibcmd config export)');
+    mki(subD,'Загрузить конфигурацию из XML…',()=>{ctxClose();openLoadXml(guid)},'',
+      'загрузить конфигурацию в эту базу из XML (ibcmd config import: полная / изменённое / заданные объекты)');
   }
+  /* серверные операции через COM (как в обновляторе) */
+  mk('Определить платформу по версии сервера (COM)',()=>{ctxClose();detectPlatform(guid)});
+  mk('Сведения из базы: конфигурация, пользователи (COM)',()=>{ctxClose();comInfo(guid)});
+  mk(b.running?'Удалить базу из списка… (открыта!)':'Удалить базу из списка…',
+    ()=>{ctxClose();askDeleteBase(guid)},'danger');
+  sep();
   /* настройки базы — в самом низу, горячая клавиша Alt+Enter */
-  const sep2=document.createElement('div'); sep2.className='sep'; box.appendChild(sep2);
-  const setg=document.createElement('div');
-  setg.className='ci';
-  setg.textContent='Настройки базы…';
+  const setg=mk('Настройки базы…',()=>{ctxClose();openSettings(guid)});
   const kk=document.createElement('span'); kk.className='k'; kk.textContent='Alt+Enter';
   setg.appendChild(kk);
-  setg.onclick=()=>{ctxClose();openSettings(guid)};
-  box.appendChild(setg);
-  box.style.display='block';
-  box.style.left='0px'; box.style.top='0px';       // чтобы измерить размер
+  box.style.display='block'; box.style.left='0px'; box.style.top='0px';       // чтобы измерить размер
   const r=box.getBoundingClientRect();
   box.style.left=Math.min(x, innerWidth-r.width-8)+'px';
   box.style.top=Math.min(y, innerHeight-r.height-8)+'px';
