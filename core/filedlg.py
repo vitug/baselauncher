@@ -6,6 +6,9 @@
 Вызывать из обычного (не главного) потока — FastAPI для sync-эндпоинтов так и делает.
 """
 import ctypes
+import os
+import threading
+import time
 from ctypes import wintypes
 
 _co = ctypes.windll.ole32
@@ -82,6 +85,51 @@ def pick_file(title: str = 'Выбрать файл', filters: list[tuple[str, s
             pass
 
 
+def _raise_dialog_foreground(pid: int, stop: threading.Event) -> None:
+    """Поднять COM-диалог нашего процесса на передний план.
+
+    pythonw-сервер не является foreground-процессом, поэтому окно SHBrowse
+    появляется ПОЗАДИ остальных. Монитор в отдельном потоке: находим первое
+    окно #32770 нашего PID и поднимаем (SW_RESTORE + ALT-трюк для обхода
+    foreground-lock + краткий TOPMOST).
+    """
+    user32 = ctypes.windll.user32
+    user32.keybd_event.restype = None
+    HWND_TOPMOST, HWND_NOTOPMOST = -1, -2
+    SWP_NOSIZE, SWP_NOMOVE = 0x0001, 0x0002
+
+    def _enum_cb(h, _):
+        try:
+            cls = ctypes.create_unicode_buffer(64)
+            user32.GetClassNameW(h, cls, 64)
+            if cls.value == '#32770':
+                wpid = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(h, ctypes.byref(wpid))
+                if wpid.value == pid:
+                    user32.ShowWindow(h, 9)  # SW_RESTORE
+                    # ALT-нажатие снимает foreground-lock для SetForegroundWindow
+                    user32.keybd_event(0x12, 0, 0, 0)
+                    user32.keybd_event(0x12, 0, 0x0002, 0)
+                    user32.SetForegroundWindow(h)
+                    user32.SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0,
+                                        SWP_NOSIZE | SWP_NOMOVE)
+                    user32.SetWindowPos(h, HWND_NOTOPMOST, 0, 0, 0, 0,
+                                        SWP_NOSIZE | SWP_NOMOVE)
+                    raise StopIteration
+        except StopIteration:
+            pass
+        return True
+
+    CB = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    deadline = time.time() + 5.0
+    while time.time() < deadline and not stop.is_set():
+        try:
+            user32.EnumWindows(CB(_enum_cb), 0)
+        except Exception:
+            pass
+        time.sleep(0.1)
+
+
 def pick_folder(title: str = 'Выбрать папку', initial: str = '') -> str:
     """Диалог выбора папки (SHBrowseForFolderW).
 
@@ -113,6 +161,9 @@ def pick_folder(title: str = 'Выбрать папку', initial: str = '') -> 
         _ole32.CoInitializeEx(None, 0x2)  # STA — без этого диалог не показывается
     except Exception:
         pass
+    _fg_stop = threading.Event()
+    _fg = threading.Thread(target=_raise_dialog_foreground, args=(os.getpid(), _fg_stop), daemon=True)
+    _fg.start()
     try:
         pidl = _shell.SHBrowseForFolderW(ctypes.byref(bi))
         if not pidl:
@@ -122,6 +173,7 @@ def pick_folder(title: str = 'Выбрать папку', initial: str = '') -> 
         finally:
             _ole32.CoTaskMemFree(pidl)
     finally:
+        _fg_stop.set()
         try:
             _ole32.CoUninitialize()
         except Exception:
