@@ -290,7 +290,11 @@ def base_detail(guid: str):
     st, base = _base_or_404(guid)
     if not base:
         return JSONResponse({'error': 'база не найдена'}, status_code=404)
-    return {'base': _no_pwd(base), 'platforms': st['platforms']}
+    # канонические пути кэша этой базы (без обхода размеров — быстро)
+    cache_paths = {k: str(r / guid) for k, r in (
+        ('config', cache.local_root()), ('user', cache.roaming_root()),
+        ('program', cache.programdata_root()))}
+    return {'base': _no_pwd(base), 'platforms': (st or {}).get('platforms'), 'cache_paths': cache_paths}
 
 
 @app.put('/api/base/{guid}')
