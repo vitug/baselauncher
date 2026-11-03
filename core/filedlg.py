@@ -131,63 +131,6 @@ def _raise_dialog_foreground(pid: int, stop: threading.Event) -> None:
 
 
 def pick_folder(title: str = 'Выбрать папку', initial: str = '') -> str:
-    """Диалог выбора папки.
-
-    Основной путь — pwsh 7 (WinForms FolderBrowserDialog, .NET 9+ = современный
-    IFileDialog): живёт в ОТДЕЛЬНОМ процессе, поэтому не виснет из-за COM-контекста
-    pythonw-сервера и нативно умеет SelectedPath. Фолбэк — SHBrowseForFolderW
-    с CoInitializeEx(SA) и PIDL-BFFM_SETSELECTION (строчный вариант игнорируется).
-    """
-    try:
-        return _pick_folder_pwsh(title, initial)
-    except Exception:
-        return _pick_folder_shbrowse(title, initial)
-
-
-def _pick_folder_pwsh(title: str, initial: str) -> str:
-    """Современный диалог через pwsh 7 (.NET FolderBrowserDialog)."""
-    import subprocess
-    import tempfile
-    pwsh = r'C:\Program Files\PowerShell\7\pwsh.exe'
-    if not os.path.isfile(pwsh):
-        raise FileNotFoundError('pwsh 7 не найден')
-    ps1_src = (
-        'Add-Type -AssemblyName System.Windows.Forms' + '\n'
-        '$d = New-Object System.Windows.Forms.FolderBrowserDialog' + '\n'
-        "$d.Description = [Environment]::GetEnvironmentVariable('BL_DLG_TITLE')" + '\n'
-        "$init = [Environment]::GetEnvironmentVariable('BL_DLG_INIT')" + '\n'
-        'if ($init) { $d.SelectedPath = $init }' + '\n'
-        'if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK -and $d.SelectedPath) {' + '\n'
-        '  [Console]::Out.Write($d.SelectedPath)' + '\n'
-        '}')
-    with tempfile.NamedTemporaryFile('w', suffix='.ps1', delete=False,
-                                     encoding='utf-8-sig') as f:
-        f.write(ps1_src)
-        ps1 = f.name
-    env = dict(os.environ)
-    env['BL_DLG_TITLE'] = title or 'Выбрать папку'
-    env['BL_DLG_INIT'] = initial or ''
-    _fg_stop = threading.Event()
-    try:
-        proc = subprocess.Popen(
-            [pwsh, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            creationflags=0x08000000,  # CREATE_NO_WINDOW — без вспышки консоли
-            env=env)
-        # поднять диалог pwsh-процесса на передний план
-        threading.Thread(target=_raise_dialog_foreground,
-                         args=(proc.pid, _fg_stop), daemon=True).start()
-        out, _ = proc.communicate()
-        return (out or b'').decode('utf-8', 'replace').strip()
-    finally:
-        _fg_stop.set()
-        try:
-            os.unlink(ps1)
-        except OSError:
-            pass
-
-
-def _pick_folder_shbrowse(title: str = 'Выбрать папку', initial: str = '') -> str:
     """Диалог выбора папки (SHBrowseForFolderW); initial — открыть сразу в ней.
 
     КРИТИЧНО: перед вызовом нужен CoInitializeEx(SA) в ЭТОМ потоке — без него
