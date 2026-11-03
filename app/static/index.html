@@ -621,7 +621,7 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <div class="hint" style="margin-bottom:8px">Кэш-каталоги 1С, у которых нет базы с таким ID в ibases.v8i
     (база удалена давно, кэш остался). Данные баз не затрагиваются.</div>
   <div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
-    <input id="dc-search" placeholder="поиск по GUID…" style="flex:1;min-width:160px" oninput="renderDeadCaches()">
+    <input id="dc-search" placeholder="поиск по GUID или пути…" style="flex:1;min-width:160px" oninput="renderDeadCaches()">
     <button class="add" onclick="dcToggleAll()" id="dc-all">выбрать всё</button>
     <button class="add" onclick="dcInvert()" title="переключить выбор в рамках текущего фильтра">переключить выбор</button>
   </div>
@@ -1765,7 +1765,7 @@ function closeDeadCaches(){ $('dcovl').classList.remove('on') }
 function renderDeadCaches(){
   if(!DC_DATA||!DC_DATA.items) return;
   const q=($('dc-search').value||'').toLowerCase().trim();
-  const rows=DC_DATA.items.filter(i=>!q||i.guid.toLowerCase().includes(q));
+  const rows=DC_DATA.items.filter(i=>!q||i.guid.toLowerCase().includes(q)||(i.path||'').toLowerCase().includes(q));
   if(!rows.length){ $('dclist').innerHTML='<div class="hint">ничего не найдено</div>'; dcSum(rows); return }
   let h='<table><tr><th></th><th class="num">Размер</th><th>Дата</th><th>GUID</th><th>Где</th></tr>';
   rows.slice(0,300).forEach(i=>{
@@ -1773,7 +1773,7 @@ function renderDeadCaches(){
       +`<td><input type="checkbox" ${DC_SEL.has(i.guid)?'checked':''} onchange="dcSel('${i.guid}',this.checked)"></td>`
       +`<td class="num">${esc(i.human)}</td><td class="hint">${esc(i.mtime)}</td>`
       +`<td class="hint" style="font-family:ui-monospace,Consolas,monospace">${esc(i.guid)}</td>`
-      +`<td class="hint">${esc((i.path||'').replace(/^.*1cv8/i,''))}</td></tr>`;
+      +`<td class="hint" style="font-family:ui-monospace,Consolas,monospace;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(i.path||'')}">${esc(i.path||'')}</td></tr>`;
   });
   h+='</table>';
   if(rows.length>300) h+=`<div class="hint" style="padding:6px">показаны первые 300 из ${rows.length} — уточните поиск</div>`;
