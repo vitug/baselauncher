@@ -488,7 +488,8 @@ def pickdir(req: dict):
     """Нативный диалог выбора папки (для закладки «Инструменты»)."""
     try:
         from core import filedlg
-        p = filedlg.pick_folder(title=req.get('title') or 'Выбрать папку')
+        p = filedlg.pick_folder(title=req.get('title') or 'Выбрать папку',
+                               initial=_initial_dir(req.get('initial')))
         return {'path': p, 'cancelled': p == ''}
     except Exception as e:                     # noqa: BLE001
         return JSONResponse({'error': f'{type(e).__name__}: {e}'}, status_code=500)
