@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from core import (audit, cache, com, config, dbtools, dumpxml, hotkey, importer, launcher,
                   loadxml, netcheck, platforms_share, procs, tray, v8i_writer, watch)
 
-app = FastAPI(title='BaseLauncher', version='0.37.0')
+app = FastAPI(title='BaseLauncher', version='0.38.0')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 
@@ -914,6 +914,32 @@ async def base_new(req: Request):
         return JSONResponse({'error': str(e)}, status_code=400)
     st = importer.build_state()
     return {'ok': True, 'guid': guid, 'base': _no_pwd(importer.find_base(st, guid))}
+
+
+@app.post('/api/base/{guid}/connect')
+async def base_connect(guid: str, req: Request):
+    """Изменить подключение базы в ibases.v8i (Connect=): путь или сервер+база."""
+    body = await req.json()
+    path = (body.get('path') or '').strip()
+    server = (body.get('server') or '').strip()
+    ref = (body.get('ref') or '').strip()
+    if path and (server or ref):
+        return JSONResponse({'error': 'укажите либо путь, либо сервер+базу, не всё сразу'}, status_code=400)
+    if path:
+        connect = 'File="%s"' % path.rstrip('\\/')
+    elif server and ref:
+        connect = 'Srvr="%s";Ref="%s"' % (server, ref)
+    else:
+        return JSONResponse({'error': 'нужен путь к папке базы (файловая) или сервер + имя базы (серверная)'}, status_code=400)
+    try:
+        v8i_writer.set_connect(guid, connect)
+    except ValueError as e:
+        return JSONResponse({'error': str(e)}, status_code=400)
+    except Exception as e:
+        return JSONResponse({'error': 'не удалось записать ibases.v8i: %s' % e}, status_code=500)
+    importer._BASES_CACHE.clear()
+    st = importer.build_state()
+    return {'ok': True, 'base': _no_pwd(importer.find_base(st, guid) or {})}
 
 
 @app.post('/api/folder/new')
