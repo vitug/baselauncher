@@ -2947,8 +2947,11 @@ async function openSettings(guid){
   if(!j.base){toast('база не найдена');return}
   CUR=guid; const b=j.base, our=b.our||{};
   $('md-title').textContent='Настройки: '+(our.name||b.name);
-  $('md-eff').textContent=(b.exe?('эффективно: '+b.exe+' ['+b.exe_src+(b.thin?', thin':'')+']'):'эффективный exe не определён')
-    +(b.storage&&b.storage.dir?(' · хранилище: '+b.storage.dir):'');
+  $('md-eff').innerHTML=(b.exe
+      ?`<span title="${esc(b.exe)}">платформа: ${esc(b.exe)}${b.thin?' · thin':''}${b.exe_src?(' · ' + esc(b.exe_src)):''}</span>`
+       +(b.exe?` <button class="ln" onclick="copyText('${esc(String(b.exe).replace(/'/g,"&#39;"))}','путь к платформе')" title="скопировать путь к платформе">⧉</button>`:'')
+      :'эффективный exe не определён')
+    +(b.storage&&b.storage.dir?`<span style="margin-left:10px" title="${esc(b.storage.dir)}">хранилище: ${esc(b.storage.dir)}</span>`:'');
   $('md-conn').textContent=b.ws?('веб-база (ws): '+b.ws)
     :(b.path?('папка: '+b.path)
     :(b.server?('сервер: '+b.server+(b.ref?' \\ '+b.ref:'')):''));
