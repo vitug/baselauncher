@@ -68,7 +68,15 @@ def main() -> None:
         shutil.rmtree(ENV)
 
     # 1) venv со СВОИМ Python: uv скачает standalone-CPython в свой кэш
-    run([uv, 'venv', '--python', a.python, ENV])
+    #    --clear: повторный запуск пересоздаёт env на месте (идемпотентно)
+    try:
+        run([uv, 'venv', '--python', a.python, '--clear', ENV])
+    except SystemExit:
+        if ENV.is_dir():
+            print()
+            print('env/ занят — похоже, из него запущен сервер BaseLauncher.')
+            print('Останови его (иконка в трее → выход) и повтори.')
+        raise
 
     # 2) пакеты
     run([uv, 'pip', 'install', '--python', ENV / 'Scripts' / 'python.exe', '-r', REQS])
