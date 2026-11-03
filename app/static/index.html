@@ -686,6 +686,7 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
 <div id="ovl"><div id="modal">
   <h2 id="md-title">Настройки базы</h2>
   <div class="eff" id="md-eff"></div>
+  <div class="eff" id="md-cache"></div>
   <div class="eff" id="md-conn"></div>
   <label>Имя <span class="hint">имя базы в списке 1С (ibases.v8i)</span></label>
   <input type="text" id="s-name">
@@ -2952,6 +2953,11 @@ async function openSettings(guid){
        +(b.exe?` <button class="ln" onclick="copyText('${esc(String(b.exe).replace(/'/g,"&#39;"))}','путь к платформе')" title="скопировать путь к платформе">⧉</button>`:'')
       :'эффективный exe не определён')
     +(b.storage&&b.storage.dir?`<span style="margin-left:10px" title="${esc(b.storage.dir)}">хранилище: ${esc(b.storage.dir)}</span>`:'');
+  const cp=(j.cache_paths||{}).config||'';
+  $('md-cache').innerHTML=cp
+    ?`кэш: <span title="${esc(cp)}">${esc(cp)}</span>`
+     +` <button class="ln" onclick="copyText('${esc(String(cp).replace(/'/g,"&#39;"))}','путь к кэшу')" title="скопировать путь к кэшу базы">⧉</button>`
+    :'';
   $('md-conn').textContent=b.ws?('веб-база (ws): '+b.ws)
     :(b.path?('папка: '+b.path)
     :(b.server?('сервер: '+b.server+(b.ref?' \\ '+b.ref:'')):''));
