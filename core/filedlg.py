@@ -131,7 +131,7 @@ def _raise_dialog_foreground(pid: int, stop: threading.Event) -> None:
 
 
 def pick_folder(title: str = 'Выбрать папку', initial: str = '') -> str:
-    """Диалог выбора папки (SHBrowseForFolderW).
+    """Диалог выбора папки (SHBrowseForFolderW); initial — открыть сразу в ней.
 
     КРИТИЧНО: перед вызовом нужен CoInitializeEx(SA) в ЭТОМ потоке — без него
     SHBrowseForFolderW молча возвращает 0 без окна (кнопки «…» «не работали»).
@@ -161,6 +161,40 @@ def pick_folder(title: str = 'Выбрать папку', initial: str = '') -> 
         _ole32.CoInitializeEx(None, 0x2)  # STA — без этого диалог не показывается
     except Exception:
         pass
+    # начальная папка: SHBrowse умеет только через колбэк (BFFM_SETSELECTION)
+    _cb_ref = None
+    _init_buf = None
+    if initial:
+        from pathlib import Path as _P
+        q = _P(initial)
+        if q.is_file():
+            initial = str(q.parent)
+        if initial and _P(initial).is_dir():
+            BFFM_INITIALIZED = 1
+            BFFM_SETSELECTION = 0x400 + 102  # WM_USER + 102
+            _init_buf = ctypes.create_unicode_buffer(initial)
+            _CB = ctypes.WINFUNCTYPE(ctypes.c_int, wintypes.HWND, wintypes.UINT,
+                                     wintypes.LPARAM, wintypes.LPARAM)
+
+            _il_from_path = ctypes.windll.shell32.ILCreateFromPathW
+            _il_from_path.restype = ctypes.c_void_p
+            _il_from_path.argtypes = [wintypes.LPCWSTR]
+
+            def _browse_cb(hwnd, msg, lp, data):
+                if msg == BFFM_INITIALIZED and data:
+                    path = ctypes.wstring_at(data)
+                    # ВАЖНО: строчный BFFM_SETSELECTION (wParam=1, путь) на этой
+                    # сборке игнорируется — работает только PIDL-вариант
+                    # (ILCreateFromPathW → wParam=0, lParam=PIDL).
+                    pidl = _il_from_path(path)
+                    if pidl:
+                        ctypes.windll.user32.SendMessageW(
+                            hwnd, BFFM_SETSELECTION, 0, ctypes.c_longlong(pidl))
+                return 0
+            _cb_ref = _CB(_browse_cb)
+            bi.lpfn = ctypes.cast(_cb_ref, ctypes.c_void_p)
+            bi.lParam = ctypes.cast(_init_buf, ctypes.c_void_p).value or 0
+
     _fg_stop = threading.Event()
     _fg = threading.Thread(target=_raise_dialog_foreground, args=(os.getpid(), _fg_stop), daemon=True)
     _fg.start()
