@@ -60,8 +60,41 @@ def wait_up(timeout=30):
     return False
 
 
+def close_stale_dev_windows():
+    """Закрыть висящие окна dev-инстанса от прошлых запусков.
+
+    При убитых taskkill'ом родителях app-окна Edge остаются и плодятся по
+    виртуальным столам. Матчинг ТОЛЬКО по метке ':8798' в заголовке —
+    cmdline по PID ненадёжен (Edge держит все app-окна одним процессом),
+    а окно прода (:8797) не трогаем.
+    """
+    import ctypes
+    import ctypes.wintypes as wt
+    closed = 0
+    def _title(h):
+        buf = ctypes.create_unicode_buffer(256)
+        ctypes.windll.user32.GetWindowTextW(h, buf, 256)
+        return buf.value
+    def _class(h):
+        buf = ctypes.create_unicode_buffer(64)
+        ctypes.windll.user32.GetClassNameW(h, buf, 64)
+        return buf.value
+    WM_CLOSE = 0x0010
+    def cb(h, _):
+        nonlocal closed
+        if _class(h) == 'Chrome_WidgetWin_1' and ':8798' in _title(h):
+            ctypes.windll.user32.PostMessageW(h, WM_CLOSE, 0, 0)
+            closed += 1
+        return True
+    CB = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
+    ctypes.windll.user32.EnumWindows(CB(cb), 0)
+    if closed:
+        _log('закрыл висящих dev-окон: %d' % closed)
+
+
 def main():
     prepare()
+    close_stale_dev_windows()
     env = dict(os.environ,
                BL_PORT=str(DEV_PORT),
                BL_DATA=DATA_DEV,
