@@ -281,7 +281,26 @@ _GUID_DIR = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 
 
 def _cache_roots() -> list[Path]:
-    return [r for r in (local_root(), roaming_root(), programdata_root()) if r.is_dir()]
+    """Корни кэшей: свой профиль (Local/Roaming/ProgramData) + Local-кэши ДРУГИХ
+    пользователей этого ПК (C:\\\\Users\\\\<юзер>\\\\AppData\\\\Local\\\\1C\\\\1cv8). Чужие каталоги
+    могут требовать прав — недоступные молча пропускаем."""
+    roots = [r for r in (local_root(), roaming_root(), programdata_root()) if r.is_dir()]
+    users = Path.home().parent          # C:\Users
+    mine = Path.home().name.lower()
+    try:
+        entries = list(os.scandir(users))
+    except OSError:
+        return roots
+    for e in entries:
+        try:
+            if not e.is_dir(follow_symlinks=False) or e.name.lower() in (mine, 'public', 'default', 'defaultuser', 'all users'):
+                continue
+            p = Path(e.path) / 'AppData' / 'Local' / '1C' / '1cv8'
+            if p.is_dir():
+                roots.append(p)
+        except OSError:
+            continue
+    return roots
 
 
 def dead_caches(known: set[str], limit: int = 400) -> dict:
