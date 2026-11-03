@@ -686,7 +686,17 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
 <div id="ovl"><div id="modal">
   <h2 id="md-title">Настройки базы</h2>
   <div class="eff" id="md-cache"></div>
-  <div class="eff" id="md-conn"></div>
+  <div class="ksec">Подключение (ibases.v8i)</div>
+  <div class="row2">
+    <div><label>Сервер (Srvr)</label><input type="text" id="s-srvr" placeholder="имя или адрес кластера 1С"></div>
+    <div><label>База на сервере (Ref)</label><input type="text" id="s-ref" placeholder="имя базы на сервере"></div>
+  </div>
+  <label>Путь к папке файловой базы (File)</label>
+  <div class="fw"><input type="text" id="s-bpath" placeholder="D:\bases1C\mybase">
+    <button type="button" class="add" onclick="pickConnDir()" title="выбрать папку">…</button></div>
+  <div class="hint">Файловая база — заполните путь (сервер пустой); серверная — сервер + имя базы.
+    Кнопка «Записать подключение» меняет Connect= в ibases.v8i (файлы базы не трогаются).</div>
+  <button type="button" class="save" style="margin-bottom:6px" onclick="applyConn()">Записать подключение</button>
   <label>Имя <span class="hint">имя базы в списке 1С (ibases.v8i)</span></label>
   <input type="text" id="s-name">
 
@@ -1257,6 +1267,7 @@ function folderRow(n,depth){
         n.path&&n.path.startsWith('__')?''
         :`<button class="grp" onclick="event.stopPropagation();expandGroup(${idx})" title="развернуть всё внутри этой группы">+ всё</button>
           <button class="grp" onclick="event.stopPropagation();collapseGroup(${idx})" title="свернуть всё внутри этой группы">− всё</button>
+          <button class="grp" onclick="event.stopPropagation();openNew('base',FOLDERS[${idx}])" title="добавить базу внутрь «${esc(n.name)}»">＋ база</button>
           <button class="grp add-folder" onclick="event.stopPropagation();openNew('folder',FOLDERS[${idx}])" title="добавить подпапку внутрь «${esc(n.name)}»">＋ папка</button>`}
           <button class="grp fld-toggle" onclick="event.stopPropagation();toggleF(${idx})"
             title="${open?'свернуть папку':'развернуть папку'}">${open?'▴ свернуть':'▾ развернуть'}</button>
@@ -2470,6 +2481,8 @@ function ctxShow(x,y,guid){
       const d=document.createElement('div'); d.className='ci'+(cls?' '+cls:'');
       d.textContent=t; d.onclick=fn; box.appendChild(d);
     };
+    mk('Добавить базу сюда…', '', ()=>{ctxClose();openNew('base',path)});
+    mk('Добавить папку сюда…', '', ()=>{ctxClose();openNew('folder',path)});
     mk('Копировать путь папки', '', ()=>{ctxClose();copyText(path,'путь папки')});
     const sep0=document.createElement('div'); sep0.className='sep'; box.appendChild(sep0);
     mk('Удалить папку из списка…','danger',()=>{ctxClose();askDeleteFolder(guid)});
@@ -2479,6 +2492,17 @@ function ctxShow(x,y,guid){
     box.style.top=Math.min(y, innerHeight-rf.height-8)+'px';
     return;
   }
+  /* добавление в папку, где лежит эта база */
+  const bfolder=b.folder||'/';
+  const nba=document.createElement('div'); nba.className='ci';
+  nba.textContent='Добавить базу в папку «'+(bfolder==='/'?'(корень)':bfolder)+'»…';
+  nba.title='создать новую базу в ibases.v8i внутри той же папки дерева';
+  nba.onclick=()=>{ctxClose();openNew('base',bfolder)}; box.appendChild(nba);
+  const nfo=document.createElement('div'); nfo.className='ci';
+  nfo.textContent='Добавить папку в папку «'+(bfolder==='/'?'(корень)':bfolder)+'»…';
+  nfo.title='создать подпапку в той же папке дерева';
+  nfo.onclick=()=>{ctxClose();openNew('folder',bfolder)}; box.appendChild(nfo);
+  const sepN=document.createElement('div'); sepN.className='sep'; box.appendChild(sepN);
   /* разовый запуск от администратора (UAC): для публикации базы на веб-сервере
      и других действий 1С, которым нужны права на системные каталоги */
   const admD=document.createElement('div');
@@ -2958,9 +2982,8 @@ async function openSettings(guid){
     ?`кэш: <span title="${esc(cp)}">${esc(cp)}</span>`
      +` <button class="ln" onclick="copyText('${esc(String(cp).replace(/'/g,"&#39;"))}','путь к кэшу')" title="скопировать путь к кэшу базы">⧉</button>`
     :'';
-  $('md-conn').textContent=b.ws?('веб-база (ws): '+b.ws)
-    :(b.path?('папка: '+b.path)
-    :(b.server?('сервер: '+b.server+(b.ref?' \\ '+b.ref:'')):''));
+  if(b.ws){ $('s-srvr').value=''; $('s-ref').value=''; $('s-bpath').value='(веб-база: '+b.ws+')'; $('s-bpath').disabled=true; }
+  else{ $('s-srvr').value=b.server||''; $('s-ref').value=b.ref||''; $('s-bpath').value=b.path||''; $('s-bpath').disabled=false; }
   /* Имя: показываем фактическое имя базы, а не пустое поле с подсказкой. Если имя не переименовывали,
      в поле стоит имя из ibases.v8i — тогда при сохранении оно не пишется в config.json. */
   const ibName=b.ibname||b.name||'';
@@ -3253,6 +3276,23 @@ function openNew(kind, parent){
   $('novl').classList.add('on'); $('n-name').focus();
 }
 function closeNew(){$('novl').classList.remove('on')}
+async function pickConnDir(){
+  const r=await fetch('/api/pickdir',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({title:'Папка файловой базы',initial:$('s-bpath').value.trim()})});
+  const j=await r.json();
+  if(j.path){ $('s-bpath').value=j.path; stat('выбрано: '+j.path,'ok') }
+  else if(j.error) toast('не удалось выбрать: '+j.error);
+}
+async function applyConn(){
+  if(!CUR)return;
+  const path=$('s-bpath').value.trim(), server=$('s-srvr').value.trim(), ref=$('s-ref').value.trim();
+  if(!path&&!server&&!ref){toast('заполните путь или сервер+базу');return}
+  const body=path?{path}:{server,ref};
+  const r=await fetch('/api/base/'+CUR+'/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json();
+  if(j.ok){toast('подключение записано в ibases.v8i');await reload();openSettings(CUR)}
+  else toast('ОШИБКА: '+(j.error||''));
+}
 function newKindToggle(){
   const v=$('n-kind').value;
   $('n-file').style.display=v==='file'?'':'none';

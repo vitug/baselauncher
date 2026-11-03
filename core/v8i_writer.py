@@ -137,6 +137,27 @@ def add_folder(name: str, parent: str = '/') -> str:
     return guid
 
 
+def set_connect(guid: str, connect: str) -> None:
+    """Перезаписать Connect= секции базы (File="..." / Srvr="...";Ref="...")."""
+    connect = (connect or '').strip()
+    if not connect:
+        raise ValueError('пустая строка подключения')
+    from core.parsers import sanitize_path
+    _m = re.match(r'(?is)^\s*File\s*=\s*"(.*)"\s*$', connect)
+    if _m:
+        connect = 'File="%s"' % sanitize_path(_m.group(1))
+    _, text = _read()
+    for sec in _sections(text):
+        if not re.search(r'(?m)^ID=' + re.escape(guid), sec['body']):
+            continue
+        if not re.search(r'(?m)^Connect=', sec['body']):
+            raise ValueError('у секции нет ключа Connect (веб-база?)')
+        new_body = _set(sec['body'], 'Connect', connect.rstrip(';') + ';')
+        _write(text[:sec['body_start']] + new_body + text[sec['end']:])
+        return
+    raise ValueError('секция с ID не найдена')
+
+
 def move(guid: str, folder: str = '/') -> dict:
     """Перенести базу (секцию с Connect=) в другую папку: правится только Folder= и OrderInTree.
 
