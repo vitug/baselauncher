@@ -12,6 +12,12 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
+# SSLKEYLOGFILE (снифферы/сбор трафика) роняет uv-сборки CPython на Windows:
+# libssl открывает keylog-файл через FILE*-BIO, а без OPENSSL_Applink это
+# "OPENSSL_Uplink ... no OPENSSL_Applink" и мгновенный abort процесса при
+# первом же TLS-запросе (netcheck веб-базы и т.п.). Вычищаем до import ssl.
+os.environ.pop('SSLKEYLOGFILE', None)
+
 # Автозапуск идёт через pythonw.exe (без окна консоли): там sys.stdout/sys.stderr == None,
 # и uvicorn с дефолтным логгером падает на попытке писать в них. Подменяем на файл.
 if sys.stdout is None or sys.stderr is None:
