@@ -3440,8 +3440,46 @@ async function pollSessions(){
       }
     });
     if(changed) renderKeepingFocus();
-  }catch(e){ /* сервер занят/перезапускается */ }
+    netOk();
+  }catch(e){ netFail(); /* сервер занят/перезапускается */ }
   SESS_BUSY=false;
+}
+/* ---------- статус ланчера: сервер не отвечает + предложение перезапуска ---------- */
+let NET_FAILS=0, NET_BANNER=null;
+function netOk(){
+  if(NET_FAILS&&NET_BANNER){ NET_BANNER.remove(); NET_BANNER=null; }
+  NET_FAILS=0;
+}
+function netFail(){
+  NET_FAILS++;
+  if(NET_FAILS<2||NET_BANNER) return;      // одна осечка — шум, две (6 с) — офлайн
+  const d=document.createElement('div');
+  d.id='bl-offline';
+  d.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;display:flex;gap:10px;'
+    +'align-items:center;justify-content:center;padding:10px 14px;background:#7a1f1f;'
+    +'color:#fff;font:13px/1.4 inherit;box-shadow:0 -2px 8px rgba(0,0,0,.35)';
+  d.innerHTML='<b>Лончер не отвечает</b> — сервер '
+    +(location.port?' :'+location.port:'')
+    +' не работает. <button style="padding:4px 12px;border:0;border-radius:6px;'
+    +'background:#fff;color:#7a1f1f;font-weight:600;cursor:pointer">Перезапустить</button>'
+    +' <span style="opacity:.75"></span>';
+  const btn=d.querySelector('button'), note=d.querySelector('span');
+  btn.onclick=async()=>{
+    btn.disabled=true; btn.textContent='Перезапускаю…'; note.textContent='';
+    try{
+      const ctl=new AbortController(); setTimeout(()=>ctl.abort(),8000);
+      await fetch('/api/restart',{method:'POST',signal:ctl.signal});
+      note.textContent='команда отправлена, ждём сервер…';
+    }catch(e){ /* сервер мёртв и POST не прошёл — скажем честно */ }
+    /* ждём возврата /api/sessions до ~40 с, потом снова даём кнопку */
+    for(let i=0;i<20;i++){
+      await new Promise(r=>setTimeout(r,2000));
+      try{ await fetch('/api/sessions',{cache:'no-store'}); location.reload(); return }catch(e){}
+    }
+    btn.disabled=false; btn.textContent='Перезапустить';
+    note.textContent='не удалось — запустите BaseLauncher вручную (ярлык в «Пуск» / start_bl.bat)';
+  };
+  document.body.appendChild(d); NET_BANNER=d;
 }
 /* ---------- 1С не запустилась: событие сторожа + снимок окна 1С ---------- */
 let LAST_LAUNCH_EV=null;
@@ -3504,7 +3542,7 @@ async function syncState(){
       $('st-sub').textContent=`${STATE.bases.length} баз · ${STATE.platforms.length} платформ`;
       renderKeepingFocus();
     }
-  }catch(e){ /* сервер перезапускается — просто ждём следующего тика */ }
+  }catch(e){ netFail(); /* сервер перезапускается — просто ждём следующего тика */ }
   SYNC_BUSY=false;
 }
 
