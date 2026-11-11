@@ -48,8 +48,12 @@ _SALT = b'baselauncher/2026/config'
 
 # ── «защита от дурака» ───────────────────────────────────────────────────────
 
-def _key() -> bytes:
-    who = '|'.join((platform.node(), getpass.getuser(), 'baselauncher')).encode('utf-8', 'replace')
+def _key(user_override: str = '') -> bytes:
+    # getpass.getuser() читает env LOGNAME/USER/USERNAME — регистр зависит от того,
+    # откуда запущен сервер (bash даёт 'tugarinov_v', Windows-автозапуск 'Tugarinov_V').
+    # Ключ делаем регистронезависимым; user_override — фолбэк на старые печати.
+    who_user = user_override or getpass.getuser()
+    who = '|'.join((platform.node().lower(), who_user.lower(), 'baselauncher')).encode('utf-8', 'replace')
     return hashlib.sha256(who + _SALT).digest()
 
 
@@ -86,6 +90,14 @@ def unseal(value: str) -> str:
     try:
         # strict: на чужой машине ключ другой -> мусор -> честно возвращаем ''
         return bytes(a ^ b for a, b in zip(x, _stream(len(x), key))).decode('utf-8')
+    except UnicodeDecodeError:
+        pass
+    # фолбэк: печати, сделанные ДО нормализации регистра (старая формула:
+    # node() и getuser() как есть) — пробуем старый ключ дословно
+    try:
+        who = '|'.join((platform.node(), getpass.getuser(), 'baselauncher')).encode('utf-8', 'replace')
+        k2 = hashlib.sha256(who + _SALT).digest()
+        return bytes(a ^ b for a, b in zip(x, _stream(len(x), k2))).decode('utf-8')
     except UnicodeDecodeError:
         return ''
 
