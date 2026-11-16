@@ -53,9 +53,10 @@ def scan_platforms(roots: list[str] | None = None) -> list[Platform]:
                 continue
             exe = d / 'bin' / '1cv8.exe'
             thin = d / 'bin' / '1cv8c.exe'
-            # «только тонкий клиент» — обычная установка для 32-бит и для клиентов с веб-публикаций:
-            # 1cv8.exe нет, но 1cv8c.exe есть. Такую платформу тоже надо показывать в дереве,
-            # иначе клиент нужной версии (например 8.3.27.1989 под конкретную публикацию) не выбрать.
+            if not exe.is_file() and not thin.is_file():
+                # «плоская» версия (готовые каталоги с сетевых хранилищ): exe прямо в d
+                exe = d / '1cv8.exe'
+                thin = d / '1cv8c.exe'
             if not exe.is_file() and not thin.is_file():
                 continue
             out.append(Platform(
