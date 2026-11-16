@@ -23,15 +23,24 @@ def _share_root() -> str:
     return root
 
 
-SHARE = _share_root()
+SHARE = _share_root()          # вычислено на импорте; в probe/reveal корень читается заново
+NO_SHARE_HINT = 'корень шары не задан: поле share_root в data/config.json или env BL_SHARE'
 DATA = Path(__file__).resolve().parent.parent / 'data' / 'install'
 KINDS = {
     'setup64full': 'полный 64 бита (клиент + сервер + автономный сервер)',
     'setup64': 'клиент 64 бита',
     'setup': 'клиент 32 бита',
     'setuptc64': 'только тонкий клиент 64 бита',
+    'setuptc': 'только тонкий клиент 32 бита',
     'setupfv': 'файловый вариант (только сервер)',
 }
+
+
+def _bin_dir(version: str, kind: str) -> Path:
+    """Куда лягет bin этой сборки (x86-виды → Program Files (x86))."""
+    root = Path(r'C:\Program Files (x86)\1cv8') if kind in ('setup', 'setuptc', 'setupfv') \
+        else Path(r'C:\Program Files\1cv8')
+    return root / version / 'bin'
 
 
 def _line(version: str) -> str:
@@ -44,9 +53,12 @@ def probe(version: str) -> dict:
     """Что есть на шаре для этой версии и не установлена ли она уже."""
     version = (version or '').strip()
     line = _line(version)
-    d = Path(SHARE) / line / version
-    res = {'version': version, 'line': line, 'share': SHARE, 'dir': str(d),
-           'share_ok': Path(SHARE).exists(), 'exists': d.is_dir(), 'kinds': {}}
+    share = _share_root()          # динамически: поле могли задать после старта сервера
+    d = Path(share) / line / version
+    res = {'version': version, 'line': line, 'share': share, 'dir': str(d),
+           'share_ok': Path(share).exists() if share else False, 'exists': d.is_dir(), 'kinds': {}}
+    if not share:
+        res['hint'] = NO_SHARE_HINT
     if res['exists']:
         for k in KINDS:
             exe = d / k / 'setup.exe'
@@ -103,6 +115,20 @@ def build_cmd(version: str, kind: str = 'setup64full') -> Path:
         'echo EXIT=%ERRORLEVEL% >> "%LOG%"',
     ]
     cmd_file.write_bytes(('\r\n'.join(lines) + '\r\n').encode('cp866', 'replace'))
+    # пост-фикс для тонких пакетов (грабля 8.5.4.2030): mngcln.dll импортирует ssh.dll,
+    # но в setuptc/setuptc64 она не кладётся (проверено по cab) — вытаскиваем из полного
+    # setup\Data1.cab, иначе клиент падает «Ошибка загрузки компоненты mngcln. 126».
+    if kind in ('setuptc', 'setuptc64'):
+        binp = _bin_dir(version, kind)
+        full_cab = Path(k['path']).parent.parent / 'setup' / 'Data1.cab'
+        if full_cab.is_file():
+            fix = [
+                'if exist "{m}" if not exist "{s}" (echo fix: extracting ssh.dll from full setup >> "%LOG%"'
+                ' & expand.exe "{c}" -F:ssh.dll "{b}" >> "%LOG%" 2>&1)'.format(
+                    m=binp / 'mngcln.dll', s=binp / 'ssh.dll', c=full_cab, b=binp),
+            ]
+            data = cmd_file.read_bytes().decode('cp866', 'replace')
+            cmd_file.write_bytes((data + '\r\n'.join(fix) + '\r\n').encode('cp866', 'replace'))
     return cmd_file
 
 
@@ -121,11 +147,11 @@ def install(version: str, kind: str = 'setup64full') -> dict:
 
 
 def reveal(version: str) -> dict:
-    """Открыть папку дистрибутива в проводнике."""
+    """Открыть папку дистрибутива на шаре в проводнике."""
     p = probe(version)
-    target = p['dir'] if p['exists'] else str(Path(SHARE) / p['line'])
+    target = p['dir'] if p['exists'] else str(Path(_share_root()) / p['line'])
     if not Path(target).exists():
-        target = SHARE
+        target = _share_root()
     subprocess.Popen(['explorer', target])
     return {'ok': True, 'opened': target}
 

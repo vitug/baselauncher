@@ -1576,6 +1576,24 @@ async function detectPlatform(guid){
     return;
   }
   const ver=r.version||'';
+  if(r.install){
+    /* сервер требует ровную сборку, её нет на диске, на шаре есть — выбор компонентов установки */
+    const kinds=r.install.kinds||[];
+    const pref=['setuptc64','setuptc','setup64full','setup64','setup'].filter(k=>kinds.includes(k));
+    const KDESC={'setuptc64':'только тонкий клиент · 64 бита','setuptc':'только тонкий клиент · 32 бита',
+      'setup64full':'полная · 64 бита (клиент + сервер, без службы)','setup64':'клиент · 64 бита',
+      'setup':'клиент · 32 бита','setupfv':'файловый сервер'};
+    const btns=pref.map(k=>({t:'▸ '+KDESC[k],f:()=>installPlatform(r.install.version,k,guid),primary:k===pref[0]}));
+    btns.push({t:'Открыть папку дистрибутивов',f:()=>revealShare(r.install.version)});
+    btns.push({t:'Отмена'});
+    askBox('Требуется платформа '+r.install.version,
+      'Сервер базы «'+(b.name||guid)+'» работает на сборке '+r.server_version
+      +', которая не установлена. Ближайшая установленная сборка не подойдёт'
+      +' (8.5 проверяет сборку-в-сборку).\n\nНа шаре '+r.install.share+' есть дистрибутив — выберите, что ставить:',
+      btns);
+    stat('сервер '+r.server_version+' — сборка не установлена, есть на шаре','err');
+    return;
+  }
   stat('сервер '+r.server_version+(ver?(' → платформа '+ver):''),'ok');
   toast('«'+(b.name||guid)+'»\nверсия сервера: '+r.server_version
         +(ver?('\nзакреплена платформа '+ver):'\nподходящая платформа не установлена'),9000);
@@ -2893,7 +2911,7 @@ async function platformMissing(guid,mode){
   const btns=[];
   if(p.exists&&Object.keys(p.kinds||{}).length){
     const kind=(p.kinds['setup64full']?'setup64full':Object.keys(p.kinds)[0]);
-    btns.push({t:`Поставить ${ver} с шары`,primary:true,f:()=>installPlatform(ver,kind)});
+    btns.push({t:`Поставить ${ver} с шары`,primary:true,f:()=>installPlatform(ver,kind,guid)});
   }
   if(ver)btns.push({t:'Открыть папку дистрибутивов',f:()=>revealShare(ver)});
   if(alt)btns.push({t:`Заменить на ${alt.key}`,primary:!btns.length,f:()=>replaceExe(guid,alt.exe,mode)});
@@ -2901,13 +2919,34 @@ async function platformMissing(guid,mode){
   btns.push({t:'Отмена'});
   askBox('Платформа не найдена',text,btns);
 }
-async function installPlatform(version,kind){
+async function installPlatform(version,kind,guid){
   const r=await fetch('/api/platform/install',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({version,kind})});
   const j=await r.json();
   if(!j.ok){toast('ОШИБКА: '+(j.error||''));return}
-  toast('установка '+version+' запущена — подтвердите UAC. Лог: '+j.log,20000);
-  stat('идёт установка '+version+' (~2 мин). После EXIT=0 нажмите ⟳ и запускайте базу','');
+  toast('установка '+version+' ('+kind+') запущена — подтвердите UAC. Лог: '+j.log,20000);
+  stat('идёт установка '+version+' (~2 мин) — слежу за готовностью…','');
+  /* автодоведение: раз в 5 с спрашиваем шару/диск, пока сборка не появится, до 4 мин;
+     появилось — закрепляем за базой (если guid передан) и перезагружаем список */
+  (async()=>{
+    for(let i=0;i<48;i++){
+      await new Promise(res=>setTimeout(res,5000));
+      let p={};try{p=await (await fetch('/api/platform/probe',{method:'POST',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify({version})})).json()}catch(e){continue}
+      if(p.installed&&p.installed.length){
+        const exe=p.installed.find(x=>x.endsWith('1cv8c.exe'))||p.installed[0];
+        if(guid){
+          try{await (await fetch('/api/base/'+guid,{method:'PUT',
+            headers:{'Content-Type':'application/json'},body:JSON.stringify({exe})})).json()}catch(e){}
+        }
+        toast('платформа '+version+' установлена'+(guid?' и закреплена за базой':'')+' — можно запускать',12000);
+        stat('платформа '+version+' установлена','ok');
+        await reload();
+        return;
+      }
+    }
+    stat('установка '+version+' не завершилась за 4 мин — проверьте лог '+j.log,'err');
+  })();
 }
 async function revealShare(version){
   const r=await fetch('/api/platform/reveal',{method:'POST',headers:{'Content-Type':'application/json'},
