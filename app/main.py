@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from core import (audit, cache, com, config, dbtools, dumpxml, hotkey, importer, launcher,
                   loadxml, netcheck, platforms_share, procs, tray, v8i_writer, watch)
 
-app = FastAPI(title='BaseLauncher', version='0.38.2')
+app = FastAPI(title='BaseLauncher', version='0.38.3')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 
@@ -257,9 +257,18 @@ def detect_platform(base: dict, pin: bool = True) -> dict:
     # поставить с шары — предлагаем установку и ничего не пинам; если на шаре её нет,
     # пинаем ближайшую того же семейства как последний шанс (автоповтор её подменит).
     offer = platforms_share.probe(ver)
-    if offer.get('exists') and offer.get('kinds'):
-        out['install'] = {'version': ver, 'kinds': sorted(offer['kinds']),
-                          'share': offer.get('share'), 'dir': offer.get('dir')}
+    sp = offer.get('special') or {}
+    has_setup_offer = offer.get('exists') and offer.get('kinds')
+    has_special_offer = sp.get('configured') and sp.get('exists') and not sp.get('local_ready')
+    if has_setup_offer or has_special_offer:
+        inst = {'version': ver}
+        if has_setup_offer:
+            inst.update({'kinds': sorted(offer['kinds']), 'share': offer.get('share'),
+                         'dir': offer.get('dir')})
+        if has_special_offer:
+            inst['special'] = {'share': sp.get('share'), 'local': sp.get('local'),
+                               'size_gb': sp.get('size_gb')}
+        out['install'] = inst
         out['hint'] = ('сервер требует ровно %s — поставьте её с шары (кнопка в диалоге), '
                        'ближайшая сборка не подойдёт' % ver)
         return out
@@ -1393,16 +1402,46 @@ async def platform_probe(req: Request):
 
 @app.post('/api/platform/install')
 async def platform_install(req: Request):
-    """Поставить отсутствующую платформу с шары (UAC подтверждает пользователь)."""
+    """Поставить отсутствующую платформу с шары (UAC подтверждает пользователь).
+    kind='copy' — не установщик, а копирование готового каталога со спец-шары."""
     body = await req.json()
     v = (body.get('version') or '').strip()
     kind = (body.get('kind') or 'setup64full').strip()
     if not v:
         return JSONResponse({'error': 'не передана версия платформы'}, status_code=400)
     try:
+        if kind == 'copy':
+            return platforms_share.copy_special(v)
         return platforms_share.install(v, kind)
     except ValueError as e:
         return JSONResponse({'error': str(e)}, status_code=400)
+
+
+@app.get('/api/settings')
+def settings_get():
+    """Глобальные настройки программы (папки источников платформ и пр.)."""
+    cfg = config.load() or {}
+    sp_share, sp_local = platforms_share._special()
+    return {'share_root': cfg.get('share_root') or platforms_share._share_root(),
+            'special_share': sp_share,
+            'special_dir': sp_local or str(platforms_share._special_local_default())}
+
+
+@app.post('/api/settings')
+async def settings_save(req: Request):
+    """Сохранить глобальные настройки (только известные поля, остальное не трогаем)."""
+    body = await req.json()
+    fields = ('share_root', 'special_share', 'special_dir')
+    cfg = config.load() or {}
+    for f in fields:
+        if f in body:
+            v = (str(body.get(f) or '')).strip()
+            if v:
+                cfg[f] = v
+            else:
+                cfg.pop(f, None)
+    config.save(cfg)
+    return {'ok': True}
 
 
 @app.post('/api/platform/reveal')

@@ -242,6 +242,8 @@ tr.base.running td.name{box-shadow:inset 3px 0 0 var(--green)}
   color:var(--muted);cursor:pointer;font-size:12.5px}
 .add:hover{border-color:var(--green);color:var(--green)}
 #novl{position:fixed;inset:0;background:#000a;display:none;z-index:11}
+#pgovl{position:fixed;inset:0;background:#000a;display:none;z-index:11}
+#pgovl.on{display:flex;align-items:center;justify-content:center}
 #novl.on{display:flex;align-items:center;justify-content:center}
 #nmodal{width:560px;max-width:94vw;max-height:90vh;overflow:auto;background:var(--panel);
   border:1px solid var(--border);border-radius:12px;padding:18px 20px;box-shadow:0 12px 40px #000c}
@@ -492,6 +494,22 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <div class="btns">
     <button class="save" onclick="submitNew()">Создать</button>
     <button onclick="closeNew()">Отмена</button>
+  </div>
+</div></div>
+
+<div id="pgovl"><div id="nmodal">
+  <h2>Настройки программы</h2>
+  <label>Шара дистрибутивов платформ (установщики)</label>
+  <input type="text" id="pg-share" placeholder="\\server\distr">
+  <div class="hint" style="margin-top:2px">Каталоги вида &lt;линия&gt;\&lt;версия&gt;\setup* — оттуда лончер предлагает доустановку точной сборки, требуемой сервером базы.</div>
+  <label>Шара готовых платформ (каталоги версий, копируются целиком)</label>
+  <input type="text" id="pg-spshare" placeholder="\\server\platforms">
+  <label>Локальная папка для готовых платформ</label>
+  <input type="text" id="pg-splocal" placeholder="D:\storage1C\platforms">
+  <div class="hint" style="margin-top:2px">Готовая платформа со шары копируется в эту папку и появляется в общем списке платформ (фоном, права администратора не нужны).</div>
+  <div class="btns">
+    <button class="save" onclick="saveProgSettings()">Сохранить</button>
+    <button onclick="closeProgSettings()">Отмена</button>
   </div>
 </div></div>
 
@@ -1584,6 +1602,11 @@ async function detectPlatform(guid){
       'setup64full':'полная · 64 бита (клиент + сервер, без службы)','setup64':'клиент · 64 бита',
       'setup':'клиент · 32 бита','setupfv':'файловый сервер'};
     const btns=pref.map(k=>({t:'▸ '+KDESC[k],f:()=>installPlatform(r.install.version,k,guid),primary:k===pref[0]}));
+    if(r.install.special){
+      const sp=r.install.special;
+      btns.push({t:'▸ скопировать готовую платформу в локальную папку'+(sp.size_gb?(' (~'+sp.size_gb+' ГБ)'):''),
+        f:()=>installPlatform(r.install.version,'copy',guid),primary:!pref.length});
+    }
     btns.push({t:'Открыть папку дистрибутивов',f:()=>revealShare(r.install.version)});
     btns.push({t:'Отмена'});
     askBox('Требуется платформа '+r.install.version,
@@ -1753,6 +1776,7 @@ function openAppMenu(el){
   mk('Удалить ненужные платформы (выбрать)…',openPlatDel);
   mk('Перевести базы на другую платформу…',openMigrate);
   mk('Мёртвые кэши (не привязаны к базам)…',openDeadCaches);
+  mk('Настройки программы (папки платформ)…',openProgSettings);
   mk('Очистить кэш по базам (выбрать)…',openCacheBases);
   mk('Кэш пользователя 1С (все базы)…',askClearUserCache);
   box.style.display='block'; box.style.left='0px'; box.style.top='0px';
@@ -1760,6 +1784,22 @@ function openAppMenu(el){
   const rr=el?el.getBoundingClientRect():{left:innerWidth-r.width-20,bottom:innerHeight-60};
   box.style.left=Math.max(8,Math.min(rr.left, innerWidth-r.width-8))+'px';
   box.style.top=Math.max(8,Math.min(rr.bottom+4, innerHeight-r.height-8))+'px';
+}
+/* ---------- настройки программы ---------- */
+async function openProgSettings(){
+  let s={};try{s=await (await fetch('/api/settings')).json()}catch(e){toast('не удалось прочитать настройки');return}
+  $('pg-share').value=s.share_root||''; $('pg-spshare').value=s.special_share||''; $('pg-splocal').value=s.special_dir||'';
+  $('pgovl').classList.add('on'); $('pg-share').focus();
+}
+function closeProgSettings(){ $('pgovl').classList.remove('on') }
+async function saveProgSettings(){
+  const body={share_root:$('pg-share').value.trim(),special_share:$('pg-spshare').value.trim(),
+    special_dir:$('pg-splocal').value.trim()};
+  const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body)});
+  const j=await r.json();
+  if(j.ok){toast('настройки программы сохранены');closeProgSettings()}
+  else toast('ОШИБКА: '+(j.error||''));
 }
 /* ---------- мёртвые кэши: чекбоксы + поиск ---------- */
 let DC_DATA=null, DC_SEL=new Set();
@@ -2924,12 +2964,18 @@ async function installPlatform(version,kind,guid){
     body:JSON.stringify({version,kind})});
   const j=await r.json();
   if(!j.ok){toast('ОШИБКА: '+(j.error||''));return}
-  toast('установка '+version+' ('+kind+') запущена — подтвердите UAC. Лог: '+j.log,20000);
-  stat('идёт установка '+version+' (~2 мин) — слежу за готовностью…','');
+  if(j.already){
+    toast('платформа '+version+' уже есть в локальной папке');return
+  }
+  toast(kind==='copy'
+    ?'копирование '+version+' в локальную папку запущено (фоном). Лог: '+j.log
+    :'установка '+version+' ('+kind+') запущена — подтвердите UAC. Лог: '+j.log,20000);
+  stat(kind==='copy'?'идёт копирование '+version+' — слежу за готовностью…':'идёт установка '+version+' (~2 мин) — слежу за готовностью…','');
   /* автодоведение: раз в 5 с спрашиваем шару/диск, пока сборка не появится, до 4 мин;
      появилось — закрепляем за базой (если guid передан) и перезагружаем список */
   (async()=>{
-    for(let i=0;i<48;i++){
+    const tries=kind==='copy'?240:48;   // копирование по сети может идти долго — до 20 мин
+    for(let i=0;i<tries;i++){
       await new Promise(res=>setTimeout(res,5000));
       let p={};try{p=await (await fetch('/api/platform/probe',{method:'POST',
         headers:{'Content-Type':'application/json'},body:JSON.stringify({version})})).json()}catch(e){continue}

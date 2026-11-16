@@ -26,6 +26,91 @@ def _share_root() -> str:
 SHARE = _share_root()          # вычислено на импорте; в probe/reveal корень читается заново
 NO_SHARE_HINT = 'корень шары не задан: поле share_root в data/config.json или env BL_SHARE'
 DATA = Path(__file__).resolve().parent.parent / 'data' / 'install'
+
+
+def _special() -> tuple[str, str]:
+    """(шара, локальная папка) «специальных» платформ (готовые каталоги, не установщики):
+    версия с шары копируется каталогом в локальную папку. env BL_SPECIAL_SHARE/BL_SPECIAL_DIR
+    > поля special_share/special_dir в config.json > ''."""
+    share = os.environ.get('BL_SPECIAL_SHARE', '')
+    local = os.environ.get('BL_SPECIAL_DIR', '')
+    try:
+        from core import config
+        cfg = config.load() or {}
+        share = share or str(cfg.get('special_share') or '')
+        local = local or str(cfg.get('special_dir') or '')
+    except Exception:                                    # noqa: BLE001
+        pass
+    return share, local
+
+
+def _special_local_default() -> Path:
+    """Локальное хранилище готовых платформ (уже сканируется scanner.py)."""
+    return Path(r'D:\storage1C\platforms')
+
+
+def probe_special(version: str) -> dict:
+    """Есть ли готовый каталог версии на спец-шаре и скопирован ли он локально."""
+    version = (version or '').strip()
+    share, local = _special()
+    if not local:
+        local = str(_special_local_default())
+    sd, ld = Path(share) / version, Path(local) / version
+    res = {'version': version, 'share': share, 'local': local,
+           'share_dir': str(sd), 'local_dir': str(ld),
+           'configured': bool(share), 'exists': sd.is_dir(),
+           'local_ready': any((ld / 'bin' / e).is_file() or (ld / e).is_file()
+                              for e in ('1cv8.exe', '1cv8c.exe')),
+           'size_gb': 0.0}
+    if res['exists']:
+        try:                       # оценка размера каталога версии, без глубокой рекурсии
+            total = 0
+            for _r, _d, files in os.walk(sd):
+                total += sum(os.path.getsize(os.path.join(_r, f)) for f in files)
+                if total > 50 * 1024 ** 3:
+                    break
+            res['size_gb'] = round(total / 1024 ** 3, 1)
+        except OSError:
+            pass
+    return res
+
+
+def _copy_special_thread(version: str, log: Path):
+    import threading
+    share, local = _special()
+    if not local:
+        local = str(_special_local_default())
+    sd, ld = Path(share) / version, Path(local) / version
+    def run():
+        try:
+            log.parent.mkdir(parents=True, exist_ok=True)
+            with open(log, 'a', encoding='utf-8') as f:
+                f.write('START %s -> %s\n' % (sd, ld))
+            # robocopy: права на D:\\storage1C админа не требуют
+            rc = subprocess.run(['robocopy', str(sd), str(ld), '/E', '/NFL', '/NDL',
+                                 '/NJH', '/NJS', '/NP', '/R:2', '/W:5'],
+                                capture_output=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            with open(log, 'a', encoding='utf-8') as f:
+                f.write('ROBOCOPY_EXIT=%d\n' % rc.returncode)   # 0..7 = успех, 8+ = ошибка
+        except Exception as e:                                    # noqa: BLE001
+            with open(log, 'a', encoding='utf-8') as f:
+                f.write('ERROR %r\n' % (e,))
+    threading.Thread(target=run, daemon=True).start()
+
+
+def copy_special(version: str) -> dict:
+    """Скопировать готовый каталог версии со спец-шары в локальную папку (фоном)."""
+    p = probe_special(version)
+    if not p['configured'] or not p['exists']:
+        raise ValueError('на специальной шаре нет каталога %s' % p['share_dir'])
+    if p['local_ready']:
+        return {'ok': True, 'started': False, 'already': True, 'local_dir': p['local_dir']}
+    log = DATA / ('copy-%s.log' % version)
+    _copy_special_thread(version, log)
+    return {'ok': True, 'started': True, 'log': str(log), 'local_dir': p['local_dir'],
+            'hint': 'копирование идёт фоном; готовность — bin\\\\1cv8c.exe в локальной папке'}
+
+
 KINDS = {
     'setup64full': 'полный 64 бита (клиент + сервер + автономный сервер)',
     'setup64': 'клиент 64 бита',
@@ -65,6 +150,10 @@ def probe(version: str) -> dict:
             if exe.is_file():
                 res['kinds'][k] = {'path': str(exe), 'descr': KINDS[k]}
     res['installed'] = find_installed(version)
+    try:                          # спец-источник: готовый каталог версии (копируется, не ставится)
+        res['special'] = probe_special(version)
+    except Exception:                                    # noqa: BLE001
+        pass
     return res
 
 
@@ -79,6 +168,9 @@ def find_installed(version: str) -> list[str]:
             continue
         for exe in ('1cv8.exe', '1cv8c.exe'):
             p = root / version / 'bin' / exe
+            if p.is_file():
+                found.append(str(p))
+            p = root / version / exe      # «плоские» версии: exe прямо в каталоге версии
             if p.is_file():
                 found.append(str(p))
     if not found:                       # версия могла лечь в подпапку с суффиксом
