@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from core import (audit, cache, com, config, dbtools, dumpxml, hotkey, importer, launcher,
                   loadxml, netcheck, platforms_share, procs, tray, v8i_writer, watch)
 
-app = FastAPI(title='BaseLauncher', version='0.38.1')
+app = FastAPI(title='BaseLauncher', version='0.38.2')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 
@@ -243,12 +243,31 @@ def detect_platform(base: dict, pin: bool = True) -> dict:
         return out
     plats = importer.build_state().get('platforms', [])
     exact = [p for p in plats if (p.get('key') or '') == ver]
-    if not exact:                       # такой сборки нет — берём ближайшую того же семейства
-        fam = ver[:3]
-        same = [p for p in plats if (p.get('key') or '').startswith(fam) and (p.get('exe') or p.get('exe_thin'))]
-        exact = same[:1]
-        out['note'] = 'точная сборка %s не установлена — взята ближайшая' % ver if same else \
-            'ни одной платформы %s не установлено' % fam
+    if exact:
+        exe = exact[0].get('exe') or exact[0].get('exe_thin') or ''
+        out['exe'] = exe
+        out['version'] = exact[0].get('key')
+        if pin and exe and not base.get('ws'):
+            config.set_base(guid, {'exe': exe, 'family': '', 'learnt': ''})
+            importer.build_state()
+            out['pinned'] = True
+        return out
+    # точной сборки нет: серверной базе нужна РОВНО она (8.5 проверяет сборку-в-сборку),
+    # «ближайшая» даст 409 «Различаются версии клиента и сервера». Если версию можно
+    # поставить с шары — предлагаем установку и ничего не пинам; если на шаре её нет,
+    # пинаем ближайшую того же семейства как последний шанс (автоповтор её подменит).
+    offer = platforms_share.probe(ver)
+    if offer.get('exists') and offer.get('kinds'):
+        out['install'] = {'version': ver, 'kinds': sorted(offer['kinds']),
+                          'share': offer.get('share'), 'dir': offer.get('dir')}
+        out['hint'] = ('сервер требует ровно %s — поставьте её с шары (кнопка в диалоге), '
+                       'ближайшая сборка не подойдёт' % ver)
+        return out
+    fam = ver[:3]
+    same = [p for p in plats if (p.get('key') or '').startswith(fam) and (p.get('exe') or p.get('exe_thin'))]
+    exact = same[:1]
+    out['note'] = 'точная сборка %s не установлена и на шаре её нет — взята ближайшая' % ver if same else \
+        'ни одной платформы %s не установлено' % fam
     if exact:
         exe = exact[0].get('exe') or exact[0].get('exe_thin') or ''
         out['exe'] = exe
