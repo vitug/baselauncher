@@ -45,8 +45,10 @@ def _special() -> tuple[str, str]:
 
 
 def _special_local_default() -> Path:
-    """Локальное хранилище готовых платформ (уже сканируется scanner.py)."""
-    return Path(r'D:\storage1C\platforms')
+    """Локальное хранилище готовых платформ: только из config/env, без хардкода
+    (внутренние пути стендов в коде не упоминаем)."""
+    _, local = _special()
+    return Path(local) if local else Path()
 
 
 def probe_special(version: str) -> dict:
@@ -160,8 +162,9 @@ def probe(version: str) -> dict:
 def find_installed(version: str) -> list[str]:
     """Установленные exe этой версии (Program Files и локальное хранилище платформ)."""
     version = (version or '').strip()
-    roots = [Path(r'C:\Program Files\1cv8'), Path(r'C:\Program Files (x86)\1cv8'),
-             Path(r'D:\storage1C\platforms')]
+    store = _special_local_default()
+    roots = [Path(r'C:\Program Files\1cv8'), Path(r'C:\Program Files (x86)\1cv8')] + \
+        ([store] if str(store) else [])
     found = []
     for root in roots:
         if not root.is_dir():
@@ -251,8 +254,9 @@ def reveal(version: str) -> dict:
 def installed_versions() -> list[str]:
     """Версии, установленные локально (для подсказки «заменить на …»)."""
     seen = []
-    for root in (Path(r'C:\Program Files\1cv8'), Path(r'C:\Program Files (x86)\1cv8'),
-                 Path(r'D:\storage1C\platforms')):
+    store = _special_local_default()
+    for root in [Path(r'C:\Program Files\1cv8'), Path(r'C:\Program Files (x86)\1cv8')] + \
+              ([store] if str(store) else []):
         if not root.is_dir():
             continue
         for sub in root.iterdir():
