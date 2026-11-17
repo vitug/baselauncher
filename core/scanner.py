@@ -16,8 +16,17 @@ SCAN_ROOTS = [
     r'C:\Program Files (x86)\1cv82',
     r'C:\Program Files\1cv81',
     r'C:\Program Files (x86)\1cv81',  # 8.1.15.14 — лежала bin-без-версии, переложена в <ver>/bin
-    r'D:\storage1C\platforms',   # личное хранилище пользователя (разведано при импорте из SM)
 ]
+
+
+def _extra_roots() -> list[str]:
+    """Локальное хранилище готовых платформ из config/env (внутренние пути в коде не упоминаем)."""
+    try:
+        from core import platforms_share
+        _, local = platforms_share._special()
+        return [local] if local else []
+    except Exception:                                    # noqa: BLE001
+        return []
 
 
 def pe_bitness(exe: str) -> str:
@@ -44,7 +53,7 @@ def _ver_tuple(key: str):
 
 def scan_platforms(roots: list[str] | None = None) -> list[Platform]:
     out = []
-    for root_s in (roots or SCAN_ROOTS):
+    for root_s in (roots or (SCAN_ROOTS + _extra_roots())):
         root = Path(root_s)
         if not root.is_dir():
             continue
