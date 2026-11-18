@@ -1479,9 +1479,7 @@ function baseCopyInfo(b){
           baseAddr: ws||path||(srvr?(srvr+(ref?'\\'+ref:'')):''),
           srvAddr: srvr, ref};
 }
-async function copyText(txt,label){
-  if(!txt){toast('Копировать нечего: значение пустое');return}
-  try{
+async function copyText(txt,label){  if(!txt){toast('Копировать нечего: значение пустое');return}  try{
     if(navigator.clipboard&&window.isSecureContext)await navigator.clipboard.writeText(txt);
     else throw new Error('clipboard');
   }catch(e){
@@ -1494,6 +1492,38 @@ async function copyText(txt,label){
   stat(`скопировано ${label||''}: ${txt}`,'ok');
   toast((label?label+': ':'')+txt, 4000);
 }
+/* кнопка ⧉ копирования у каждого текстового поля настроек базы */
+function decorateCopyInputs(rootSel){
+  const root=document.querySelector(rootSel); if(!root)return;
+  root.querySelectorAll('input[type=text]').forEach(inp=>{
+    if(inp.dataset.cpb)return; inp.dataset.cpb='1';
+    const lab=(()=>{                     /* подпись поля — ближайший label сверху */
+      let el=inp;
+      while(el&&el!==root){
+        if(el.previousElementSibling&&el.previousElementSibling.tagName==='LABEL'){
+          const c=el.previousElementSibling.cloneNode(true);
+          c.querySelectorAll('.hint').forEach(h=>h.remove());   /* подсказки в подпись не тащим */
+          return c.textContent.trim().split('\n')[0];
+        }
+        el=el.parentElement;
+      }
+      return '';
+    })();
+    const b=document.createElement('button');
+    b.type='button'; b.className='add'; b.textContent='⧉';
+    b.title='скопировать'+(lab?' '+lab:'');
+    b.onclick=()=>copyText(inp.value,lab||'поле');
+    if(inp.parentElement.classList.contains('fw')){
+      inp.parentElement.appendChild(b);      /* рядом с «…» выбора папки */
+    }else{
+      const w=document.createElement('span');
+      w.style.cssText='display:flex;gap:6px;align-items:stretch';
+      inp.replaceWith(w); w.appendChild(inp); w.appendChild(b);
+      inp.style.flex='1'; inp.style.minWidth='0';
+    }
+  });
+}
+document.addEventListener('DOMContentLoaded',()=>decorateCopyInputs('#modal'));
 let CTX_GUID=null;
 function ctxClose(){$('ctxm').style.display='none';CTX_GUID=null}
 /* удаление базы из списка: файлы на диске остаются, из ibases.v8i секция убирается */
