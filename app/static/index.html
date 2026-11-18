@@ -781,6 +781,17 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   </div>
   <div class="hint">Ключи конфигуратора: /ConfigurationRepositoryF /N /P.</div>
 
+  <div class="ksec">Git и выгрузка</div>
+  <label>Git-репозиторий (URL)</label>
+  <input type="text" id="s-giturl" placeholder="https://gitlab.example.com/group/repo.git">
+  <div class="row2" style="margin-top:6px">
+    <div><label>Папка локального клона</label>
+      <input type="text" id="s-gitdir" placeholder="D:\git_repos\repo"></div>
+    <div><label>Папка дампа по умолчанию</label>
+      <input type="text" id="s-dumpdir" placeholder="D:\xml_out\repo"></div>
+  </div>
+  <div class="hint">Папка дампа подставляется в диалог «Выгрузить конфигурацию в XML» этой базы.</div>
+
   <div class="ksec">Режим запуска по умолчанию</div>
   <select id="s-mode">
     <option value="">Как в шапке (переключатель Предприятие/Конфигуратор)</option>
@@ -1983,7 +1994,8 @@ let XM_DATA=null, XM_SEL=new Set(), XM_TIMER=null, XM_ONE=null;
 async function openDumpXml(preset){
   $('xmovl').classList.add('on'); $('xm-search').value='';
   await loadDumpPaths();
-  $('xm-root').value=DUMP_PATHS[0]||'D:\\xml_out';
+  const pb=(STATE.bases||[]).find(v=>v.guid===(preset||null));
+  $('xm-root').value=(pb&&pb.our&&pb.our.dump_dir)||DUMP_PATHS[0]||'D:\\xml_out';
   fillPathHints();
   XM_SEL=new Set();
   const pre=preset||null;
@@ -2081,8 +2093,9 @@ let XIL_DATA=null, XIL_SEL=new Set(), XIL_TIMER=null, XIL_ONE=null;
 async function openLoadXml(preset){
   $('xilovl').classList.add('on'); $('xil-search').value='';
   await loadDumpPaths();
-  /* предлагаем оттуда, куда в последний раз выгружали */
-  $('xil-root').value=DUMP_PATHS[0]||'D:\\xml_out';
+  /* предлагаем папку дампа базы, если задана, иначе — куда в последний раз выгружали */
+  const pb=(STATE.bases||[]).find(v=>v.guid===(preset||null));
+  $('xil-root').value=(pb&&pb.our&&pb.our.dump_dir)||DUMP_PATHS[0]||'D:\\xml_out';
   fillPathHints();
   XIL_SEL=new Set(); xilMode();
   const pre=preset||null;
@@ -2506,6 +2519,10 @@ function copyItemsInto(box,b){
     {t:'Копировать строку соединения', k:'', v:i.conn, lab:'строка соединения'},
   ];
   if(i.ws)items.push({t:'Копировать адрес сайта', k:'', v:i.ws, lab:'сайт'});
+  const our1=b.our||{};
+  if(our1.git_url)items.push({t:'Копировать git-репозиторий', k:'', v:our1.git_url, lab:'git-репозиторий'});
+  if(our1.git_dir)items.push({t:'Копировать папку клона git', k:'', v:our1.git_dir, lab:'папка клона'});
+  if(our1.dump_dir)items.push({t:'Копировать папку дампа', k:'', v:our1.dump_dir, lab:'папка дампа'});
   items.forEach(it=>{
     const d=document.createElement('div');
     d.className='ci'+(it.off?' off':'');
@@ -2598,6 +2615,10 @@ function ctxShow(x,y,guid){
       {t:'Копировать строку соединения', k:'', v:i.conn, lab:'строка соединения'},
     ];
     if(i.ws)items.push({t:'Копировать адрес сайта', k:'', v:i.ws, lab:'сайт'});
+    const our2=b.our||{};
+    if(our2.git_url)items.push({t:'Копировать git-репозиторий', k:'', v:our2.git_url, lab:'git-репозиторий'});
+    if(our2.git_dir)items.push({t:'Копировать папку клона git', k:'', v:our2.git_dir, lab:'папка клона'});
+    if(our2.dump_dir)items.push({t:'Копировать папку дампа', k:'', v:our2.dump_dir, lab:'папка дампа'});
     items.forEach(it=>mki(subC,it.t,it.off?null:()=>{ctxClose();copyText(it.v,it.lab)},it.off?' off':''));
   })();
   /* кэш и настройки 1С — подменю */
@@ -2619,6 +2640,11 @@ function ctxShow(x,y,guid){
       'исходники конфигурации этой базы в XML (ibcmd config export)');
     mki(subD,'Загрузить конфигурацию из XML…',()=>{ctxClose();openLoadXml(guid)},'',
       'загрузить конфигурацию в эту базу из XML (ibcmd config import: полная / изменённое / заданные объекты)');
+    const ourg=(STATE.bases||[]).find(v=>v.guid===guid);
+    if(ourg&&ourg.our&&ourg.our.git_dir)mki(subD,'Открыть папку клона git…',
+      ()=>{ctxClose();revealBaseDir(guid,'git_dir')});
+    if(ourg&&ourg.our&&ourg.our.dump_dir)mki(subD,'Открыть папку дампа…',
+      ()=>{ctxClose();revealBaseDir(guid,'dump_dir')});
   }
   /* серверные операции через COM (как в обновляторе) */
   mk('Определить платформу по версии сервера (COM)',()=>{ctxClose();detectPlatform(guid)});
@@ -3000,6 +3026,12 @@ async function revealShare(version){
   const j=await r.json();
   if(j.ok)toast('открыто: '+j.opened); else toast('не удалось открыть: '+(j.error||''));
 }
+async function revealBaseDir(guid,field){
+  const r=await fetch('/api/base/'+guid+'/reveal',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({field})});
+  const j=await r.json().catch(()=>({}));
+  if(j.ok)toast('открыто: '+j.dir); else toast('не удалось открыть: '+(j.error||''));
+}
 async function replaceExe(guid,exe,mode){
   const r=await fetch('/api/base/'+guid,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({exe})});
@@ -3117,6 +3149,9 @@ async function openSettings(guid){
   $('s-pass').value=''; $('s-pass').dataset.keep=(b.storage&&b.storage.pwd_set)?'1':''; $('s-pass').dataset.dirty='';
   $('s-pass').placeholder=(b.storage&&b.storage.pwd_set)
     ?'пароль сохранён — введите новый, чтобы сменить':'';
+  $('s-giturl').value=our.git_url||'';
+  $('s-gitdir').value=our.git_dir||'';
+  $('s-dumpdir').value=our.dump_dir||'';
   $('ovl').classList.add('on');
 }
 function closeModal(){$('ovl').classList.remove('on');CUR=null}
@@ -3179,6 +3214,7 @@ async function saveSettings(){
   const body={name:nm, descr:ds,
     user:$('s-user-ib').value.trim(),
     user_cfg:$('s-user-cfg').value.trim(),
+    git_url:$('s-giturl').value.trim(), git_dir:$('s-gitdir').value.trim(), dump_dir:$('s-dumpdir').value.trim(),
     exe:$('s-exe').value, thin:$('s-thin').checked, mode:$('s-mode').value,
     storage:{dir:$('s-dir').value.trim(),user:$('s-user').value.trim()}};
   // пароли: отправляем только если поле реально трогали (иначе сервер стирает сохранённый).
