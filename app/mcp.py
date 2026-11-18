@@ -386,6 +386,46 @@ def t_run_batch(a: dict) -> dict:
             obj_file = ''
     if obj_file:
         keys.append(f'-objects "{obj_file}"')
+    # --- частичная загрузка: files — rel-пути или имена объектов («Справочник.X») ---
+    # разворачиваются в файлы (+поддерево) от root (по умолчанию dump_dir/git_dir базы) и
+    # дописываются -files "p1,p2" СРАЗУ за последним ключом extra_keys (обычно
+    # /LoadConfigFromFiles<dir>); для частичной загрузки обязателен -Format — добавляем
+    # Hierarchical, если не передан.
+    fls = [str(x).strip() for x in (a.get('files') or []) if str(x).strip()]
+    if fls:
+        from core import loadxml
+        import re as _re
+        # root: аргумент → каталог из ключа /LoadConfigFromFiles<dir> → dump_dir → git_dir
+        froot = (a.get('root') or '').strip().strip('"')
+        if not froot:
+            for k in keys:
+                m = _re.match(r'/LoadConfigFromFiles"?([^"]+?)"?\s*$', str(k))
+                if m:
+                    froot = m.group(1)
+                    break
+        if not froot:
+            froot = str(((b.get('our') or {}).get('dump_dir') or '')).strip() \
+                or str(((b.get('our') or {}).get('git_dir') or '')).strip()
+        if not froot:
+            return _err('для files укажите root (каталог XML-исходников) или задайте у базы '
+                        'dump_dir/git_dir')
+        fsrc = Path(froot)
+        sub = fsrc / loadxml._safe_name(b['name'])
+        fsrc = sub if sub.is_dir() else fsrc
+        if not fsrc.is_dir():
+            return _err('каталога нет: %s' % fsrc)
+        exp = []
+        for x in fls:
+            if (fsrc / x).is_file():
+                exp.append(x.replace('\\', '/'))
+        if len(exp) < len(fls):
+            exp += [p for p in loadxml.expand_objects(fsrc, fls) if p not in exp]
+        if not exp:
+            return _err('ни один из files не найден в %s (проверьте имена/типы объектов)' % fsrc)
+        keys.append('-files "%s"' % ','.join(exp))
+        if not any(k.lower().startswith('-format') for k in keys):
+            keys.append('-Format')
+            keys.append('Hierarchical')
     out_path = (a.get('out') or '').strip()
     if not out_path:
         # папка дампа базы (v0.38.4): туда по умолчанию пишем /Out, чтобы сообщения 1С не терялись
@@ -799,6 +839,11 @@ TOOLS = [
       'objects': {'type': 'array', 'items': {'type': 'string'},
                   'description': 'полные имена объектов для -objects (захват/освобождение в хранилище)'},
       'objects_file': {'type': 'string', 'description': 'готовый XML-файл списка объектов'},
+      'files': {'type': 'array', 'items': {'type': 'string'},
+                'description': 'частичная загрузка: rel-пути (Catalogs/X.xml) или имена объектов '
+                               '(Справочник.X → файл+поддерево); сервер допишет -files и -Format'},
+      'root': {'type': 'string', 'description': 'каталог XML-исходников для files/dump_changes '
+                                                '(по умолчанию dump_dir/git_dir базы)'},
       'out': {'type': 'string', 'description': 'путь для /Out (текст вернётся в log)'},
       'timeout': {'type': 'number'},
       'allow_running': {'type': 'boolean'},
