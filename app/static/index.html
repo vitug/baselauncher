@@ -784,12 +784,10 @@ label .hint{font-weight:400;opacity:.55;font-size:11px;margin-left:6px}
   <div class="ksec">Git и выгрузка</div>
   <label>Git-репозиторий (URL)</label>
   <input type="text" id="s-giturl" placeholder="https://gitlab.example.com/group/repo.git">
-  <div class="row2" style="margin-top:6px">
-    <div><label>Папка локального клона</label>
-      <input type="text" id="s-gitdir" placeholder="D:\git_repos\repo"></div>
-    <div><label>Папка дампа по умолчанию</label>
-      <input type="text" id="s-dumpdir" placeholder="D:\xml_out\repo"></div>
-  </div>
+  <label style="margin-top:6px">Папка локального клона</label>
+  <input type="text" id="s-gitdir" placeholder="D:\git_repos\repo">
+  <label style="margin-top:6px">Папка дампа по умолчанию</label>
+  <input type="text" id="s-dumpdir" placeholder="D:\xml_out\repo">
   <div class="hint">Папка дампа подставляется в диалог «Выгрузить конфигурацию в XML» этой базы.</div>
 
   <div class="ksec">Режим запуска по умолчанию</div>
