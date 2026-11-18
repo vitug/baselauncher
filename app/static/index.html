@@ -3549,7 +3549,11 @@ let SYNC_BUSY=false;
 function syncSignature(st){
   return JSON.stringify([
     (st.recent||[]).map(x=>x.guid+'|'+x.last_ts),
-    (st.bases||[]).filter(b=>b.running).map(b=>b.guid+':'+(b.running_modes||[]).join(',')).sort()
+    (st.bases||[]).filter(b=>b.running).map(b=>b.guid+':'+(b.running_modes||[]).join(',')).sort(),
+    /* launch_day не входит в recent: без него при смене суток (окно висит со вчера)
+       подпись не меняется и «сегодня» не превращается в «вчера» без перезапуска базы */
+    (st.bases||[]).filter(b=>b.launch_day==='today'||b.launch_day==='yesterday')
+      .map(b=>b.guid+'#'+b.launch_day).sort()
   ]);
 }
 /* частый опрос живых сеансов (3 с): закрыл базу в 1С — кнопка запуска сразу доступна,
