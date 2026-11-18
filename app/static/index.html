@@ -1081,6 +1081,7 @@ function tabView(){
   }
   let bs=STATE.bases.filter(b=>TAB==='open'?b.running:b.fav);
   bs=bs.filter(b=>okFam(b)&&(!ql||okText(b)));
+  if(TAB==='fav')bs.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ru'));
   return {html:TAB==='open'?openRows(bs):bs.map(b=>baseRow(b,0)).join(''), n:bs.length,
           empty:TAB==='open'?'нет открытых баз':'в избранном пусто — отметьте базу звёздочкой'};
 }
