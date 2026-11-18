@@ -420,6 +420,44 @@ def t_run_batch(a: dict) -> dict:
                   'out_file': out_path, 'log': log_txt, 'cmd': _mask(cmd)})
 
 
+def t_dump_changes(a: dict) -> dict:
+    """Изменённые файлы XML-выгрузки базы с прошлой выгрузки (по манифесту)."""
+    from core import loadxml
+    from core.paths import DATA_DIR
+    st = _state()
+    b = _resolve(st, a.get('base'))
+    man = loadxml.read_manifest(b['guid'], str(DATA_DIR))
+    root = (a.get('root') or '').strip().strip('"')
+    if not root:
+        root = str((man.get('root') or '')).strip() or str(((b.get('our') or {}).get('git_dir') or '')).strip()
+    if not root:
+        return _err('не указан root и не найдено ни манифеста выгрузки, ни git_dir базы')
+    src = Path(root)
+    sub = src / loadxml._safe_name(b['name'])
+    src = sub if sub.is_dir() else src
+    if not src.is_dir():
+        return _err('каталога нет: %s' % src)
+    if not man or not man.get('files'):
+        return _err('нет манифеста прошлой выгрузки базы — сначала выгрузите XML '
+                    '(инструмент dumpxml / «Выгрузить конфигурации в XML…»)')
+    cur = {}
+    for f in src.rglob('*'):
+        if f.is_file():
+            try:
+                stt = f.stat()
+            except OSError:
+                continue
+            cur[f.relative_to(src).as_posix()] = (stt.st_mtime, stt.st_size)
+    old = man.get('files') or {}
+    changed = sorted(p for p, v in cur.items() if p not in old or (old[p][0], old[p][1]) != v)
+    deleted = sorted(p for p in old if p not in cur)
+    limit = int(a.get('limit') or 200)
+    return _text({'base': b['name'], 'src': str(src), 'manifest_ts': man.get('ts'),
+                  'changed_count': len(changed), 'deleted_count': len(deleted),
+                  'changed': changed[:limit], 'deleted': deleted[:limit],
+                  'note': ('показаны первые %d' % limit) if len(changed) > limit else ''})
+
+
 def t_dryrun(a: dict) -> dict:
     st = _state()
     b = _resolve(st, a.get('base'))
@@ -767,6 +805,14 @@ TOOLS = [
       'disable_dialogs': {'type': 'boolean', 'description': 'по умолчанию true'},
       'user': {'type': 'string'}, 'pwd': {'type': 'string'},
       'platform': {'type': 'string'}}, t_run_batch),
+    ('dump_changes', 'Изменённые файлы XML-выгрузки базы с момента прошлой выгрузки '
+     '(сравнение с манифестом: новые/изменённые по mtime+size, удалённые). Каталог — root, '
+     'иначе корень из манифеста прошлой выгрузки, иначе git_dir базы. годится, чтобы понять, '
+     'что нести в хранилище (список для run_batch -files / -objects).',
+     {'base': {'type': 'string'},
+      'root': {'type': 'string', 'description': 'каталог XML-исходников (по умолчанию — из манифеста/git_dir)'},
+      'limit': {'type': 'number', 'description': 'макс. файлов в ответе, по умолчанию 200'}},
+     t_dump_changes),
     ('list_sessions', 'Открытые сеансы 1С: база, режим, PID, заголовок окна, есть ли видимое окно.',
      {}, t_sessions),
     ('activate_session', 'Переключиться на окно открытого сеанса: по base (guid/имя) или pid; '
@@ -841,7 +887,7 @@ TOOL_MAP = {name: (desc, schema, fn) for name, desc, schema, fn in TOOLS}
 
 REQUIRED = {
     'get_base': ['base'], 'launch_base': ['base'], 'run_processing': ['base', 'processing'],
-    'run_batch': ['base', 'extra_keys'],
+    'run_batch': ['base', 'extra_keys'], 'dump_changes': ['base'],
     'delete_base': ['base'], 'dryrun': ['base'], 'open_web': ['base'],
     'add_base': ['name'], 'add_folder': ['name'], 'move_base': ['base', 'folder'],
 }
