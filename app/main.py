@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from core import (audit, cache, com, config, dbtools, dumpxml, hotkey, importer, launcher,
                   loadxml, netcheck, platforms_share, procs, tray, v8i_writer, watch)
 
-app = FastAPI(title='BaseLauncher', version='0.38.3')
+app = FastAPI(title='BaseLauncher', version='0.38.4')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
 
 
@@ -1180,6 +1180,21 @@ async def cache_clear(req: Request):
     running = len(procs.running_sessions())
     res['sessions_running'] = running
     return res
+
+
+@app.post('/api/base/{guid}/reveal')
+async def base_reveal(guid: str, req: Request):
+    """Открыть в проводнике папку, привязанную к базе: локальный клон git или папку дампа."""
+    body = await req.json()
+    fld = str(body.get('field') or '')
+    if fld not in ('git_dir', 'dump_dir'):
+        return JSONResponse({'error': 'поле должно быть git_dir или dump_dir'}, status_code=400)
+    our = config.get_base(config.load() or {}, guid)
+    d = Path(str(our.get(fld) or ''))
+    if not d.is_dir():
+        return JSONResponse({'error': 'каталог не найден: ' + str(d)}, status_code=404)
+    subprocess.Popen(['explorer', str(d)])
+    return {'ok': True, 'dir': str(d)}
 
 
 @app.post('/api/base/{guid}/restore-dt')
