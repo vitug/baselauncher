@@ -12,6 +12,7 @@
 Пароли наружу НЕ отдаются: в ответах только флаги `pwd_set`/`pwd_cfg_set`/`storage.pwd_set`.
 """
 import json
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -325,6 +326,98 @@ def _check_execute(extra) -> str | None:
         if Path(p).suffix.lower() not in ('.epf', '.erf'):
             return f'/Execute ждёт .epf или .erf, а не {Path(p).suffix or "(без расширения)"}'
     return None
+
+
+def _slice_log(path: Path, limit: int = 6000) -> str:
+    """Прочитать /Out-файл 1С: UTF-8 с BOM, иначе cp1251. Длинный — хвост."""
+    if not path.is_file():
+        return ''
+    raw = path.read_bytes()
+    for enc in ('utf-8-sig', 'utf-16', 'cp1251'):
+        try:
+            txt = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        txt = raw.decode('utf-8', 'replace')
+    txt = txt.replace('\r\n', '\n').strip()
+    return txt if len(txt) <= limit else '…\n' + txt[-limit:]
+
+
+def t_run_batch(a: dict) -> dict:
+    """Пакетная команда Конфигуратора: запустить, дождаться выхода, вернуть код и /Out.
+
+    Для DumpCfg / LoadConfigFromFiles / ConfigurationRepository* / UpdateDBCfg — того, что
+    в интерактивном запуске не дождаться: launcher.launch() возвращает PID и отпускает окно,
+    а здесь процесс ждётся и его результат (exit code + сообщения 1С) отдаётся вызывающему.
+    """
+    import subprocess
+    st = _state()
+    b = _resolve(st, a.get('base'))
+    keys = [str(k) for k in (a.get('extra_keys') or []) if str(k).strip()]
+    if not keys:
+        return _err('extra_keys пуст: укажите ключи Конфигуратора, например '
+                    '["/DumpCfgD:\\\\temp\\\\base.cf"] или '
+                    '["/ConfigurationRepositoryUpdateCfg"]')
+    # --- объекты хранилища: список полных имён (Catalog.X, ОбщийМодуль.X) ---
+    # сервер сам собирает XML <Objects ...><Object fullName="..."/></Objects> (плоский список
+    # платформа не принимает: "Ошибка разбора XML: Document is empty") и дописывает
+    # -objects <файл> СРАЗУ за последним ключом extra_keys (обычно /ConfigurationRepositoryLock
+    # или /ConfigurationRepositoryUnLock) — между командой и -objects не должно быть других ключей.
+    # XML кладём в папку дампа базы (dump_dir), иначе во временный каталог.
+    objs = [str(o).strip() for o in (a.get('objects') or []) if str(o).strip()]
+    obj_file = (a.get('objects_file') or '').strip()
+    if objs and not obj_file:
+        dd = str(((b.get('our') or {}).get('dump_dir') or '')).strip()
+        try:
+            base_dir = Path(dd) if dd else Path(tempfile.gettempdir())
+            base_dir.mkdir(parents=True, exist_ok=True)
+            obj_file = str(base_dir / 'repository_objects.xml')
+            lines = ['<Objects xmlns="http://v8.1c.ru/8.3/config/objects" version="1.0">']
+            for n in sorted(set(objs)):
+                if n.lower() in ('конфигурация', 'configuration'):
+                    lines.append('    <Configuration includeChildObjects="false"/>')
+                else:
+                    lines.append(f'    <Object fullName="{n}" includeChildObjects="true"/>')
+            lines.append('</Objects>')
+            Path(obj_file).write_text('\n'.join(lines) + '\n', encoding='utf-8')
+        except OSError:
+            obj_file = ''
+    if obj_file:
+        keys.append(f'-objects "{obj_file}"')
+    out_path = (a.get('out') or '').strip()
+    if not out_path:
+        # папка дампа базы (v0.38.4): туда по умолчанию пишем /Out, чтобы сообщения 1С не терялись
+        dd = str(((b.get('our') or {}).get('dump_dir') or '')).strip()
+        if dd:
+            try:
+                Path(dd).mkdir(parents=True, exist_ok=True)
+                out_path = str(Path(dd) / 'run_batch_out.txt')
+            except OSError:
+                out_path = ''
+    if out_path:
+        keys.append(f'/Out"{out_path}"')
+    if a.get('disable_dialogs', True) and not any('/disablestartupdialogs' in k.lower() for k in keys):
+        keys.append('/DisableStartupDialogs')
+    pids = (b.get('running_pids') or {}).get('designer')
+    if pids and not a.get('allow_running'):
+        return _text({'ok': False, 'already_running': True, 'pid': pids, 'mode': 'designer',
+                      'message': f'база открыта в Конфигураторе (PID {pids}); монопольные операции '
+                                 f'упадут. Закройте сеанс или передайте allow_running=true'})
+    timeout = max(30.0, min(float(a.get('timeout') or 1800), 7200.0))
+    cmd, mode = _build_cmd(b, {'mode': 'designer', 'extra_keys': keys})
+    t0 = time.time()
+    try:
+        p = subprocess.run(cmd, timeout=timeout, capture_output=True)
+        code = p.returncode
+        timed_out = False
+    except subprocess.TimeoutExpired:
+        code, timed_out = -1, True
+    log_txt = _slice_log(Path(out_path)) if out_path else ''
+    return _text({'ok': code == 0 and not timed_out, 'exit': code, 'timed_out': timed_out,
+                  'seconds': int(time.time() - t0), 'base': b['name'], 'mode': mode,
+                  'out_file': out_path, 'log': log_txt, 'cmd': _mask(cmd)})
 
 
 def t_dryrun(a: dict) -> dict:
@@ -653,6 +746,27 @@ TOOLS = [
       'mode': {'type': 'string', 'enum': ['enterprise', 'designer']},
       'force': {'type': 'boolean'},
       'user': {'type': 'string'}, 'pwd': {'type': 'string'}}, t_run_processing),
+    ('run_batch', 'Пакетная команда Конфигуратора: запустить и ДОЖДАТЬСЯ выхода, вернув exit code '
+     'и текст /Out. Для DumpCfg, DumpConfigToFiles, LoadConfigFromFiles, UpdateDBCfg, '
+     '/ConfigurationRepository* (захват/помещение/обновление), /CheckConfig. Ключи 1С — '
+     'extra_keys (например ["/DumpCfgD:\\\\temp\\\\base.cf"]); out — путь для /Out, его содержимое '
+     'вернётся в log. Хранилище: objects — список полных имён объектов '
+     '(Catalog.ВидыДокументовЭДО, CommonModule.X) — сервер сам соберёт XML и допишет '
+     '-objects к последнему ключу: extra_keys=["/ConfigurationRepositoryLock"] — захват, '
+     '["/ConfigurationRepositoryUnLock","-force"] — освобождение; objects_file — готовый XML. '
+     'Если база открыта в Конфигураторе, вернёт already_running (allow_running=true '
+     '— запускать всё равно). timeout — секунды, по умолчанию 1800.',
+     {'base': {'type': 'string'},
+      'extra_keys': {'type': 'array', 'items': {'type': 'string'}},
+      'objects': {'type': 'array', 'items': {'type': 'string'},
+                  'description': 'полные имена объектов для -objects (захват/освобождение в хранилище)'},
+      'objects_file': {'type': 'string', 'description': 'готовый XML-файл списка объектов'},
+      'out': {'type': 'string', 'description': 'путь для /Out (текст вернётся в log)'},
+      'timeout': {'type': 'number'},
+      'allow_running': {'type': 'boolean'},
+      'disable_dialogs': {'type': 'boolean', 'description': 'по умолчанию true'},
+      'user': {'type': 'string'}, 'pwd': {'type': 'string'},
+      'platform': {'type': 'string'}}, t_run_batch),
     ('list_sessions', 'Открытые сеансы 1С: база, режим, PID, заголовок окна, есть ли видимое окно.',
      {}, t_sessions),
     ('activate_session', 'Переключиться на окно открытого сеанса: по base (guid/имя) или pid; '
@@ -727,6 +841,7 @@ TOOL_MAP = {name: (desc, schema, fn) for name, desc, schema, fn in TOOLS}
 
 REQUIRED = {
     'get_base': ['base'], 'launch_base': ['base'], 'run_processing': ['base', 'processing'],
+    'run_batch': ['base', 'extra_keys'],
     'delete_base': ['base'], 'dryrun': ['base'], 'open_web': ['base'],
     'add_base': ['name'], 'add_folder': ['name'], 'move_base': ['base', 'folder'],
 }
