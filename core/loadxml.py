@@ -35,6 +35,23 @@ _TYPE_DIRS = {
     'роль': 'Roles', 'макет': 'CommonTemplates', 'регламентноезадание': 'ScheduledJobs',
     'внешнийисточникданных': 'ExternalDataSources', 'параметрсеанса': 'SessionParameters',
     'функциональнаяопция': 'FunctionalOptions', 'обменданными': 'ExchangePlans',
+    # английские имена типов (ConfigDumpInfo/EDT-выгрузки: CommonModule.X, Catalog.X, …)
+    'catalog': 'Catalogs', 'document': 'Documents', 'report': 'Reports',
+    'dataprocessor': 'DataProcessors', 'enum': 'Enums', 'constant': 'Constants',
+    'commonmodule': 'CommonModules', 'commonattribute': 'CommonAttributes',
+    'informationregister': 'InformationRegisters', 'accumulationregister': 'AccumulationRegisters',
+    'accountingregister': 'AccountingRegisters', 'calculationregister': 'CalculationRegisters',
+    'chartsofaccounts': 'ChartsOfAccounts', 'chartofcharacteristictypes': 'ChartsOfCharacteristicTypes',
+    'chartsofcharacteristictypes': 'ChartsOfCharacteristicTypes', 'chartofcalculationtypes': 'ChartsOfCalculationTypes',
+    'chartsofcalculationtypes': 'ChartsOfCalculationTypes', 'exchangeplan': 'ExchangePlans',
+    'task': 'Tasks', 'businessprocess': 'BusinessProcesses', 'role': 'Roles',
+    'commontemplate': 'CommonTemplates', 'scheduledjob': 'ScheduledJobs',
+    'externaldatasource': 'ExternalDataSources', 'sessionparameter': 'SessionParameters',
+    'functionaloption': 'FunctionalOptions', 'commonform': 'CommonForms',
+    'commonpicture': 'CommonPictures', 'definedtype': 'DefinedTypes',
+    'settingsstorage': 'SettingsStorages', 'wsreference': 'WSReferences',
+    'styleitem': 'StyleItems', 'style': 'Styles', 'subsystem': 'Subsystems',
+    'cube': 'Cubes', 'table': 'Tables', 'dimensiontable': 'DimensionTables',
 }
 
 
