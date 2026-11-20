@@ -11,6 +11,7 @@
 
 Пароли наружу НЕ отдаются: в ответах только флаги `pwd_set`/`pwd_cfg_set`/`storage.pwd_set`.
 """
+import hashlib
 import json
 import tempfile
 import threading
@@ -345,6 +346,48 @@ def _slice_log(path: Path, limit: int = 6000) -> str:
     return txt if len(txt) <= limit else '…\n' + txt[-limit:]
 
 
+def _journal_path(guid: str) -> Path:
+    from core.paths import DATA_DIR
+    return Path(DATA_DIR) / 'manifests' / (guid + '.changes.json')
+
+
+def _journal_read(guid: str) -> dict:
+    try:
+        j = json.loads(_journal_path(guid).read_text(encoding='utf-8'))
+        if isinstance(j, dict):
+            j.setdefault('entries', [])
+            return j
+    except (OSError, ValueError):
+        pass
+    return {'entries': []}
+
+
+def _journal_add(guid: str, entry: dict) -> None:
+    """Дописать запись журнала загрузок базы (рядом с манифестом, <guid>.changes.json)."""
+    j = _journal_read(guid)
+    j['entries'].append(entry)
+    j['entries'] = j['entries'][-200:]            # журнал не растёт бесконечно
+    p = _journal_path(guid)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix('.tmp')
+        tmp.write_text(json.dumps(j, ensure_ascii=False, indent=1), encoding='utf-8')
+        tmp.replace(p)
+    except OSError:
+        pass                                     # журнал — не критично для команды
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    try:
+        with open(path, 'rb') as f:
+            for chunk in iter(lambda: f.read(65536), b''):
+                h.update(chunk)
+        return h.hexdigest()[:16]
+    except OSError:
+        return ''
+
+
 def t_run_batch(a: dict) -> dict:
     """Пакетная команда Конфигуратора: запустить, дождаться выхода, вернуть код и /Out.
 
@@ -426,6 +469,9 @@ def t_run_batch(a: dict) -> dict:
         if not any(k.lower().startswith('-format') for k in keys):
             keys.append('-Format')
             keys.append('Hierarchical')
+        loaded_src, loaded_files = fsrc, list(exp)   # для журнала загрузок
+    else:
+        loaded_src, loaded_files = None, []
     out_path = (a.get('out') or '').strip()
     if not out_path:
         # папка дампа базы (v0.38.4): туда по умолчанию пишем /Out, чтобы сообщения 1С не терялись
@@ -455,6 +501,23 @@ def t_run_batch(a: dict) -> dict:
     except subprocess.TimeoutExpired:
         code, timed_out = -1, True
     log_txt = _slice_log(Path(out_path)) if out_path else ''
+    # --- журнал загрузок: успешная загрузка через /LoadConfigFromFiles — что именно легло в базу ---
+    if code == 0 and not timed_out and loaded_files and loaded_src:
+        import re as _re2
+        vers = None
+        if log_txt:
+            m = _re2.findall(r'[Вв]ерси(?:и|ю|ей)?\s*№?\s*(\d+)', log_txt)
+            if m:
+                vers = int(m[-1])
+        _journal_add(b['guid'], {
+            'ts': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'base': b['name'],
+            'cmd': _mask(cmd)[:400],
+            'src': str(loaded_src),
+            'files': {p: _sha256(loaded_src / p) for p in loaded_files[:500]},
+            'repo_version': vers,
+            'exit': code, 'seconds': int(time.time() - t0),
+        })
     return _text({'ok': code == 0 and not timed_out, 'exit': code, 'timed_out': timed_out,
                   'seconds': int(time.time() - t0), 'base': b['name'], 'mode': mode,
                   'out_file': out_path, 'log': log_txt, 'cmd': _mask(cmd)})
@@ -478,8 +541,10 @@ def t_dump_changes(a: dict) -> dict:
     if not src.is_dir():
         return _err('каталога нет: %s' % src)
     if not man or not man.get('files'):
-        return _err('нет манифеста прошлой выгрузки базы — сначала выгрузите XML '
-                    '(инструмент dumpxml / «Выгрузить конфигурации в XML…»)')
+        jrn0 = _journal_read(b['guid'])
+        if not jrn0['entries']:
+            return _err('нет манифеста прошлой выгрузки базы — сначала выгрузите XML '
+                        '(инструмент dumpxml / «Выгрузить конфигурации в XML…»)')
     cur = {}
     for f in src.rglob('*'):
         if f.is_file():
@@ -489,12 +554,35 @@ def t_dump_changes(a: dict) -> dict:
                 continue
             cur[f.relative_to(src).as_posix()] = (stt.st_mtime, stt.st_size)
     old = man.get('files') or {}
-    changed = sorted(p for p, v in cur.items() if p not in old or (old[p][0], old[p][1]) != v)
-    deleted = sorted(p for p in old if p not in cur)
+    if old:
+        changed = sorted(p for p, v in cur.items() if p not in old or (old[p][0], old[p][1]) != v)
+        deleted = sorted(p for p in old if p not in cur)
+    else:
+        changed, deleted = [], []                # манифеста нет — отвечаем только из журнала
     limit = int(a.get('limit') or 200)
+    # --- журнал загрузок run_batch: что грузилось в базу и что в исходниках поменялось с той поры ---
+    jrn = _journal_read(b['guid'])
+    jout = {}
+    if jrn['entries']:
+        e = jrn['entries'][-1]
+        jsrc = Path(e.get('src') or '')
+        jfiles = e.get('files') or {}
+        cur_h = {}
+        for p in jfiles:
+            f = jsrc / p
+            cur_h[p] = _sha256(f) if f.is_file() else ''
+        differs = sorted(p for p in jfiles if jfiles[p] and cur_h[p] != jfiles[p])
+        vanished = sorted(p for p in jfiles if not cur_h[p])
+        jout = {'last_load_ts': e.get('ts'), 'last_load_files': len(jfiles),
+                'repo_version': e.get('repo_version'),
+                'src': e.get('src'),
+                'changed_since_load': differs[:limit], 'changed_since_load_count': len(differs),
+                'vanished_since_load': vanished[:limit], 'vanished_since_load_count': len(vanished),
+                'entries_total': len(jrn['entries'])}
     return _text({'base': b['name'], 'src': str(src), 'manifest_ts': man.get('ts'),
                   'changed_count': len(changed), 'deleted_count': len(deleted),
                   'changed': changed[:limit], 'deleted': deleted[:limit],
+                  'journal': jout,
                   'note': ('показаны первые %d' % limit) if len(changed) > limit else ''})
 
 
@@ -841,7 +929,8 @@ TOOLS = [
       'objects_file': {'type': 'string', 'description': 'готовый XML-файл списка объектов'},
       'files': {'type': 'array', 'items': {'type': 'string'},
                 'description': 'частичная загрузка: rel-пути (Catalogs/X.xml) или имена объектов '
-                               '(Справочник.X → файл+поддерево); сервер допишет -files и -Format'},
+                               '(Справочник.X → файл+поддерево); сервер допишет -files и -Format; '
+                               'успешная загрузка пишется в журнал базы (changes.json: файлы+sha256)'},
       'root': {'type': 'string', 'description': 'каталог XML-исходников для files/dump_changes '
                                                 '(по умолчанию dump_dir/git_dir базы)'},
       'out': {'type': 'string', 'description': 'путь для /Out (текст вернётся в log)'},
@@ -852,7 +941,9 @@ TOOLS = [
       'platform': {'type': 'string'}}, t_run_batch),
     ('dump_changes', 'Изменённые файлы XML-выгрузки базы с момента прошлой выгрузки '
      '(сравнение с манифестом: новые/изменённые по mtime+size, удалённые). Каталог — root, '
-     'иначе корень из манифеста прошлой выгрузки, иначе git_dir базы. годится, чтобы понять, '
+     'иначе корень из манифеста прошлой выгрузки, иначе git_dir базы. Плюс журнал загрузок '
+     'run_batch (changes.json): что грузилось в базу последний раз (файлы+sha256, ревизия '
+     'хранилища) и что в исходниках поменялось/пропало с той загрузки. годится, чтобы понять, '
      'что нести в хранилище (список для run_batch -files / -objects).',
      {'base': {'type': 'string'},
       'root': {'type': 'string', 'description': 'каталог XML-исходников (по умолчанию — из манифеста/git_dir)'},
