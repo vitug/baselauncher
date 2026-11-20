@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Подключение к базе 1С по COM (как обновлятор): сведения и серверные операции.
+"""Подключение к базе 1С по COM: сведения и серверные операции.
 
 Работает через `comcntr.dll` выбранной платформы (V83.COMConnector) — регистрируем её
-per-user ключом `regsvr32 /s /n /i:<bin>` ровно как это делает обновлятор. Через соединение
+per-user ключом `regsvr32 /s /n /i:<bin>`. Через соединение
 доступны: имя/версия конфигурации, режим совместимости, произвольные запросы (пользователи,
 счётчики), т.е. всё, что читается языком запросов без правки конфигурации.
 
@@ -47,9 +47,22 @@ def _dispatching() -> str:
     return ''
 
 
+def _version_key(v: str) -> list[int]:
+    """'8.3.25.1336' → [8,3,25,1336] (пустые части = 0), для сравнения версий."""
+    out = []
+    for part in str(v or '').split('.'):
+        try:
+            out.append(int(part))
+        except ValueError:
+            out.append(0)
+    while len(out) < 4:
+        out.append(0)
+    return out
+
+
 def _version_of(path: str) -> str:
     for part in reversed(Path(path).parts):
-        if part[:2].isdigit() and part.count('.'):
+        if re.fullmatch(r'\d+(\.\d+)+', part):
             return part
     return ''
 
@@ -58,44 +71,68 @@ def has_connector(exe: str) -> bool:
     return bool(exe) and (Path(_bin_of(exe)) / 'comcntr.dll').is_file()
 
 
-def pick_connector_exe(exe: str) -> str:
-    """Платформа с comcntr.dll: сама база, либо другая сборка того же семейства.
+def _available_connectors(roots) -> list[tuple[str, str]]:
+    """[(версия, путь к 1cv8.exe)] всех платформ с comcntr.dll в корнях roots."""
+    cands = []
+    for root in roots:
+        base = Path(root)
+        if not base.is_dir():
+            continue
+        for d in base.iterdir():
+            if not (d / 'bin' / 'comcntr.dll').is_file():
+                continue
+            cands.append((d.name, str(d / 'bin' / '1cv8.exe')))
+    return cands
+
+
+def pick_connector_exe(exe: str, base_version: str = '', roots=None) -> str:
+    """Платформа с comcntr.dll под COM-подключение к базе («нужной версии»).
+
+    Порядок выбора:
+    1. сама платформа базы, если у неё есть comcntr.dll;
+    2. точное совпадение версии с base_version (Version= из ibases.v8i);
+    3. ближайшая СВЕРХУ версия того же семейства (8.3/8.5) — новый клиент открывает
+       и старую базу, а наоборот нет;
+    4. самая новая того же семейства.
 
     У «тонкого клиента» (8.5.4.x, 8.5.5.x в Program Files (x86)) comcntr.dll нет вообще,
     поэтому для COM берём ближайшую подходящую платформу семейства.
     """
     if has_connector(exe):
         return exe
+    roots = roots if roots is not None else ROOTS
     fam = _version_of(exe)[:3] if exe else ''       # '8.5' / '8.3'
-    cands = []
-    for root in ROOTS:
-        base = Path(root)
-        if not base.is_dir():
-            continue
-        for d in base.iterdir():
-            v = d.name
-            if not (d / 'bin' / 'comcntr.dll').is_file():
-                continue
-            if fam and not v.startswith(fam):
-                continue
-            cands.append((v, str(d / 'bin' / '1cv8.exe')))
+    want = (base_version or '').strip()
+    cands = _available_connectors(roots)
     if not cands:
         return ''
-    cands.sort(key=lambda kv: [int(x) for x in kv[0].split('.') if x.isdigit()], reverse=True)
-    return cands[0][1]
+    in_fam = [(v, p) for v, p in cands if not fam or v.startswith(fam)]
+    if not in_fam:
+        in_fam = cands                            # другое семейство лучше, чем ничего
+    # 2) точная версия базы
+    if want:
+        for v, p in in_fam:
+            if v == want:
+                return p
+        # 3) ближайшая сверху к версии базы
+        above = sorted((kv for kv in in_fam if _version_key(kv[0]) >= _version_key(want)),
+                       key=lambda kv: _version_key(kv[0]))
+        if above:
+            return above[0][1]
+    # 4) самая новая семейства
+    in_fam.sort(key=lambda kv: _version_key(kv[0]), reverse=True)
+    return in_fam[0][1]
 
 
-def ensure_connector(exe: str) -> str:
-    """Гарантировать рабочий COM-коннектор. '' — ок, иначе текст ошибки."""
-    if _dispatching():
-        return ''
-    bin_dir = _bin_of(pick_connector_exe(exe) or exe)
-    if not bin_dir:
-        return 'не задан exe платформы'
+def _register_bin(bin_dir: str) -> str:
+    """Зарегистрировать comcntr.dll ИЗ ЭТОГО каталога per-user (regsvr32 /s /n /i:bin).
+
+    Всегда регистрирует именно указанную версию: под каждую базу подбирается
+    «нужная версия платформы». '' — ок, иначе текст ошибки.
+    """
     dll = Path(bin_dir) / 'comcntr.dll'
     if not dll.is_file():
-        return ('у этой платформы нет comcntr.dll (так у «тонкого клиента») — '
-                'COM-подключение к базе невозможно')
+        return 'в %s нет comcntr.dll' % bin_dir
     with _lock:
         if _registered.get(bin_dir.lower()):
             return ''
@@ -106,6 +143,19 @@ def ensure_connector(exe: str) -> str:
                     'администратора: запустите установку коннектора вручную '
                     'regsvr32 /n /i:"%s" "%s"' % (bin_dir, r.returncode, bin_dir, dll))
         _registered[bin_dir.lower()] = True
+    return ''
+
+
+def ensure_connector(exe: str) -> str:
+    """Гарантировать рабочий COM-коннектор. '' — ок, иначе текст ошибки."""
+    if _dispatching():
+        return ''
+    bin_dir = _bin_of(pick_connector_exe(exe) or exe)
+    if not bin_dir:
+        return 'не задан exe платформы'
+    err = _register_bin(bin_dir)
+    if err:
+        return err
     return '' if _dispatching() else 'comcntr.dll зарегистрирован, но V83.COMConnector не отвечает'
 
 
@@ -226,6 +276,18 @@ def _users_tables(conn) -> tuple:
     return tuple(found)
 
 
+def extensions_supported(compat: str) -> bool:
+    """Расширения конфигурации доступны при режиме совместимости >= 8.3.11.
+
+    Пустой режим (конфигурация без совместимости, «актуальная») — тоже поддерживает.
+    Оценка по данным метаданных (режим совместимости).
+    """
+    c = (compat or '').strip()
+    if not c:
+        return True
+    return _version_key(c)[:3] >= [8, 3, 11]
+
+
 def probe(connect: str, user: str = '', pwd: str = '', exe: str = '',
           users_limit: int = 200, want_users: bool = True) -> dict:
     """Подключиться и собрать сведения о базе. Возвращает dict (ok/error/...)."""
@@ -259,12 +321,25 @@ def probe(connect: str, user: str = '', pwd: str = '', exe: str = '',
     md = None
     try:
         md = conn.Metadata
-        info = {'name': str(md.Name or ''), 'synonym': str(md.Synonym or ''),
-                'version': str(md.Version or '')}
+        info: dict = {'name': str(md.Name or ''), 'synonym': str(md.Synonym or ''),
+                      'version': str(md.Version or '')}
+        try:                                      # разработчик конфигурации (поставщик)
+            info['vendor'] = str(md.Vendor or '')
+        except Exception:                          # noqa: BLE001
+            try:
+                info['vendor'] = str(_getprop(md, 'Поставщик') or '')
+            except Exception:                      # noqa: BLE001
+                info['vendor'] = ''
         try:
-            info['compat'] = str(md.CompatibilityMode)
+            compat = md.CompatibilityMode
+            compat = compat if isinstance(compat, (int, str)) and str(compat) != '' else ''
+            if compat and str(compat).startswith('<COM'):
+                compat = ''                     # enum-объект без строкового вида
+            info['compat'] = str(compat or '')
         except Exception:                          # noqa: BLE001
             info['compat'] = ''
+        # расширения конфигурации: доступны с режима совместимости 8.3.11
+        info['extensions_supported'] = extensions_supported(info.get('compat', ''))
     except Exception as e:                         # noqa: BLE001
         info = {'error': 'метаданные недоступны: %s' % str(e)[:200]}
     out['config'] = info
@@ -330,23 +405,119 @@ def probe(connect: str, user: str = '', pwd: str = '', exe: str = '',
     return out
 
 
+def _parse_version_mismatch(msg: str) -> tuple[str, str]:
+    """«Различаются версии клиента и сервера (клиент - сервер)» → (клиент, сервер)."""
+    m = re.search(r'\(([\d.]+)\s*[-–]\s*([\d.]+)\)', msg or '')
+    return (m.group(1), m.group(2)) if m else ('', '')
+
+
+def candidate_platforms(exe: str = '', base_version: str = '', roots=None) -> list[str]:
+    """Платформы с comcntr.dll в порядке перебора для поиска версии сервера.
+
+    Сначала точная версия (base_version — Version= из ibases.v8i или
+    уже выявленная версия сервера), затем остальные того же семейства по убыванию.
+    """
+    roots = roots if roots is not None else ROOTS
+    cands = _available_connectors(roots)
+    fam = _version_of(exe)[:3] if exe else ''
+    if fam:
+        same = [kv for kv in cands if kv[0].startswith(fam)]
+        cands = same or cands
+    cands.sort(key=lambda kv: _version_key(kv[0]), reverse=True)
+    paths = [p for _, p in cands]
+    want = (base_version or '').strip()
+    if want:
+        exact = [p for v, p in cands if v == want]
+        if exact:
+            paths = exact + [p for p in paths if p != exact[0]]
+    return paths
+
+
 def detect_server_version(connect: str, user: str = '', pwd: str = '', exe: str = '',
-                          timeout: float = 60.0) -> dict:
-    """Узнать версию сервера без окна 1С: COM-подключение любым коннектором.
+                          timeout: float = 60.0, base_version: str = '',
+                          max_platforms: int = 3) -> dict:
+    """Узнать версию сервера без окна 1С: перебор COM-коннекторов до совпадения (с таймаутом)."""
+    box: dict = {}
+
+    def run():
+        try:
+            box.update(_detect_server_version_sync(connect, user, pwd, exe, base_version,
+                                                   max_platforms))
+        except Exception as e:                     # noqa: BLE001
+            box.update({'ok': False, 'error': str(e)[:400], 'stage': 'detect'})
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        return {'ok': False, 'error': 'таймаут определения версии сервера (%.0f с)' % timeout,
+                'stage': 'timeout'}
+    return box or {'ok': False, 'error': 'нет ответа', 'stage': 'empty'}
+
+
+def _detect_server_version_sync(connect: str, user: str = '', pwd: str = '', exe: str = '',
+                                base_version: str = '', max_platforms: int = 3) -> dict:
+    """Узнать версию сервера без окна 1С: перебор COM-коннекторов до совпадения.
 
     Если версии не совпали, 1С отдаёт текст «Различаются версии клиента и сервера
-    (клиент - сервер)» — этого достаточно, чтобы закрепить за базой нужную платформу.
+    (клиент - сервер)». Берём из него версию сервера, регистрируем comcntr.dll именно
+    этой версии платформы и подключаемся снова — получается рабочее соединение
+    (плюс подтверждённая версия сервера). Перебор ограничен max_platforms.
     """
-    res = probe_async(connect, user, pwd, exe, timeout, want_users=False)
-    err = str(res.get('error') or '')
-    out = {'ok': bool(res.get('ok')), 'client_version': _version_of(res.get('com_platform') or ''),
-           'server_version': '', 'error': err, 'platform': res.get('com_platform') or ''}
-    m = re.search(r'\(([\d.]+)\s*[-–]\s*([\d.]+)\)', err)
-    if m:
-        out['client_version'] = m.group(1)
-        out['server_version'] = m.group(2)
-    if res.get('ok'):
-        out['server_version'] = out['server_version'] or out['client_version']
+    try:
+        import pythoncom
+        pythoncom.CoInitialize()
+    except Exception:                              # noqa: BLE001
+        pass
+    try:
+        import win32com.client.dynamic as dyn
+    except Exception as e:                         # noqa: BLE001
+        return {'ok': False, 'error': 'нет pywin32 (win32com): %s' % e, 'stage': 'import'}
+
+    out = {'ok': False, 'client_version': '', 'server_version': '', 'platform': '',
+           'tried': [], 'error': '', 'pinned_version': ''}
+    cs = _conn_string(connect, user, pwd)
+    platforms = candidate_platforms(exe, base_version)
+    idx = 0
+    while idx < len(platforms) and idx < max_platforms:
+        exe_cand = platforms[idx]
+        idx += 1
+        bin_dir = _bin_of(exe_cand)
+        err = _register_bin(bin_dir)
+        if err:
+            out['tried'].append({'platform': exe_cand, 'error': err})
+            continue
+        prog = _dispatching() or 'V83.COMConnector'
+        try:
+            conn = dyn.Dispatch(prog).Connect(cs)
+            try:
+                conn = None
+            except Exception:                      # noqa: BLE001
+                pass
+            out.update({'ok': True, 'client_version': _version_of(exe_cand),
+                        'server_version': _version_of(exe_cand), 'platform': exe_cand})
+            return out
+        except Exception as e:                     # noqa: BLE001
+            msg = str(e)
+            cl, srv = _parse_version_mismatch(msg)
+            out['tried'].append({'platform': exe_cand, 'client': cl, 'server': srv,
+                                 'error': msg.splitlines()[0][:200] if msg else ''})
+            if srv:
+                out.update({'client_version': cl, 'server_version': srv})
+                # выяснили версию сервера: следующим кандидатом делаем её точную платформу
+                exact = [p for p in candidate_platforms(exe, srv) if _version_of(p) == srv]
+                if exact and exact[0] not in [t.get('platform') for t in out['tried']]:
+                    platforms.insert(idx, exact[0])   # idx указывает на следующего кандидата
+            elif 'идентификация' in msg.lower() or 'пароль' in msg.lower():
+                out.update({'error': msg[:600],
+                            'hint': 'нужны логин/пароль пользователя ИБ (настройки базы)'})
+                return out
+    if out.get('server_version') and not out['ok']:
+        out['error'] = out.get('error') or ('версия сервера %s определена по несовпадению, '
+                                            'но подходящей платформы не нашлось'
+                                            % out['server_version'])
+    elif not out.get('error'):
+        out['error'] = 'подключение не удалось ни одной платформой'
     return out
 
 

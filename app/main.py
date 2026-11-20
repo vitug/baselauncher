@@ -13,8 +13,8 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from core import (audit, cache, com, config, dbtools, dumpxml, hotkey, importer, launcher,
-                  loadxml, netcheck, platforms_share, procs, tray, v8i_writer, watch)
+from core import (audit, baselock, cache, com, config, dbtools, dumpxml, hotkey, importer,
+                  launcher, loadxml, netcheck, platforms_share, procs, tray, v8i_writer, watch)
 
 app = FastAPI(title='BaseLauncher', version='0.38.8')
 PORT = int(__import__('os').environ.get('BL_PORT') or 8797)
@@ -224,14 +224,16 @@ def detect_platform(base: dict, pin: bool = True) -> dict:
     """
     guid = base.get('guid') or ''
     r = com.detect_server_version(base.get('connect') or '', base.get('user') or '',
-                                  base.get('pwd') or '', base.get('exe') or '', 90)
+                                  base.get('pwd') or '', base.get('exe') or '', 90,
+                                  base_version=com._version_of(base.get('exe') or ''))
     ver = (r.get('server_version') or '').strip()
     out = {'ok': bool(r.get('ok')), 'server_version': ver,
            'client_version': r.get('client_version') or '', 'exe': '', 'pinned': False,
-           'error': r.get('error') or '', 'base': base.get('name') or ''}
+           'error': r.get('error') or '', 'hint': r.get('hint') or '',
+           'tried': r.get('tried') or [], 'base': base.get('name') or ''}
     if not ver:
-        out['hint'] = ('если база требует логин — задайте пользователя/пароль базы '
-                       '(set_credentials) и повторите')
+        out['hint'] = out['hint'] or ('если база требует логин — задайте пользователя/пароль базы '
+                                      '(set_credentials) и повторите')
         return out
     if not (base.get('server') or base.get('ws')):
         # файловая база: «версия сервера» — это версия самого COM-коннектора, то есть того
@@ -604,6 +606,10 @@ async def launch(req: Request):
     _, base = _base_or_404(body.get('guid', ''))
     if not base:
         return JSONResponse({'error': 'база не найдена'}, status_code=404)
+    blocked = baselock.check_blocked(base)
+    if blocked and not body.get('force'):
+        return JSONResponse({'error': 'maintenance', 'maintenance': baselock.status(base),
+                             'message': blocked}, status_code=423)
     cmd, mode = _build_cmd_from_body(body, base)
     if isinstance(cmd, JSONResponse):
         return cmd
@@ -1049,7 +1055,7 @@ async def base_detect(guid: str, req: Request):
 
 @app.post('/api/base/{guid}/users')
 async def base_users(guid: str, req: Request):
-    """Список пользователей ИБ через COM (как обновлятор): для выбора логина в настройках.
+    """Список пользователей ИБ через COM: для выбора логина в настройках.
 
     Тело: {user, pwd} — чем подключаться (по умолчанию из настроек базы).
     Возвращает {ok, users:[{Имя, Удалён, БезПароля}], users_count, error, hint}.
@@ -1080,7 +1086,7 @@ async def base_users(guid: str, req: Request):
 
 @app.post('/api/base/{guid}/cominfo')
 async def base_cominfo(guid: str, req: Request):
-    """Сведения из базы через COM-подключение: конфигурация, пользователи (как обновлятор)."""
+    """Сведения из базы через COM-подключение: конфигурация, пользователи."""
     _, base = _base_or_404(guid)
     if not base:
         return JSONResponse({'error': 'база не найдена'}, status_code=404)
@@ -1180,6 +1186,48 @@ async def cache_clear(req: Request):
     running = len(procs.running_sessions())
     res['sessions_running'] = running
     return res
+
+
+@app.post('/api/base/{guid}/maintenance')
+async def base_maintenance(guid: str, req: Request):
+    """Закрыть базу на обслуживание: запрет запуска из стартера, опционально завершить сеансы."""
+    _, base = _base_or_404(guid)
+    if not base:
+        return JSONResponse({'error': 'база не найдена'}, status_code=404)
+    body = {}
+    try:
+        body = await req.json()
+    except Exception:                       # noqa: BLE001
+        pass
+    minutes = float(body.get('minutes') or baselock.DEFAULT_TTL_MIN)
+    res = baselock.lock(guid, minutes, str(body.get('note') or ''), base=base,
+                        kick_sessions=bool(body.get('kick_sessions')))
+    res['status'] = baselock.status(config.get_base(config.load(), guid) or base)
+    res['base'] = base.get('name')
+    if not res.get('ok'):
+        return JSONResponse(res, status_code=500)
+    return res
+
+
+@app.delete('/api/base/{guid}/maintenance')
+async def base_maintenance_off(guid: str):
+    """Снять блокировку обслуживания."""
+    _, base = _base_or_404(guid)
+    if not base:
+        return JSONResponse({'error': 'база не найдена'}, status_code=404)
+    res = baselock.unlock(guid)
+    res['base'] = base.get('name')
+    return res
+
+
+@app.get('/api/base/{guid}/maintenance')
+async def base_maintenance_state(guid: str):
+    """Состояние блокировки обслуживания + число живых сеансов базы."""
+    _, base = _base_or_404(guid)
+    if not base:
+        return JSONResponse({'error': 'база не найдена'}, status_code=404)
+    return {'base': base.get('name'), 'maintenance': baselock.status(base),
+            'sessions': len(baselock.sessions_of(base))}
 
 
 @app.post('/api/base/{guid}/reveal')
