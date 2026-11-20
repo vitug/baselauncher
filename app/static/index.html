@@ -3579,7 +3579,12 @@ async function pollSessions(){
   if(SESS_BUSY||document.hidden||!STATE) return;
   SESS_BUSY=true;
   try{
-    const r=await fetch('/api/sessions'); const j=await r.json();
+    /* таймаут: зависший сервер (порт слушает, ответа нет) должен всплыть баннером,
+       а не молча висеть fetch'ем — на клики окно не реагирует без объяснения */
+    const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),6000);
+    let r; try{ r=await fetch('/api/sessions',{signal:ctl.signal}) }
+    finally{ clearTimeout(to) }
+    const j=await r.json();
     /* приложение обновили/перезапустили — перечитываем страницу, даже если открыт диалог */
     if(j.version&&window.BL_PAGE_VER&&j.version!==window.BL_PAGE_VER){location.reload();return}
     const map=j.running||{};
@@ -3598,26 +3603,28 @@ async function pollSessions(){
     });
     if(changed) renderKeepingFocus();
     netOk();
-  }catch(e){ netFail(); /* сервер занят/перезапускается */ }
+  }catch(e){ netFail(e&&e.name==='AbortError'); /* AbortError=таймаут: сервер подвис; иное — мёртв/перезапускается */ }
   SESS_BUSY=false;
 }
 /* ---------- статус ланчера: сервер не отвечает + предложение перезапуска ---------- */
-let NET_FAILS=0, NET_BANNER=null;
+let NET_FAILS=0, NET_BANNER=null, NET_HUNG=false;
 function netOk(){
   if(NET_FAILS&&NET_BANNER){ NET_BANNER.remove(); NET_BANNER=null; }
-  NET_FAILS=0;
+  NET_FAILS=0; NET_HUNG=false;
 }
-function netFail(){
-  NET_FAILS++;
+function netFail(hung){
+  NET_FAILS++; NET_HUNG=NET_HUNG||!!hung;
   if(NET_FAILS<2||NET_BANNER) return;      // одна осечка — шум, две (6 с) — офлайн
   const d=document.createElement('div');
   d.id='bl-offline';
   d.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;display:flex;gap:10px;'
     +'align-items:center;justify-content:center;padding:10px 14px;background:#7a1f1f;'
     +'color:#fff;font:13px/1.4 inherit;box-shadow:0 -2px 8px rgba(0,0,0,.35)';
-  d.innerHTML='<b>Лончер не отвечает</b> — сервер '
+  d.innerHTML='<b>'+(NET_HUNG?'Лончер подвис':'Лончер не отвечает')+'</b> — сервер '
     +(location.port?' :'+location.port:'')
-    +' не работает. <button style="padding:4px 12px;border:0;border-radius:6px;'
+    +(NET_HUNG?' не отвечает на запросы (процесс жив, но не отвечает — поможет перезапуск).'
+              :' не работает.')
+    +' <button style="padding:4px 12px;border:0;border-radius:6px;'
     +'background:#fff;color:#7a1f1f;font-weight:600;cursor:pointer">Перезапустить</button>'
     +' <span style="opacity:.75"></span>';
   const btn=d.querySelector('button'), note=d.querySelector('span');
