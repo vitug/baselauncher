@@ -36,7 +36,7 @@ _DIR: Path | None = None
 def _dir() -> Path:
     global _DIR
     if _DIR is None:
-        from .. import paths
+        from core import paths                 # абсолютный импорт: core.watch и top-level
         _DIR = paths.DATA_DIR / 'errors'
         _DIR.mkdir(parents=True, exist_ok=True)
     return _DIR
