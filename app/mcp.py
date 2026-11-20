@@ -388,6 +388,74 @@ def _sha256(path: Path) -> str:
         return ''
 
 
+def _git(dirpath, *args, timeout: float = 30.0):
+    """git -C <dir> … → (exit, вывод stdout+stderr)."""
+    import subprocess
+    try:
+        r = subprocess.run(['git', '-C', str(dirpath), *args],
+                           capture_output=True, text=True, timeout=timeout,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        return r.returncode, ((r.stdout or '') + (r.stderr or '')).strip()
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return -1, str(e)
+
+
+def _git_status_names(dirpath) -> list:
+    """Изменённые/новые/удалённые файлы рабочей копии (git status --porcelain)."""
+    code, out = _git(dirpath, 'status', '--porcelain')
+    if code != 0:
+        return []
+    names = []
+    for line in out.splitlines():
+        line = line.rstrip('\r')
+        parts = line.strip().split(None, 1)
+        if len(parts) == 2 and parts[0] and not parts[0].startswith('##'):
+            p = parts[1].strip('"')
+            if ' -> ' in p:
+                p = p.split(' -> ')[-1]
+            names.append(p)
+    return names
+
+
+def t_git_baseline(a: dict) -> dict:
+    """Сделать каталог XML-выгрузки git-репозиторием: ветка xml-state, коммит baseline.
+
+    Дальше контроль изменений — git status/diff: фантомные правки платформы (макеты/формы
+    при загрузке поддерева) видны до помещения в хранилище.
+    """
+    st = _state()
+    b = _resolve(st, a.get('base'))
+    root = (a.get('root') or '').strip().strip('"')
+    if not root:
+        root = str(((b.get('our') or {}).get('dump_dir') or '')).strip()
+    if not root:
+        jr = _journal_read(b['guid'])
+        if jr['entries']:
+            root = str(jr['entries'][-1].get('src') or '')
+    if not root:
+        return _err('укажите root (каталог XML-выгрузки) или задайте базе dump_dir')
+    src = Path(root)
+    if not src.is_dir():
+        return _err('каталога нет: %s' % src)
+    if (src / '.git').is_dir():
+        code, out = _git(src, 'log', '--oneline', '-1')
+        code2, stat = _git(src, 'status', '--porcelain')
+        dirty = [l for l in stat.splitlines() if l.strip()]
+        return _text({'base': b['name'], 'src': str(src), 'already_repo': True,
+                      'head': out, 'dirty_count': len(dirty)})
+    code, out = _git(src, 'init', '-b', 'xml-state')
+    if code != 0:
+        return _err('git init: %s' % out)
+    _git(src, 'add', '-A')
+    msg = 'baseline %s — выгрузка XML базы «%s»' % (time.strftime('%Y-%m-%d %H:%M'), b['name'])
+    code, out = _git(src, 'commit', '-m', msg)
+    if code != 0 and 'nothing to commit' not in out:
+        return _err('git commit: %s' % out)
+    code, head = _git(src, 'log', '--oneline', '-1')
+    return _text({'base': b['name'], 'src': str(src), 'ok': True, 'branch': 'xml-state',
+                  'head': head, 'message': msg})
+
+
 def t_run_batch(a: dict) -> dict:
     """Пакетная команда Конфигуратора: запустить, дождаться выхода, вернуть код и /Out.
 
@@ -470,6 +538,15 @@ def t_run_batch(a: dict) -> dict:
             keys.append('-Format')
             keys.append('Hierarchical')
         loaded_src, loaded_files = fsrc, list(exp)   # для журнала загрузок
+        # --- верификация перед загрузкой (git-режим): в рабочей копии не должно быть
+        #     изменений ВНЕ разрешённого списка -files — фантомные правки платформы
+        #     (макеты/формы при загрузке поддерева) ловятся ДО помещения в хранилище ---
+        if (fsrc / '.git').is_dir() and not a.get('allow_extra_files'):
+            extras = sorted(set(_git_status_names(fsrc)) - set(exp))
+            if extras:
+                return _err('СТОП: в git-рабочей копии %s изменены файлы вне списка -files '
+                            '(фантомные правки?): %s. Уберите лишние правки, расширьте files '
+                            'или передайте allow_extra_files=true' % (fsrc, extras[:20]))
     else:
         loaded_src, loaded_files = None, []
     out_path = (a.get('out') or '').strip()
@@ -521,6 +598,27 @@ def t_run_batch(a: dict) -> dict:
     return _text({'ok': code == 0 and not timed_out, 'exit': code, 'timed_out': timed_out,
                   'seconds': int(time.time() - t0), 'base': b['name'], 'mode': mode,
                   'out_file': out_path, 'log': log_txt, 'cmd': _mask(cmd)})
+
+
+def _git_section(src: Path, a: dict) -> dict:
+    """Git-режим dump_changes: если выгрузка — git-репозиторий, контроль через git.
+
+    status --porcelain → список, diff --stat → сводка по строкам;
+    diff_file → полный diff одного файла (до 8000 символов).
+    """
+    if not (src / '.git').is_dir():
+        return {}
+    names = _git_status_names(src)
+    code, stat = _git(src, 'diff', '--stat')
+    out = {'repo': True, 'changed_count': len(names), 'changed': names[:int(a.get('limit') or 200)]}
+    if stat:
+        out['diff_stat'] = stat[-3000:]
+    f = (a.get('diff_file') or '').strip()
+    if f:
+        code, d = _git(src, 'diff', '--', f)
+        out['diff_file'] = f
+        out['diff'] = d[:8000] if d else '(нет отличий от baseline/HEAD)'
+    return out
 
 
 def t_dump_changes(a: dict) -> dict:
@@ -583,6 +681,7 @@ def t_dump_changes(a: dict) -> dict:
                   'changed_count': len(changed), 'deleted_count': len(deleted),
                   'changed': changed[:limit], 'deleted': deleted[:limit],
                   'journal': jout,
+                  'git': _git_section(src, a),
                   'note': ('показаны первые %d' % limit) if len(changed) > limit else ''})
 
 
@@ -937,8 +1036,16 @@ TOOLS = [
       'timeout': {'type': 'number'},
       'allow_running': {'type': 'boolean'},
       'disable_dialogs': {'type': 'boolean', 'description': 'по умолчанию true'},
+      'allow_extra_files': {'type': 'boolean', 'description': 'разрешить загрузку, даже если в git-рабочей копии выгрузки есть изменения вне списка files (по умолчанию — стоп)'},
       'user': {'type': 'string'}, 'pwd': {'type': 'string'},
       'platform': {'type': 'string'}}, t_run_batch),
+    ('git_baseline', 'Сделать каталог XML-выгрузки базы git-репозиторием: ветка xml-state, '
+     'автокоммит baseline (после первичной выгрузки XML). Дальше контроль изменений — git: '
+     'dump_changes показывает git status/diff, а run_batch с files блокирует загрузку, если '
+     'в рабочей копии есть изменения вне списка -files (фантомные правки платформы).',
+     {'base': {'type': 'string'},
+      'root': {'type': 'string', 'description': 'каталог XML-выгрузки (по умолчанию dump_dir базы)'}},
+     t_git_baseline),
     ('dump_changes', 'Изменённые файлы XML-выгрузки базы с момента прошлой выгрузки '
      '(сравнение с манифестом: новые/изменённые по mtime+size, удалённые). Каталог — root, '
      'иначе корень из манифеста прошлой выгрузки, иначе git_dir базы. Плюс журнал загрузок '
@@ -947,7 +1054,8 @@ TOOLS = [
      'что нести в хранилище (список для run_batch -files / -objects).',
      {'base': {'type': 'string'},
       'root': {'type': 'string', 'description': 'каталог XML-исходников (по умолчанию — из манифеста/git_dir)'},
-      'limit': {'type': 'number', 'description': 'макс. файлов в ответе, по умолчанию 200'}},
+      'limit': {'type': 'number', 'description': 'макс. файлов в ответе, по умолчанию 200'},
+      'diff_file': {'type': 'string', 'description': 'git-режим: полный diff одного файла (git diff -- <file>)'}},
      t_dump_changes),
     ('list_sessions', 'Открытые сеансы 1С: база, режим, PID, заголовок окна, есть ли видимое окно.',
      {}, t_sessions),
@@ -1023,7 +1131,7 @@ TOOL_MAP = {name: (desc, schema, fn) for name, desc, schema, fn in TOOLS}
 
 REQUIRED = {
     'get_base': ['base'], 'launch_base': ['base'], 'run_processing': ['base', 'processing'],
-    'run_batch': ['base', 'extra_keys'], 'dump_changes': ['base'],
+    'run_batch': ['base', 'extra_keys'], 'dump_changes': ['base'], 'git_baseline': ['base'],
     'delete_base': ['base'], 'dryrun': ['base'], 'open_web': ['base'],
     'add_base': ['name'], 'add_folder': ['name'], 'move_base': ['base', 'folder'],
 }
