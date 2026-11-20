@@ -11,6 +11,7 @@
 
 Пароли наружу НЕ отдаются: в ответах только флаги `pwd_set`/`pwd_cfg_set`/`storage.pwd_set`.
 """
+import re
 import hashlib
 import json
 import tempfile
@@ -111,7 +112,6 @@ def _full(b: dict) -> dict:
 
 def _mask(cmd: str) -> str:
     """Не отдавать пароли в командной строке (/P, /ConfigurationRepositoryP)."""
-    import re
     return re.sub(r'(/(?:P|ConfigurationRepositoryP)\s+)("[^"]*"|\S+)', r'\1"***"', cmd)
 
 
@@ -377,6 +377,12 @@ def _journal_add(guid: str, entry: dict) -> None:
         pass                                     # журнал — не критично для команды
 
 
+def _repo_version_from_log(log):
+    """Ревизия хранилища из /Out-лога («Версия 5», «версии №12», «Версией 3») → int|null."""
+    m = re.findall(r'[Вв]ерси\w*\s*№?\s*(\d+)', log or '')
+    return int(m[-1]) if m else None
+
+
 def _sha256(path: Path) -> str:
     h = hashlib.sha256()
     try:
@@ -401,8 +407,12 @@ def _git(dirpath, *args, timeout: float = 30.0):
 
 
 def _git_status_names(dirpath) -> list:
-    """Изменённые/новые/удалённые файлы рабочей копии (git status --porcelain)."""
-    code, out = _git(dirpath, 'status', '--porcelain')
+    """Изменённые/новые/удалённые файлы рабочей копии (git status --porcelain).
+
+    -uall — новые каталоги разворачиваются в файлы (иначе схлопываются в 'dir/');
+    core.quotepath=false — кириллица в путях без октет-экранирования.
+    """
+    code, out = _git(dirpath, '-c', 'core.quotepath=false', 'status', '--porcelain', '-uall')
     if code != 0:
         return []
     names = []
@@ -448,7 +458,8 @@ def t_git_baseline(a: dict) -> dict:
         return _err('git init: %s' % out)
     _git(src, 'add', '-A')
     msg = 'baseline %s — выгрузка XML базы «%s»' % (time.strftime('%Y-%m-%d %H:%M'), b['name'])
-    code, out = _git(src, 'commit', '-m', msg)
+    code, out = _git(src, '-c', 'user.name=BaseLauncher', '-c', 'user.email=baselauncher@local',
+                      'commit', '-m', msg)
     if code != 0 and 'nothing to commit' not in out:
         return _err('git commit: %s' % out)
     code, head = _git(src, 'log', '--oneline', '-1')
@@ -580,12 +591,7 @@ def t_run_batch(a: dict) -> dict:
     log_txt = _slice_log(Path(out_path)) if out_path else ''
     # --- журнал загрузок: успешная загрузка через /LoadConfigFromFiles — что именно легло в базу ---
     if code == 0 and not timed_out and loaded_files and loaded_src:
-        import re as _re2
-        vers = None
-        if log_txt:
-            m = _re2.findall(r'[Вв]ерси(?:и|ю|ей)?\s*№?\s*(\d+)', log_txt)
-            if m:
-                vers = int(m[-1])
+        vers = _repo_version_from_log(log_txt)
         _journal_add(b['guid'], {
             'ts': time.strftime('%Y-%m-%d %H:%M:%S'),
             'base': b['name'],
