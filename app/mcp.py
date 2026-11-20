@@ -1156,7 +1156,9 @@ def tools_list() -> list:
 def call_tool(name: str, args: dict) -> dict:
     item = TOOL_MAP.get(name)
     if not item:
-        return _err(f'неизвестный инструмент: {name}')
+        res = _err(f'неизвестный инструмент: {name}')
+        res['meta'] = {'tool': name, 'ms': 0}
+        return res
     _, _, fn = item
     t0 = time.time()
     try:
