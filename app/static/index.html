@@ -817,6 +817,9 @@ let SEL=null, SEL_Q='';     // выбранная строка (клик во в
 const $=id=>document.getElementById(id);
 
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+/* строка для встроенного JS в onclick: бэкслеши и кавычки экранировать,
+   иначе 'C:\...\bin\1cv8.exe' в onclick теряет \1 \8 \b как escape-последовательности */
+function jsq(s){return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'")}
 function saveColl(){
   localStorage.setItem('bl_collapsed',JSON.stringify([...COLLAPSED]));
   localStorage.setItem('bl_open',JSON.stringify([...OPEN]));
@@ -3098,13 +3101,13 @@ async function openSettings(guid){
   $('md-title').textContent='Настройки: '+(our.name||b.name);
   $('md-eff').innerHTML=(b.exe
       ?`<span title="${esc(b.exe)}">платформа: ${esc(b.exe)}${b.thin?' · thin':''}${b.exe_src?(' · ' + esc(b.exe_src)):''}</span>`
-       +(b.exe?` <button class="ln" onclick="copyText('${esc(String(b.exe).replace(/'/g,"&#39;"))}','путь к платформе')" title="скопировать путь к платформе">⧉</button>`:'')
+       +(b.exe?` <button class="ln" onclick="copyText('${esc(jsq(b.exe))}','путь к платформе')" title="скопировать путь к платформе">⧉</button>`:'')
       :'эффективный exe не определён')
     +(b.storage&&b.storage.dir?`<span style="margin-left:10px" title="${esc(b.storage.dir)}">хранилище: ${esc(b.storage.dir)}</span>`:'');
   const cp=(j.cache_paths||{}).config||'';
   $('md-cache').innerHTML=cp
     ?`кэш: <span title="${esc(cp)}">${esc(cp)}</span>`
-     +` <button class="ln" onclick="copyText('${esc(String(cp).replace(/'/g,"&#39;"))}','путь к кэшу')" title="скопировать путь к кэшу базы">⧉</button>`
+     +` <button class="ln" onclick="copyText('${esc(jsq(cp))}','путь к кэшу')" title="скопировать путь к кэшу базы">⧉</button>`
     :'';
   if(b.ws){ $('s-srvr').value=''; $('s-ref').value=''; $('s-bpath').value='(веб-база: '+b.ws+')'; $('s-bpath').disabled=true; }
   else{ $('s-srvr').value=b.server||''; $('s-ref').value=b.ref||''; $('s-bpath').value=b.path||''; $('s-bpath').disabled=false; }
