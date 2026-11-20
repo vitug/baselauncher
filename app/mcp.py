@@ -427,6 +427,23 @@ def _git_status_names(dirpath) -> list:
     return names
 
 
+def _objects_xml(objs: list) -> str:
+    """XML для -objects хранилища: <Objects><Object fullName="…"/>…</Objects>.
+
+    «Конфигурация» — особый случай (тег <Configuration/>, без fullName). Имена —
+    отсортированный уникальный список: платформа не принимает плоский -list
+    («Ошибка разбора XML»), а дубли в XML ей тоже ни к чему.
+    """
+    lines = ['<Objects xmlns="http://v8.1c.ru/8.3/config/objects" version="1.0">']
+    for n in sorted(set(objs)):
+        if n.lower() in ('конфигурация', 'configuration'):
+            lines.append('    <Configuration includeChildObjects="false"/>')
+        else:
+            lines.append(f'    <Object fullName="{n}" includeChildObjects="true"/>')
+    lines.append('</Objects>')
+    return '\n'.join(lines) + '\n'
+
+
 def t_git_baseline(a: dict) -> dict:
     """Сделать каталог XML-выгрузки git-репозиторием: ветка xml-state, коммит baseline.
 
@@ -821,8 +838,25 @@ def t_set_platform(a: dict) -> dict:
                   'note': 'закреплено за базой: дальше запускается этой платформой'})
 
 
+def t_maintenance(a: dict) -> dict:
+    """Блокировка базы на обслуживание: запрет запуска из стартера + завершение сеансов."""
+    from core import baselock
+    st = _state()
+    b = _resolve(st, str(a.get('base') or ''))
+    if a.get('off'):
+        res = baselock.unlock(b['guid'])
+    else:
+        res = baselock.lock(b['guid'], float(a.get('minutes') or baselock.DEFAULT_TTL_MIN),
+                            str(a.get('note') or ''), base=b,
+                            kick_sessions=bool(a.get('kick_sessions')))
+    res['maintenance'] = baselock.status(b)
+    res['sessions_left'] = len(baselock.sessions_of(b))
+    res['base'] = b['name']
+    return _text(res)
+
+
 def t_detect_platform(a: dict) -> dict:
-    """Версия сервера 1С через COM (как обновлятор) + закрепление её платформы за базой."""
+    """Версия сервера 1С через COM + закрепление её платформы за базой."""
     from app.main import detect_platform
     st = _state()
     b = _resolve(st, str(a.get('base') or ''))
@@ -1078,13 +1112,22 @@ TOOLS = [
       'mode': {'type': 'string', 'enum': ['enterprise', 'designer'],
                'description': 'для какого режима важнее (designer требует толстый клиент)'}},
      t_set_platform),
-    ('detect_platform', 'Узнать версию сервера 1С по COM-подключению (как обновлятор, без окна) '
-     'и закрепить за базой платформу этой версии. Работает и когда версии не совпали: 1С в тексте '
-     'ошибки отдаёт версию сервера. pin=false — только показать, не закреплять.',
+    ('detect_platform', 'Узнать версию сервера 1С по COM-подключению (без окна 1С), перебором '
+     'платформ до совпадения, и закрепить за базой платформу этой версии. Работает и когда '
+     'версии не совпали: 1С в тексте ошибки отдаёт версию сервера, дальше подключение идёт '
+     'платформой ровно этой версии. pin=false — только показать, не закреплять.',
      {'base': {'type': 'string'}, 'pin': {'type': 'boolean'}}, t_detect_platform),
-    ('base_cominfo', 'Подключиться к базе по COM (comcntr.dll, как обновлятор) и получить: имя и '
-     'версию конфигурации, режим совместимости, пользователей ИБ (всего/активных, список), '
-     'текст ошибки подключения. Нужны логин/пароль пользователя ИБ (можно save=true — сохранить).',
+    ('base_maintenance', 'Закрыть базу на обслуживание: запуск из стартера запрещается '
+     '(с таймаутом авто-снятия, по умолчанию 12 ч), опционально принудительно завершаются '
+     'живые сеансы этой базы (kick_sessions=true, только сеансы этой базы по её пути в '
+     'командной строке). off=true — снять блокировку.',
+     {'base': {'type': 'string'}, 'minutes': {'type': 'number'},
+      'note': {'type': 'string'}, 'kick_sessions': {'type': 'boolean'},
+      'off': {'type': 'boolean'}}, t_maintenance),
+    ('base_cominfo', 'Подключиться к базе по COM (comcntr.dll) и получить: имя, версию и '
+     'разработчика конфигурации, режим совместимости, поддержку расширений, пользователей ИБ '
+     '(всего/активных, список), текст ошибки подключения. Нужны логин/пароль пользователя ИБ '
+     '(можно save=true — сохранить).',
      {'base': {'type': 'string'}, 'user': {'type': 'string'}, 'pwd': {'type': 'string'},
       'save': {'type': 'boolean'}, 'timeout': {'type': 'number'}}, t_cominfo),
     ('set_storage', 'Задать хранилище конфигурации у базы (ключи конфигуратора '

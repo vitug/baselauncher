@@ -1617,7 +1617,7 @@ async function clearBaseCacheNow(guid,what){
     msg+='\n\nСеансы этой базы открыты — закройте 1С и повторите, чтобы очистить полностью.';
   toast(msg, 10000);
 }
-/* ---------- серверные операции через COM (как в обновляторе) ---------- */
+/* ---------- серверные операции через COM ---------- */
 async function postJSON(url,body){
   const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify(body||{})});
@@ -2678,7 +2678,7 @@ function ctxShow(x,y,guid){
     if(ourg&&ourg.our&&ourg.our.dump_dir)mki(subD,'Открыть папку дампа…',
       ()=>{ctxClose();revealBaseDir(guid,'dump_dir')});
   }
-  /* серверные операции через COM (как в обновляторе) */
+  /* серверные операции через COM */
   mk('Определить платформу по версии сервера (COM)',()=>{ctxClose();detectPlatform(guid)});
   mk('Сведения из базы: конфигурация, пользователи (COM)',()=>{ctxClose();comInfo(guid)});
   mk(b.running?'Удалить базу из списка… (открыта!)':'Удалить базу из списка…',
