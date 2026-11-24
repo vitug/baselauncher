@@ -526,10 +526,12 @@ def t_run_batch(a: dict) -> dict:
     if obj_file:
         keys.append(f'-objects "{obj_file}"')
     # --- частичная загрузка: files — rel-пути или имена объектов («Справочник.X») ---
-    # разворачиваются в файлы (+поддерево) от root (по умолчанию dump_dir/git_dir базы) и
-    # дописываются -files "p1,p2" СРАЗУ за последним ключом extra_keys (обычно
-    # /LoadConfigFromFiles<dir>); для частичной загрузки обязателен -Format — добавляем
-    # Hierarchical, если не передан.
+    # разворачиваются в файлы (+поддерево) от root (по умолчанию dump_dir/git_dir базы).
+    # Платформенный синтаксис частичной загрузки (проверен на 8.5.1, база под хранилищем):
+    #   /LoadConfigFromFiles "<dir>" -listFile "<list.txt>" -partial -updateConfigDumpInfo -Format Hierarchical
+    # НЕ «-files p1,p2» — такого ключа у конфигуратора нет. Служебные файлы состояния
+    # поддержки (ConfigDumpInfo.xml, ParentConfigurations.bin) частично не грузятся —
+    # исключаем, как db-load-xml.
     fls = [str(x).strip() for x in (a.get('files') or []) if str(x).strip()]
     if fls:
         from core import loadxml
@@ -561,13 +563,32 @@ def t_run_batch(a: dict) -> dict:
             exp += [p for p in loadxml.expand_objects(fsrc, fls) if p not in exp]
         if not exp:
             return _err('ни один из files не найден в %s (проверьте имена/типы объектов)' % fsrc)
-        keys.append('-files "%s"' % ','.join(exp))
+        # служебные файлы состояния поддержки частично не грузятся — исключаем
+        import re as _re2
+        sup = _re2.compile(r'ParentConfigurations\.bin$|(^|[\\/])ConfigDumpInfo\.xml$')
+        before = len(exp)
+        exp = [p for p in exp if not sup.search(p)]
+        if not exp:
+            return _err('в списке только служебные файлы поддержки (ConfigDumpInfo.xml/'
+                        'ParentConfigurations.bin) — они частично не грузятся; смена поддержки '
+                        'только полной загрузкой')
+        # список файлов для -listFile: utf-8-sig, rel-пути через /
+        dd = str(((b.get('our') or {}).get('dump_dir') or '')).strip()
+        try:
+            base_dir = Path(dd) if dd else Path(tempfile.gettempdir())
+            base_dir.mkdir(parents=True, exist_ok=True)
+            list_file = str(base_dir / 'load_list.txt')
+            Path(list_file).write_text('\n'.join(exp) + '\n', encoding='utf-8-sig')
+        except OSError as e:
+            return _err('не удалось записать список файлов: %s' % e)
+        keys += [f'-listFile "{list_file}"', '-partial', '-updateConfigDumpInfo']
         if not any(k.lower().startswith('-format') for k in keys):
             keys.append('-Format')
             keys.append('Hierarchical')
+        skipped_support = before - len(exp)
         loaded_src, loaded_files = fsrc, list(exp)   # для журнала загрузок
         # --- верификация перед загрузкой (git-режим): в рабочей копии не должно быть
-        #     изменений ВНЕ разрешённого списка -files — фантомные правки платформы
+        #     изменений ВНЕ разрешённого списка загрузки — фантомные правки платформы
         #     (макеты/формы при загрузке поддерева) ловятся ДО помещения в хранилище ---
         if (fsrc / '.git').is_dir() and not a.get('allow_extra_files'):
             extras = sorted(set(_git_status_names(fsrc)) - set(exp))
@@ -576,7 +597,7 @@ def t_run_batch(a: dict) -> dict:
                             '(фантомные правки?): %s. Уберите лишние правки, расширьте files '
                             'или передайте allow_extra_files=true' % (fsrc, extras[:20]))
     else:
-        loaded_src, loaded_files = None, []
+        loaded_src, loaded_files, skipped_support, list_file = None, [], 0, ''
     out_path = (a.get('out') or '').strip()
     if not out_path:
         # папка дампа базы (v0.38.4): туда по умолчанию пишем /Out, чтобы сообщения 1С не терялись
@@ -620,7 +641,9 @@ def t_run_batch(a: dict) -> dict:
         })
     return _text({'ok': code == 0 and not timed_out, 'exit': code, 'timed_out': timed_out,
                   'seconds': int(time.time() - t0), 'base': b['name'], 'mode': mode,
-                  'out_file': out_path, 'log': log_txt, 'cmd': _mask(cmd)})
+                  'out_file': out_path, 'log': log_txt, 'cmd': _mask(cmd),
+                  **({'files_loaded': len(loaded_files), 'skipped_support': skipped_support,
+                      'list_file': list_file} if loaded_files else {})})
 
 
 def _git_section(src: Path, a: dict) -> dict:
@@ -1067,9 +1090,14 @@ TOOLS = [
                   'description': 'полные имена объектов для -objects (захват/освобождение в хранилище)'},
       'objects_file': {'type': 'string', 'description': 'готовый XML-файл списка объектов'},
       'files': {'type': 'array', 'items': {'type': 'string'},
-                'description': 'частичная загрузка: rel-пути (Catalogs/X.xml) или имена объектов '
-                               '(Справочник.X → файл+поддерево); сервер допишет -files и -Format; '
-                               'успешная загрузка пишется в журнал базы (changes.json: файлы+sha256)'},
+                'description': 'частичная загрузка XML в базу: rel-пути (CommonModules/X/Ext/Module.bsl) '
+                               'или имена объектов (ОбщийМодуль.X → файл+поддерево). Сервер пишет '
+                               'load_list.txt и дописывает платформенные ключи -listFile/-partial/'
+                               '-updateConfigInfo/-Format Hierarchical (синтаксис проверен на 8.5.1, '
+                               'база под хранилищем); служебные файлы поддержки (ConfigDumpInfo.xml, '
+                               'ParentConfigurations.bin) исключаются. Успешная загрузка пишется в '
+                               'журнал базы (changes.json: файлы+sha256). Требует extra_keys '
+                               '["/LoadConfigFromFiles<каталог>"]'},
       'root': {'type': 'string', 'description': 'каталог XML-исходников для files/dump_changes '
                                                 '(по умолчанию dump_dir/git_dir базы)'},
       'out': {'type': 'string', 'description': 'путь для /Out (текст вернётся в log)'},
