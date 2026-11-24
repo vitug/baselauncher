@@ -1383,6 +1383,7 @@ async def base_cache_clear(guid: str, req: Request):
     APPDATA) | program (PROGRAMDATA) | both.
 
     Кэш самой программы-стартера здесь не чистится — только клиентский кэш 1С этой базы.
+    *.pfl/def.usr по умолчанию переносятся в <guid>_backup (no_backup=true — без него).
     """
     body = {}
     try:
@@ -1390,12 +1391,13 @@ async def base_cache_clear(guid: str, req: Request):
     except Exception:
         pass
     what = str(body.get('what') or 'user').strip().lower()
+    no_backup = bool(body.get('no_backup'))
     st = importer.build_state()
     base = importer.find_base(st, guid)
     if not base:
         return JSONResponse({'error': 'база не найдена'}, status_code=404)
     try:
-        res = cache.clear_base(guid, what)
+        res = cache.clear_base(guid, what, no_backup=no_backup)
     except ValueError as e:
         return JSONResponse({'error': str(e)}, status_code=400)
     except Exception as e:                       # noqa: BLE001
@@ -1536,9 +1538,13 @@ def cache_dead():
 
 @app.post('/api/cache/dead/clear')
 async def cache_dead_clear(req: Request):
-    """Удалить мёртвые кэши (все или выбранные guids)."""
+    """Удалить мёртвые кэши (все или выбранные guids).
+
+    Только профиль текущего пользователя; *.pfl/def.usr переносятся в <guid>_backup
+    (no_backup=true — без бэкапа)."""
     body = await req.json()
     guids = body.get('guids') or None
+    no_backup = bool(body.get('no_backup'))
     known = set()
     from core import parsers
     try:
@@ -1552,7 +1558,7 @@ async def cache_dead_clear(req: Request):
         known.update((str(g) or '').strip().lower() for g in (config.load().get('bases') or {}).keys())
     except Exception:                            # noqa: BLE001
         pass
-    res = cache.clear_dead(known, guids)
+    res = cache.clear_dead(known, guids, no_backup=no_backup)
     res['sessions_running'] = len(procs.running_sessions())
     return res
 

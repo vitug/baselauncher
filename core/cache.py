@@ -96,10 +96,44 @@ def one_c_info(guid: str | None = None) -> dict:
             'partial': partial, 'paths': [str(d) for d in dirs[:50]]}
 
 
-def _rmtree(path: Path) -> dict:
-    """Удалить каталог, не падая на занятых файлах (1С может держать кэш открытым)."""
+def _is_settings_file(name: str) -> bool:
+    """Файлы настроек пользователя 1С: *.pfl (1cv8.pfl, dbg.pfl, ...) и def.usr."""
+    n = (name or '').lower()
+    return n.endswith('.pfl') or n == 'def.usr'
+
+
+def _backup_settings(path: Path) -> list[str]:
+    """Перенести *.pfl/def.usr из удаляемого каталога в соседний <имя>_backup.
+
+    Возврат — список перенесённых файлов (пути уже в бэкапе)."""
+    moved = []
+    bdir = path.parent / (path.name + '_backup')
+    try:
+        for f in path.rglob('*'):
+            try:
+                if not f.is_file() or not _is_settings_file(f.name):
+                    continue
+                dest = bdir / f.relative_to(path)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                if dest.exists():
+                    dest.unlink()
+                shutil.move(str(f), str(dest))
+                moved.append(str(dest))
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return moved
+
+
+def _rmtree(path: Path, backup_settings: bool = False) -> dict:
+    """Удалить каталог, не падая на занятых файлах (1С может держать кэш открытым).
+
+    backup_settings=True — перед удалением перенести файлы настроек пользователя
+    (*.pfl, def.usr) в соседний <имя>_backup, чтобы очистка кэша не сбрасывала их."""
     errors = []
     before = size_of(path, budget=1.0)['bytes']
+    backed_up = _backup_settings(path) if backup_settings else []
 
     def onerror(func, p, exc):          # noqa: ANN001
         errors.append('%s: %s' % (p, exc))
@@ -109,7 +143,7 @@ def _rmtree(path: Path) -> dict:
     except Exception as e:              # noqa: BLE001
         errors.append(str(e))
     return {'removed': not path.exists(), 'bytes': before, 'errors': errors[:5],
-            'error_count': len(errors)}
+            'error_count': len(errors), 'backed_up': backed_up}
 
 
 def clear_one_c(guid: str | None = None) -> dict:
@@ -244,9 +278,13 @@ def base_info(guid: str, budget: float = 2.0) -> dict:
     return out
 
 
-def clear_base(guid: str, what: str = 'config') -> dict:
+def clear_base(guid: str, what: str = 'config', no_backup: bool = False) -> dict:
     """Удалить кэш базы: what=config (кэш программы/конфигурации, LOCALAPPDATA)
-    | user (настройки, APPDATA) | program (PROGRAMDATA) | both (всё)."""
+    | user (настройки, APPDATA) | program (PROGRAMDATA) | both (всё).
+
+    Настройки пользователя (*.pfl, def.usr) по умолчанию НЕ теряются: перед удалением
+    они переносятся в соседний <guid>_backup. no_backup=True — удалять без бэкапа
+    (полный сброс настроек, как раньше)."""
     guid = (guid or '').strip()
     if not guid:
         raise ValueError('не передан guid базы')
@@ -259,17 +297,23 @@ def clear_base(guid: str, what: str = 'config') -> dict:
     removed = []
     errors = []
     found = 0
+    backed_up = []
     for w in want:
         for d in dirs[w]:
             found += 1
-            r = _rmtree(d)
+            # бэкап настроек: уровень user — всегда (кроме no_backup), прочие — тоже
+            # защищаем (dbg.pfl в Local и общие настройки в ProgramData)
+            r = _rmtree(d, backup_settings=not no_backup)
             freed += r['bytes']
+            backed_up += r.get('backed_up') or []
             if r['removed']:
                 removed.append(str(d))
             errors.extend(r['errors'])
     return {'ok': not errors or bool(removed), 'what': ','.join(want), 'guid': guid,
             'dirs_found': found, 'dirs_removed': len(removed), 'removed': removed[:10],
-            'freed': freed, 'freed_human': human(freed), 'errors': errors[:10]}
+            'freed': freed, 'freed_human': human(freed), 'errors': errors[:10],
+            'backed_up_count': len(backed_up), 'backed_up': backed_up[:20],
+            'no_backup': bool(no_backup)}
 
 
 # ---- мёртвые кэши: GUID-каталоги, не привязанные ни к одной базе ----------------
@@ -281,10 +325,19 @@ _GUID_DIR = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 
 
 def _cache_roots() -> list[Path]:
-    """Корни кэшей: свой профиль (Local/Roaming/ProgramData) + Local-кэши ДРУГИХ
-    пользователей этого ПК (C:\\\\Users\\\\<юзер>\\\\AppData\\\\Local\\\\1C\\\\1cv8). Чужие каталоги
-    могут требовать прав — недоступные молча пропускаем."""
-    roots = [r for r in (local_root(), roaming_root(), programdata_root()) if r.is_dir()]
+    """Корни кэшей ДЛЯ УДАЛЕНИЯ: только профиль текущего пользователя
+    (Local/Roaming/ProgramData). Кэши чужих пользователей ПК не удаляем никогда —
+    даже под админом: их «мёртвость» определяется по нашему ibases.v8i, а у юзера
+    может быть свой список баз."""
+    return [r for r in (local_root(), roaming_root(), programdata_root()) if r.is_dir()]
+
+
+def _scan_roots() -> list[tuple[Path, str]]:
+    """Корни кэшей для осмотра: свой профиль (owner='') + Local-кэши ДРУГИХ
+    пользователей этого ПК (C:\\Users\\<юзер>\\AppData\\Local\\1C\\1cv8) — админ
+    видит чужие кэши в списке, но удалить их нельзя (см. _cache_roots).
+    Чужие каталоги могут требовать прав — недоступные молча пропускаем."""
+    roots = [(r, '') for r in (local_root(), roaming_root(), programdata_root()) if r.is_dir()]
     users = Path.home().parent          # C:\Users
     mine = Path.home().name.lower()
     try:
@@ -297,18 +350,21 @@ def _cache_roots() -> list[Path]:
                 continue
             p = Path(e.path) / 'AppData' / 'Local' / '1C' / '1cv8'
             if p.is_dir():
-                roots.append(p)
+                roots.append((p, e.name))
         except OSError:
             continue
     return roots
 
 
 def dead_caches(known: set[str], limit: int = 400) -> dict:
-    """Кэш-каталоги, чей GUID не в known (ID баз и папок из ibases.v8i + config)."""
+    """Кэш-каталоги, чей GUID не в known (ID баз и папок из ibases.v8i + config).
+
+    Осматриваются и чужие профили (админ видит), в item поле user — чей профиль
+    ('' = текущий пользователь). Удаляются чужие никогда (clear_dead — только свои)."""
     known = {g.strip().lower() for g in (known or set()) if g}
     items = []
     total = 0
-    for root in _cache_roots():
+    for root, owner in _scan_roots():
         try:
             entries = list(os.scandir(root))
         except OSError:
@@ -322,6 +378,8 @@ def dead_caches(known: set[str], limit: int = 400) -> dict:
                 s = size_of(Path(e.path), budget=1.0)
                 mtime = datetime.fromtimestamp(e.stat(follow_symlinks=False).st_mtime).strftime('%Y-%m-%d')
                 items.append({'guid': e.name.strip().lower(), 'path': e.path,
+                              'user': owner,
+                              'deletable': not owner,
                               'bytes': s['bytes'], 'human': s['human'], 'files': s['files'],
                               'mtime': mtime})
                 total += s['bytes']
@@ -332,13 +390,19 @@ def dead_caches(known: set[str], limit: int = 400) -> dict:
             'items': items[:limit], 'total_count': len(items)}
 
 
-def clear_dead(known: set[str], guids: list[str] | None = None) -> dict:
-    """Удалить мёртвые кэши (все, либо только перечисленные в guids)."""
+def clear_dead(known: set[str], guids: list[str] | None = None,
+               no_backup: bool = False) -> dict:
+    """Удалить мёртвые кэши (все, либо только перечисленные в guids).
+
+    Только профиль текущего пользователя (см. _cache_roots) — чужие кэши не удаляются.
+    Настройки (*.pfl, def.usr) перед удалением переносятся в <guid>_backup рядом,
+    no_backup=True — без бэкапа."""
     known = {g.strip().lower() for g in (known or set()) if g}
     want = {g.strip().lower() for g in (guids or [])} if guids else None
     freed = 0
     removed = 0
     errors = []
+    backed_up = []
     for root in _cache_roots():
         try:
             entries = list(os.scandir(root))
@@ -353,12 +417,14 @@ def clear_dead(known: set[str], guids: list[str] | None = None) -> dict:
                     continue
                 if want is not None and g not in want:
                     continue
-                r = _rmtree(Path(e.path))
+                r = _rmtree(Path(e.path), backup_settings=not no_backup)
                 freed += r['bytes']
+                backed_up += r.get('backed_up') or []
                 if r['removed']:
                     removed += 1
                 errors.extend(r['errors'])
             except OSError:
                 continue
     return {'ok': True, 'removed': removed, 'freed': freed, 'freed_human': human(freed),
-            'errors': errors[:10]}
+            'errors': errors[:10], 'backed_up_count': len(backed_up),
+            'backed_up': backed_up[:20], 'no_backup': bool(no_backup)}
