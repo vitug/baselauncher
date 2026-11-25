@@ -68,6 +68,47 @@ def terminate_sessions(base: dict, timeout: float = 20.0) -> dict:
             'count': len(victims)}
 
 
+def close_sessions(base: dict, timeout: float = 0) -> dict:
+    """Лёгкое завершение сеансов базы БЕЗ режима обслуживания.
+
+    Отбор тот же, что у terminate_sessions — только сеансы этой базы по её пути/
+    Srvr+Ref в командной строке, никогда «по имени образа». Блокировку запуска
+    НЕ ставит: базу можно сразу запускать снова (restart перед прогонами/тестами).
+
+    timeout (сек) > 0 — сначала мягкое закрытие (taskkill без /F = WM_CLOSE,
+    1С успевает корректно завершить транзакции), ожидание до timeout, затем
+    принудительное добивание оставшихся. timeout=0 — сразу принудительно.
+
+    Сеансов нет → count: 0, это не ошибка.
+    """
+    timeout = max(0.0, float(timeout or 0))
+    soft_closed = []
+    if timeout > 0:
+        victims = sessions_of(base)
+        for s in victims:
+            pid = s.get('pid')
+            if not pid:
+                continue
+            try:
+                subprocess.run(['taskkill', '/PID', str(pid), '/T'],
+                               capture_output=True, timeout=20,
+                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                soft_closed.append(pid)
+            except Exception:                      # noqa: BLE001
+                pass
+        deadline = time.time() + timeout
+        while time.time() < deadline and sessions_of(base):
+            time.sleep(0.5)
+    rest = terminate_sessions(base)               # мягко не закрылись — /F
+    killed = rest.get('killed') or []
+    closed = soft_closed + killed
+    return {'ok': not rest.get('failed'), 'soft_closed': soft_closed,
+            'killed': rest.get('killed') or [], 'failed': rest.get('failed') or [],
+            'count': len(closed), 'left': len(sessions_of(base)),
+            'locked': False,
+            'note': 'режим обслуживания не ставился — запуск из стартера разрешён'}
+
+
 def status(base: dict) -> dict:
     """Состояние блокировки: активна ли, до какого времени, сколько осталось."""
     until = float(base.get('maintenance_until') or 0)

@@ -632,7 +632,13 @@ async def launch(req: Request):
         return JSONResponse(
             {'error': f'папки базы нет на диске: {bpath}'}, status_code=400)
     # этот режим уже открыт? тогда не плодим второй сеанс без явного согласия
-    if not body.get('force'):
+    # restart=true — тихо завершить существующие сеансы этой базы (по CommandLine,
+    # только её процессы) и запустить заново; already_running при этом не срабатывает
+    killed = []
+    if body.get('restart'):
+        r = baselock.close_sessions(base)
+        killed = (r.get('soft_closed') or []) + (r.get('killed') or [])
+    if not body.get('force') and not body.get('restart'):
         running = _running_pid(base, mode)
         if running:
             return JSONResponse(
@@ -679,7 +685,8 @@ async def launch(req: Request):
     if not body.get('exe') and not base.get('ws'):
         threading.Thread(target=_auto_family_retry, args=(pid, base, mode),
                          daemon=True).start()
-    return {'ok': True, 'pid': pid, 'cmd': cmd, 'focus': 'queued'}
+    return {'ok': True, 'pid': pid, 'cmd': cmd, 'focus': 'queued',
+            'restart': bool(body.get('restart')), 'killed': killed}
 
 
 def _dbg(msg: str) -> None:
@@ -1216,6 +1223,27 @@ async def base_maintenance_off(guid: str):
     if not base:
         return JSONResponse({'error': 'база не найдена'}, status_code=404)
     res = baselock.unlock(guid)
+    res['base'] = base.get('name')
+    return res
+
+
+@app.post('/api/base/{guid}/sessions/close')
+async def base_sessions_close(guid: str, req: Request):
+    """Лёгкое завершение живых сеансов базы БЕЗ режима обслуживания.
+
+    Отбор сеансов — по пути/Srvr+Ref этой базы в CommandLine (как maintenance
+    kick_sessions), блокировка запуска НЕ ставится. timeout (сек) — мягкое
+    закрытие (WM_CLOSE), затем принудительное добивание оставшихся; 0 — сразу /F.
+    Нет сеансов → count: 0 (не ошибка)."""
+    _, base = _base_or_404(guid)
+    if not base:
+        return JSONResponse({'error': 'база не найдена'}, status_code=404)
+    body = {}
+    try:
+        body = await req.json()
+    except Exception:                       # noqa: BLE001
+        pass
+    res = baselock.close_sessions(base, float(body.get('timeout') or 0))
     res['base'] = base.get('name')
     return res
 

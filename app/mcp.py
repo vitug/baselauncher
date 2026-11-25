@@ -754,18 +754,27 @@ def t_launch(a: dict) -> dict:
     err = _check_execute(a.get('extra_keys'))
     if err:
         return _err(err)
+    # restart=true: тихо завершить существующие сеансы этой базы (по CommandLine,
+    # только её процессы) и запустить заново — already_running не срабатывает
+    killed = []
+    if a.get('restart'):
+        from core import baselock
+        r = baselock.close_sessions(b)
+        killed = (r.get('soft_closed') or []) + (r.get('killed') or [])
     cmd, mode = _build_cmd(b, a)
     pids = (b.get('running_pids') or {}).get(mode)
-    if pids and not a.get('force'):
+    if pids and not a.get('force') and not a.get('restart'):
         return _text({'ok': False, 'already_running': True, 'pid': pids, 'mode': mode,
                       'message': f'база уже открыта в этом режиме (PID {pids}). '
                                  f'Передайте force=true, чтобы открыть ещё один сеанс, '
+                                 f'или restart=true, чтобы перезапустить, '
                                  f'или mode="{"designer" if mode == "enterprise" else "enterprise"}"'})
     pid = launcher.launch(cmd)
     launcher.log_launch(b['name'], mode, pid, cmd, b['guid'])
     threading.Thread(target=_wait_focus, args=(b, mode), daemon=True).start()
     return _text({'ok': True, 'pid': pid, 'mode': mode, 'base': b['name'],
-                  'cmd': _mask(cmd), 'focus': 'queued'})
+                  'cmd': _mask(cmd), 'focus': 'queued',
+                  'restart': bool(a.get('restart')), 'killed': killed})
 
 
 def t_run_processing(a: dict) -> dict:
@@ -859,6 +868,21 @@ def t_set_platform(a: dict) -> dict:
     return _text({'ok': True, 'base': b['name'], 'exe': exe, 'exe_src': 'our',
                   'has_designer': bool(b.get('has_designer')),
                   'note': 'закреплено за базой: дальше запускается этой платформой'})
+
+
+def t_close_sessions(a: dict) -> dict:
+    """Лёгкое завершение сеансов базы — без режима обслуживания и блокировок.
+
+    Для сценария «перезапустить клиент перед прогоном» (TestPilot/автотесты,
+    динамическое обновление). Отбор — по CommandLine этой базы (как
+    base_maintenance kick_sessions), чужие базы не затрагиваются.
+    Нет сеансов → count: 0 (не ошибка)."""
+    from core import baselock
+    st = _state()
+    b = _resolve(st, str(a.get('base') or ''))
+    res = baselock.close_sessions(b, float(a.get('timeout') or 0))
+    res['base'] = b['name']
+    return _text(res)
 
 
 def t_maintenance(a: dict) -> dict:
@@ -1066,7 +1090,9 @@ TOOLS = [
       'platform': {'type': 'string', 'description': 'разово запустить этой платформой (версия или путь)'},
       'extra_keys': {'type': 'array', 'items': {'type': 'string'},
                      'description': 'разовые ключи: /Debug, /C ..., /Execute "..."'},
-      'user': {'type': 'string'}, 'pwd': {'type': 'string'}}, t_launch),
+      'user': {'type': 'string'}, 'pwd': {'type': 'string'},
+      'restart': {'type': 'boolean', 'description': 'перезапуск: сначала тихо завершить '
+                   'существующие сеансы этой базы, затем запустить (в ответе killed: [pid])'}}, t_launch),
     ('run_processing', 'Открыть базу сразу с внешней обработкой/отчётом: /Execute "файл.epf|erf" '
      'и при необходимости /C "параметры".',
      {'base': {'type': 'string'}, 'processing': {'type': 'string'},
@@ -1152,6 +1178,13 @@ TOOLS = [
      {'base': {'type': 'string'}, 'minutes': {'type': 'number'},
       'note': {'type': 'string'}, 'kick_sessions': {'type': 'boolean'},
       'off': {'type': 'boolean'}}, t_maintenance),
+    ('close_sessions', 'Лёгкое завершение живых сеансов базы БЕЗ режима обслуживания и '
+     'блокировки запуска — для перезапуска клиента перед прогонами (TestPilot/автотесты) '
+     'и динамического обновления. Отбор сеансов — по пути/Srvr+Ref этой базы в командной '
+     'строке (как base_maintenance kick_sessions), чужие базы не затрагиваются. '
+     'timeout (сек) — мягкое закрытие (WM_CLOSE), затем принудительное; 0 — сразу /F. '
+     'Нет сеансов → count: 0 (не ошибка).',
+     {'base': {'type': 'string'}, 'timeout': {'type': 'number'}}, t_close_sessions),
     ('base_cominfo', 'Подключиться к базе по COM (comcntr.dll) и получить: имя, версию и '
      'разработчика конфигурации, режим совместимости, поддержку расширений, пользователей ИБ '
      '(всего/активных, список), текст ошибки подключения. Нужны логин/пароль пользователя ИБ '
@@ -1210,6 +1243,7 @@ REQUIRED = {
     'get_base': ['base'], 'launch_base': ['base'], 'run_processing': ['base', 'processing'],
     'run_batch': ['base', 'extra_keys'], 'dump_changes': ['base'], 'git_baseline': ['base'],
     'delete_base': ['base'], 'dryrun': ['base'], 'open_web': ['base'],
+    'close_sessions': ['base'],
     'add_base': ['name'], 'add_folder': ['name'], 'move_base': ['base', 'folder'],
 }
 
