@@ -6,8 +6,9 @@ param([switch]$Startup)
 $ErrorActionPreference = 'Stop'
 $ws = New-Object -ComObject WScript.Shell
 
-$root = 'D:\git_repos\baselauncher'
-$py   = 'D:\python\WPy64-31241\python-3.12.4.amd64\pythonw.exe'
+$root = Split-Path -Parent $PSScriptRoot
+$py   = Join-Path $root 'env\Scripts\pythonw.exe'
+if (-not (Test-Path $py)) { $py = 'pythonw.exe' }  # из PATH
 $icon = Join-Path $root 'assets\baselauncher.ico'
 
 if ($Startup) {

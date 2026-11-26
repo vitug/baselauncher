@@ -10,7 +10,7 @@ import pathlib
 
 from PIL import Image, ImageDraw
 
-OUT = pathlib.Path(r'D:\git_repos\baselauncher\assets')
+OUT = pathlib.Path(__file__).resolve().parent.parent / 'assets'
 OUT.mkdir(parents=True, exist_ok=True)
 S = 1024
 

@@ -4,7 +4,7 @@
 
 ## Установка и запуск
 
-- Репозиторий: `D:\git_repos\baselauncher` (локальный git, remote нет). Дистрибутив: `python tools/make_release.py` → `dist/Baselauncher-<ver>/` + zip + `SHA256SUMS.txt`; в пакет не попадают `data/`, журналы, `*.bak-*`. Установка — `install.cmd` (venv + зависимости), запуск — `BaseLauncher.cmd`.
+- Репозиторий: клонируйте git-репо BaseLauncher. Дистрибутив: `python tools/make_release.py` → `dist/Baselauncher-<ver>/` + zip + `SHA256SUMS.txt`; в пакет не попадают `data/`, журналы, `*.bak-*`. Установка — `install.cmd` (venv + зависимости), запуск — `BaseLauncher.cmd`.
 - Прод: `pythonw boot.py` (автозапуск/ярлык): поднимает `run_server.py`, ждёт `/api/state`, открывает окно. `--wait-down` — режим перезапуска.
 - Штатная остановка — только `POST /api/shutdown`; полный выход — `POST /api/quit`; перезапуск — `POST /api/restart`.
 - Статика отдаётся с диска (`Cache-Control: no-store`) — правки `index.html` видны после F5; **правки `core/` и `app/main.py` требуют рестарта** (UI сам предложит перезагрузку при смене версии).
